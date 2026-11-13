@@ -48,7 +48,7 @@ class Params:
     price_mult_min: float = 1.05
     price_mult_max: float = 1.80
     price_lr: float = 0.02            # log-step of the global multiplier per quote outcome
-    price_target_win: float = 0.55    # the win rate that the multiplier tracks
+    price_target_win: float = 0.35    # the win rate that the multiplier tracks (dev sweep 13.11: 0.35 > 0.45 > 0.55 on safety)
     dealer_lr: float = 0.02           # log-step of the per-dealer factor
     dealer_adj_min: float = 0.85
     dealer_adj_max: float = 1.30
@@ -56,13 +56,19 @@ class Params:
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
-    min_supply: int = 6               # decline below this many drivers within the radius of the pickup
+    min_supply: int = 30              # decline below this many drivers near the pickup (6 missed 90% on 3/5 worlds; 20 on 1/32)
     expected_fee_mult: float = 1.25   # expected fee as a multiple of the typical fee
     min_margin_frac: float = 0.08     # price is raised to keep (price - expected fee) / price at least this
     min_slack_min: int = 120          # an option needs deadline - max(now, ready) - drive minutes >= this
-    backlog_ratio: float = 0.12       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
+    backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
     decline_mult: float = 4.0         # a decline quotes this times the list price
+    # --- on-time guard: tighten intake when the projected on-time share falls -----------------------
+    guard_target: float = 0.0         # 0 = off; else the projected on-time share to defend (e.g. 0.95)
+    guard_band: float = 0.04          # tightening is full this far under the target
+    guard_min_orders: int = 30        # denominator floor, so the first late car doesn't shut the desk
+    guard_risk_weight: float = 0.5    # an unstaffed order past its deadline warning counts this much as late
+    guard_supply_mult: float = 3.0    # at full tightening min_supply is this many times higher, backlog limit 0
     # --- fees ---------------------------------------------------------------------------------------
     fee_open: float = 1.00            # opening fee, times the typical fee
     fee_warn: float = 1.60            # fee reached at the deadline warning (lastPickupAt - 3 h)
@@ -125,6 +131,7 @@ class Desk:
         self.last_view: dict[str, int] = {}          # driver id -> minute of their last view of our gigs
         self.offers_sent: Counter = Counter()        # (driver id, day) -> direct offers sent
         self.stats: Counter = Counter()
+        self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -158,6 +165,10 @@ class Desk:
             self.stats[kind] += 1
         elif kind == "gig_viewed":
             self.last_view[event["driverId"]] = event["at"]
+        elif kind == "ledger":
+            line = event["line"]
+            if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
+                self.late.add(line["orderId"])
         elif kind == "offer_answered":
             self.stats[f"offer_{event['answer']}"] += 1
         elif kind == "delivered":
@@ -189,9 +200,10 @@ class Desk:
         p, legs = self.p, request["legs"]
         pickup = legs[0]["pickup"]["placeId"]
         supply = self.supply.get(pickup, 0)
-        if supply < p.min_supply:
+        tight = self.tightening()
+        if supply < p.min_supply * (1 + (p.guard_supply_mult - 1) * tight):
             return {}, "decline"
-        if self.backlog_near(pickup) >= max(p.backlog_min, p.backlog_ratio * supply):
+        if self.backlog_near(pickup) >= max(p.backlog_min, p.backlog_ratio * supply) * (1 - tight):
             return {}, "decline"
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
@@ -235,6 +247,25 @@ class Desk:
             if self.geo.line_km(order["legs"][0]["pickup"]["placeId"], place) <= radius and not self.staffed(order):
                 n += 1
         return n
+
+    def projected_on_time(self) -> float:
+        """On-time share if every order known late stays late and each unstaffed order past its deadline
+        warning is late with probability `guard_risk_weight`."""
+        p, late, risk = self.p, 0, 0
+        for order_id, order in self.orders.items():
+            open_legs = undelivered(order)
+            if order_id in self.late or (open_legs and self.now > order["deadline"]):
+                late += 1
+            elif open_legs and order_id in self.urgent and not self.staffed(order):
+                risk += 1
+        return 1 - (late + p.guard_risk_weight * risk) / max(len(self.orders), p.guard_min_orders)
+
+    def tightening(self) -> float:
+        """0 (normal intake) to 1 (only the safest requests), from how far the projection is under target."""
+        p = self.p
+        if p.guard_target <= 0:
+            return 0.0
+        return clamp((p.guard_target - self.projected_on_time()) / p.guard_band, 0.0, 1.0)
 
     def staffed(self, order: Order) -> bool:
         legs = undelivered(order)

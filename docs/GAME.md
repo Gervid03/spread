@@ -16,6 +16,21 @@ authority (`uv run lab docs` downloads them to `docs/kit/`; where they differ, `
   big idea's *measured* effect on margin and on-time share. **So: be in the top 10 by margin without
   ever risking the 90%.** Test finals: Sat 14:00 and 20:00 (~19 min, a random level-8 week from Thursday).
 
+## What the jury wants (from /judging)
+- **Elegant** (a simple idea that does much of the work), **clear** (we can follow how it decides),
+  **creative** (an idea they didn't expect), **robust** (does well on unseen weeks, shown over many weeks;
+  survives a restart, a slow network and a surprise).
+- 5–10 slides. For each big idea: **the idea** (what it does, in which cases), **why** (what we saw that made
+  us try it), **the effect** (margin and on-time share *with and without it, on the same weeks*). Also our
+  final result, our best ranking round, what did not work, and what would break the system. Use the
+  challenge's words (dealer, request, gig, fee, typical fee, deadline). Their example of a good number:
+  "€12,551 a week, against −€67,177 for the starter, on the same 20 weeks at level 8".
+- Submit on Junction by Sun 10:00: the **submission hash** (team page), a link to the code, the slides.
+- The server is in **Stockholm**; they suggest running the final from a cloud machine near it. The final
+  is set at 07:30 Sun, when registration (team creation) closes; our team "Swarm Dispatch" exists.
+- Ranking rounds open Sat 00:00, 09:00, 12:00, 15:00, 18:00, 21:00 and Sun 00:00, 03:00, 06:00. They don't
+  count for the final, but the jury asks for our best round.
+
 ## Level 8 (the final's level)
 - **Driver shortage:** 26–40% of a normal world's drivers, and each town keeps its own random share (some
   keep most, some lose nearly all). `GET /drivers` (the roster) shows every driver's home town, rating,

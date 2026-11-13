@@ -132,7 +132,18 @@ def cmd_play(args) -> None:
                 s = world.score()
                 print(f"  {WEEKDAYS[day % 7]:<4} margin €{s['marginCents'] / 100:>10,.2f}  won {s['wonOrders']:>4}  "
                       f"on time {s['onTimeShare']:6.1%}  mult {desk.mult:.3f}", flush=True)
-            ledger = play_practice(world, desk, snap["endsAt"], on_day)
+            if args.restart_at is not None:  # the final's failure mode: the desk dies and rebuilds from the server
+                ledger = play_practice(world, desk, snap["endsAt"], on_day, stop_at=args.restart_at)
+                desk.take_outbox()  # a crash loses whatever the desk had not sent yet
+                old_stats = desk.stats
+                desk = cls(world, cls.Params.from_dict(params), args.level, geo, world.roster(), desk.now)
+                desk.rejoin(world.snapshot(), world.events())
+                print(f"  -- restarted at minute {desk.now}: rejoined {len(desk.orders)} orders, {len(desk.posts)} live gigs, "
+                      f"mult {desk.mult:.3f}, outbox {len(desk.outbox)}", flush=True)
+                ledger.update(play_practice(world, desk, snap["endsAt"], on_day))
+                desk.stats.update(old_stats)
+            else:
+                ledger = play_practice(world, desk, snap["endsAt"], on_day)
         except BaseException:
             world.delete()
             raise
@@ -263,6 +274,11 @@ def cmd_docs(args) -> None:
 
 
 def main() -> None:
+    for stream in (sys.stdout, sys.stderr):  # Windows consoles and redirects default to a legacy code page
+        try:
+            stream.reconfigure(encoding="utf-8", errors="replace")
+        except (AttributeError, ValueError):
+            pass
     load_dotenv()
     parser = argparse.ArgumentParser(prog="lab", description="Swarm Dispatch's lab for Spread. Reads SPREAD_KEY from .env.")
     sub = parser.add_subparsers(dest="cmd", required=True)
@@ -293,6 +309,7 @@ def main() -> None:
     p = sub.add_parser("play", help="play one seed with a line per day")
     _add_policy_args(p)
     p.add_argument("--seed", default="spread-1")
+    p.add_argument("--restart-at", type=int, help="world minute at which to kill the desk and rebuild it from the server (tests rejoin)")
     p.set_defaults(func=cmd_play)
 
     p = sub.add_parser("final", help="play the live final / test final (the lead runs this)")

@@ -7,10 +7,12 @@ The first list below is Claude's from setting up the lab (13 Nov, 22:00); it is 
 Status: `open` · `taken (<branch>)` · `done → <note>` · `dropped (<why>)`
 
 ## Staying ranked (the hard constraint)
-1. `open` **On-time guard.** The first baseline missed 90% on 3 of 5 worlds while winning ~390 orders. Track
-   the risk live (orders past their deadline warning without a driver, late deliveries so far, unstaffed
-   backlog) and throttle intake (raise the decline bar or the price) when the projected on-time share
-   falls under ~94%. The final is one world: the guard matters more than any margin idea.
+1. `open` **A leading on-time signal.** v0 is safe on 32/32 worlds (worst 93.0%) only because it declines
+   pickups with fewer than 30 drivers nearby, which costs ~€480 a week against `min_supply` 20. A guard that
+   tightens intake from the *ledger* failed (`guard_target`, measured in the v0 note: −€905 on dev and a worse
+   worst case), because lateness shows up too late. Find a signal that comes early (deadline warnings per
+   region, minutes-to-book trending up, views without bookings) and use it to win more where drivers are
+   plentiful and less where they are not. The final is one world: safety comes first.
 2. `open` **Flu and bulk-order days.** A sudden fall in views/bookings (flu) or a burst of 30–40 requests
    from one yard (bulk order, often one `batchId`) should make the desk stand down rather than overcommit.
 3. `open` **Release a late driver.** On `driver_late`, release (free until they leave) when their

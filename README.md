@@ -10,12 +10,16 @@ every idea is a flag, every flag is measured on the same deterministic worlds, a
 written down (`experiments/`). The table below is the history of what moved the margin.
 
 ## Results
-Level 8 (the final's level), our 16 development worlds, mean per week. Ranked = ≥ 90% on time.
+Level 8 (the final's level), mean margin per week on our 16 development and 16 holdout worlds. Ranked = ≥ 90% on time.
 
-| Version | Mean margin | On time (min) | Ranked | What changed |
+| Version | Mean margin | On time (worst world) | Ranked | What changed |
 |---|---|---|---|---|
-| Kit starter | −€72.6k on `spread-1` | 45% | 0 | quotes the list price, posts at the typical fee |
-| Baseline v0 | see `champion/` | | | supply-aware selection, learned price multiplier, rising daytime fees, steep escalation |
+| Kit starter | −€72,612 on `spread-1` | 45.5% | 0/1 | quotes the list price, posts at the typical fee |
+| First desk | €6,962 (5 worlds) | 83.5% | 2/5 | selection, learned prices, rising fees |
+| **v0** (champion) | **€6,447** dev · **€6,837** holdout | **93.0%** · **93.2%** | **32/32** | only pickups with ≥ 30 drivers within 30 km; aim for a 35% win rate |
+
+How we got there, with every variant we measured (including the ones that failed):
+[`experiments/20261113-2230-claude-v0-baseline.md`](experiments/20261113-2230-claude-v0-baseline.md).
 
 ## How it works (baseline)
 - **Selection.** Declines (a deliberately losing quote) when few drivers live within 30 km of the pickup,

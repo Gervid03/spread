@@ -27,7 +27,8 @@ def busy(now: int) -> bool:
     return day < 5 and 7 * HOUR <= now % DAY < 22 * HOUR
 
 
-def play_practice(world: World, desk, ends_at: int, on_day: Optional[Callable[[int], None]] = None) -> Counter:
+def play_practice(world: World, desk, ends_at: int, on_day: Optional[Callable[[int], None]] = None,
+                  stop_at: Optional[int] = None) -> Counter:
     """Steps the world to its end. In business hours it advances `step_min` minutes at a time and
     answers every request of the step at its end (respondBy is 15 minutes after arrival, so a step
     of at most 14 minutes keeps every quote in time). Otherwise it jumps to the next urgent event or
@@ -36,7 +37,7 @@ def play_practice(world: World, desk, ends_at: int, on_day: Optional[Callable[[i
     Returns the account by ledger kind, in cents."""
     ledger: Counter = Counter()
     step_min = min(14, max(1, int(desk.p.step_min)))
-    while desk.now < ends_at:
+    while desk.now < min(ends_at, stop_at if stop_at is not None else ends_at):
         actions = desk.take_outbox()
         day = desk.now // DAY
         if busy(desk.now):
