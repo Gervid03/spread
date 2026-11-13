@@ -1,0 +1,23 @@
+[project]
+name = "spread-lab"
+version = "0.1.0"
+description = "Swarm Dispatch: our dispatcher for Bahn Express Spread (Junction 2026), plus the evaluation lab around it"
+requires-python = ">=3.10"
+dependencies = [
+  # The organisers' kit: the API client, the stream and the types. Pure Python, no dependencies.
+  "spread @ https://spread.bahnexpress.com/kit/spread-0.1.0-py3-none-any.whl",
+  "filelock>=3.12",
+]
+
+[project.scripts]
+lab = "spread_lab.cli:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/spread_lab"]

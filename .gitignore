@@ -1,0 +1,16 @@
+# Secrets: the team key lives only in .env (the repo goes public under MIT for judging).
+.env
+.env.*
+!.env.example
+
+# Local environments, caches, run output
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+runs/
+*.log
+.DS_Store
+
+# The organisers' documents, downloaded by `uv run lab docs`
+docs/kit/
