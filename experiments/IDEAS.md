@@ -59,7 +59,7 @@ Each is one command on smoke, then dev if it looks good. One short note per swee
 
 ## Tier 1: mechanisms, ordered by expected gain per hour of work
 
-### 1. `taken (exp/gemini-ring)` The ring: gate on who can reach the car, not on who is notified
+### 1. `done → 20261113-2358-gemini-ring.md, in v1` The ring: gate on who can reach the car, not on who is notified
 - **Mechanism.** The app notifies drivers within 30 km of the first pickup, but drivers browse further and
   book what pays them (rules: "a gig far away gets fewer views, unless its fee could pay them"). For a ring
   driver, Hyvinkää → capital even ends at home, so it costs less than the typical fee assumes.
@@ -72,7 +72,7 @@ Each is one command on smoke, then dev if it looks good. One short note per swee
 - **Risk.** Hyvinkää `same_day` was 9 late of 120 in the overloaded runs; start with `slow`.
 - **Guess.** +50–70 orders at €20–30: **+€1.0–2.0k**.
 
-### 2. `taken (exp/gemini-options)` Option steering: quote the speed we can staff
+### 2. `done → 20261114-0010-gemini-option-steering.md, in v1` Option steering: quote the speed we can staff
 - **Mechanism.** We choose which options to quote. A `next_day` order gives drivers an evening to plan and a
   morning to travel; a `same_day` order needs a free driver within the hour.
 - **Evidence.** Point 2. In the overloaded runs `same_day` was 24% late in towns with 30–200 drivers and 32%
@@ -85,7 +85,7 @@ Each is one command on smoke, then dev if it looks good. One short note per swee
 - **Measure.** dev; then give the tax back: `-s price_target_win=0.45` and `-s min_supply=20` on top.
 - **Guess.** Removes about a third of the late orders; worth **+€0.5–1.5k** once the blunt levers are loosened.
 
-### 3. `open` Two clocks for the price: the week's level and today's shift
+### 3. `taken (exp/gemini-clocks)` Two clocks for the price: the week's level and today's shift
 - **Mechanism.** The competitor's price is level × day factor × lane × noise. The level holds all week, the
   day factor is new every morning, and one day is a price war (−20%). One multiplier with one small step
   mixes them up.
@@ -100,7 +100,7 @@ Each is one command on smoke, then dev if it looks good. One short note per swee
 - **Risk.** Faster steps overshoot; cap the shift at ±0.30.
 - **Guess.** A recovered war day and its morning after: **+€0.8–1.5k**.
 
-### 4. `open` Trust is capital: count it exactly, buy it on Monday, never gamble it
+### 4. `taken (exp/gemini-trust)` Trust is capital: count it exactly, buy it on Monday, never gamble it
 - **Mechanism.** Each on-time order raises what that dealer accepts by 1%, up to 25; a late order halves the
   count. The count is exact from our own ledger (a revenue line without a late refund).
 - **Evidence.** Point 6. D01's winning quotes climb from 1.3× list on Monday to 2.2× by Thursday while the
@@ -127,7 +127,7 @@ Each is one command on smoke, then dev if it looks good. One short note per swee
 - **Measure.** smoke first: how many quotes until the multiplier settles on Monday and after the price war.
 - **Guess.** Mostly speeds up idea 3; alone **+€0.2–0.5k**. The jury has probably not seen it.
 
-### 6. `open` Find the fee floor: the same tracker on the drivers' side
+### 6. `taken (exp/gemini-feefloor)` Find the fee floor: the same tracker on the drivers' side
 - **Mechanism.** The typical fee is the cost of a typical driver from the pickup town, "not what the cheapest
   driver needs". With hundreds notified, the cheapest one needs less.
 - **Evidence.** Point 4.
@@ -141,7 +141,7 @@ Each is one command on smoke, then dev if it looks good. One short note per swee
   a fee that only just pays is dropped more often. Compare a flat low fee with the ramp.
 - **Guess.** −8% on two thirds of the fees: **+€0.6–1.0k**.
 
-### 7. `open` Bulk orders: budget the yard, count the quotes in flight
+### 7. `taken (exp/gemini-bulk)` Bulk orders: budget the yard, count the quotes in flight
 - **Mechanism.** The backlog gate counts won orders. A bulk order's 10–40 requests are all quoted before any
   is won, so none sees the others. A world has 3–6 batches of 10 or more.
 - **Evidence.** dev-04, v0's worst world (93.0%): 20 `same_day` cars from Lempäälä, 10 won, 5 late.

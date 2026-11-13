@@ -56,15 +56,15 @@ class Params:
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
-    gate_radius_km: float = 0.0       # the straight-line radius of the supply count that the decline gate uses
-    far_options: str = "all"          # with "slow", quote next_day and within_3_days only for ring pickups
+    gate_radius_km: float = 55.0      # radius of the supply count the decline gate uses (v1; 0 = supply_radius_km, as v0)
+    far_options: str = "slow"         # "slow": quote next_day and within_3_days only for ring pickups (v1; v0 = "all")
     min_supply: int = 30              # decline below this many drivers near the pickup (6 missed 90% on 3/5 worlds; 20 on 1/32)
     expected_fee_mult: float = 1.25   # expected fee as a multiple of the typical fee
     min_margin_frac: float = 0.08     # price is raised to keep (price - expected fee) / price at least this
     min_slack_min: int = 120          # an option needs deadline - max(now, ready) - drive minutes >= this
-    slack_per_drive: float = 0.0      # an option needs slack of at least min_slack_min + slack_per_drive * drive
-    long_drive_min: int = 0           # if drive > this (and > 0), quote only options with deadline on a later day than ready
-    same_day_min_supply: int = 0      # quote same_day only where at least this many drivers live within supply_radius_km
+    slack_per_drive: float = 0.5      # an option needs slack of at least min_slack_min + slack_per_drive * drive (v1; v0 = 0)
+    long_drive_min: int = 300         # if drive > this (and > 0), quote only options with deadline on a later day than ready (v1; v0 = 0)
+    same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
     decline_mult: float = 4.0         # a decline quotes this times the list price
