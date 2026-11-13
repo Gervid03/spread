@@ -10,6 +10,11 @@ REPO = Path(__file__).resolve().parents[2]
 def load_dotenv() -> None:
     """Reads KEY=VALUE lines from the repo's .env (or the main checkout's, from a git worktree)
     into the environment, without overriding variables that are already set."""
+    # uv might have injected env vars with \r from .env files, fix them:
+    for k, v in os.environ.items():
+        if v.endswith("\r"):
+            os.environ[k] = v[:-1]
+    
     candidates = [REPO / ".env"]
     common = REPO / ".git"
     if common.is_file():  # a worktree: .git is a file that points into the main checkout's .git/worktrees/
@@ -23,7 +28,7 @@ def load_dotenv() -> None:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
-                    os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+                    os.environ.setdefault(key.strip(), value.strip().replace("\r", "").strip('"').strip("'"))
             break
     os.environ.setdefault("SPREAD_URL", "https://spread.bahnexpress.com")
 
