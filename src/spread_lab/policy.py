@@ -54,6 +54,12 @@ class Params:
     dealer_adj_max: float = 1.30
     loss_streak_freeze: int = 12      # this many losses in a row stop downward moves until the next day
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
+    # --- two clocks ---------------------------------------------------------------------------------
+    morning_reset: bool = False       # shift starts at 0 every morning
+    price_lr_day0: float = 0.15       # step size of the day's first outcomes, falling as 1/sqrt(n)
+    war_shift: float = -0.12          # a day whose shift falls under it is a price war and never moves the level
+    shift_cap: float = 0.30           # cap on the shift of +-0.30
+    outage_shift: bool = False        # region of a town + 80km gets upward shift up to +25%
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
     gate_radius_km: float = 55.0      # radius of the supply count the decline gate uses (v1; 0 = supply_radius_km, as v0)
@@ -129,6 +135,13 @@ class Desk:
         self.urgent: set[str] = set()                # orders whose deadline warning has come
         self.decided: dict[str, str] = {}            # request id -> "quote" | "floor" | "decline"
         self.mult = {8: params.price_mult_l8, 7: params.price_mult_l7}.get(level, params.price_mult_low)
+        self.level_mult = self.mult
+        self.shift = 0.0
+        self.day_outcomes = 0
+        self.current_day = now // DAY
+        self.outage_centers: set[str] = set()
+        self.region_outage: dict[str, float] = {}
+        self.region_wins: Counter = Counter()
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
         self.loss_streak, self.streak_day = 0, -1
         self.drivers = {d["id"]: d for d in roster}
@@ -191,7 +204,22 @@ class Desk:
                 self.orders[event["orderId"]]["deliveredAt"][event["leg"]] = event["at"]
 
     def tick(self) -> None:
-        """Called after every step (practice) or event (live). The baseline needs no timers."""
+        """Called after every step (practice) or event (live)."""
+        day = self.now // DAY
+        if day != self.current_day:
+            if self.p.morning_reset:
+                if self.shift > self.p.war_shift:
+                    self.level_mult = clamp(self.level_mult * math.exp(self.shift), self.p.price_mult_min, self.p.price_mult_max)
+                else:
+                    self.stats["war_day"] += 1
+                self.shift = 0.0
+                self.day_outcomes = 0
+                self.mult = clamp(self.level_mult, self.p.price_mult_min, self.p.price_mult_max)
+            if self.p.outage_shift:
+                self.outage_centers.clear()
+                self.region_outage.clear()
+                self.region_wins.clear()
+            self.current_day = day
 
     # --- quoting --------------------------------------------------------------------------------------
     def quote(self, request: PriceRequest) -> None:
@@ -228,6 +256,15 @@ class Desk:
         ready = max([self.now] + [window_from_note(request["note"], leg["pickup"]["window"], "pickup")["from"] for leg in legs])
         fee = request["referenceFeeCents"] * p.expected_fee_mult
         mult = self.mult * self.dealer_adj[request["dealerId"]]
+        
+        if p.outage_shift:
+            outage_shift = 0.0
+            for center in self.outage_centers:
+                if self.geo.line_km(pickup, center) <= 80:
+                    outage_shift = max(outage_shift, self.region_outage.get(center, 0.0))
+            if outage_shift > 0:
+                mult *= math.exp(outage_shift)
+
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
@@ -261,9 +298,36 @@ class Desk:
             self.loss_streak, self.streak_day = 0, day
         self.loss_streak = 0 if won else self.loss_streak + 1
         step = (1 - p.price_target_win) if won else -p.price_target_win
-        if not won and self.loss_streak > p.loss_streak_freeze:
-            return  # a price war or an outage elsewhere: sit it out rather than chase it down
-        self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
+        
+        pickup = self.requests[request_id]["legs"][0]["pickup"]["placeId"]
+        if p.outage_shift:
+            in_outage = False
+            for center in self.outage_centers:
+                if self.geo.line_km(pickup, center) <= 80:
+                    in_outage = True
+                    self.region_outage[center] = clamp(
+                        self.region_outage.get(center, 0.0) + p.price_lr * step,
+                        0.0, 0.25
+                    )
+            if won:
+                self.region_wins[pickup] += 1
+                if self.region_wins[pickup] == 8 and not in_outage:
+                    self.outage_centers.add(pickup)
+                    self.stats["outage_detected"] += 1
+                    self.region_outage[pickup] = 0.0
+            else:
+                self.region_wins[pickup] = 0
+
+        self.day_outcomes += 1
+        if not p.morning_reset:
+            if not won and self.loss_streak > p.loss_streak_freeze:
+                return  # a price war or an outage elsewhere: sit it out rather than chase it down
+            self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
+        else:
+            lr = max(p.price_lr, p.price_lr_day0 / math.sqrt(self.day_outcomes))
+            self.shift = clamp(self.shift + lr * step, -p.shift_cap, p.shift_cap)
+            self.mult = clamp(self.level_mult * math.exp(self.shift), p.price_mult_min, p.price_mult_max)
+
         dealer = self.requests[request_id]["dealerId"]
         self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, p.dealer_adj_max)
 
@@ -304,6 +368,7 @@ class Desk:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
             self.stats["won"] += 1
+            self.stats[f"won_day_{self.now // DAY % 7}"] += 1
             if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
             self.stats[f"won_{order['option']}"] += 1
@@ -490,6 +555,8 @@ class Desk:
                 ratios.append(order["priceCents"] / option["listPriceCents"])
         if ratios:
             self.mult = clamp(median(ratios), self.p.price_mult_min, self.p.price_mult_max)
+            self.level_mult = self.mult
+            self.shift = 0.0
         for order in self.orders.values():
             if order["status"] == "waiting" and not self.gigs_of(order["id"]):
                 self.post(order, undelivered(order))
