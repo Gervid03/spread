@@ -8,44 +8,48 @@
     "far_options": "slow",
     "same_day_min_supply": 100,
     "slack_per_drive": 0.5,
-    "long_drive_min": 300
+    "long_drive_min": 300,
+    "fee_open": 0.85,
+    "price_lr": 0.05,
+    "offers_per_warning": 0,
+    "min_slack_min": 180
   },
-  "params_hash": "f196e0821d",
+  "params_hash": "ed1cb8b70a",
   "git": {
-    "commit": "f69725b",
-    "branch": "HEAD",
+    "commit": "73f3055",
+    "branch": "main",
     "dirty": false
   },
-  "promoted": "2026-11-14T00:17",
-  "note": "v1 = v0 + the ring (gate on drivers within 55 km; slow options only for pickups that pass only on the wider ring) + option steering (same_day only with >= 100 drivers within 30 km; slack >= 120 min + 0.5 x drive; no same-day deadline for drives over 300 min). Built by Gemini agents (exp/gemini-ring, exp/gemini-options), merged and confirmed on dev and holdout.",
+  "promoted": "2026-11-14T00:33",
+  "note": "v2 = v1 + four of the Tier 0 sweep settings found by the Gemini sweeps agent: opening fee 0.85x the typical fee, price tracker step 0.05, no direct offers, minimum slack 180 min. Promoted as an exception to the 92% rule: holdout worst world 91.8% (v1: 92.7%), but over all 32 worlds v2 has fewer worlds under 93% (1 vs 2) and under 94% (2 vs 3), and +16% margin.",
   "summary": {
     "dev-L8.jsonl": {
       "n": 16,
       "failed": 0,
-      "margin_mean": 7926.1,
-      "margin_median": 7881.24,
-      "margin_min": 4285.48,
-      "margin_sum": 126817.63,
+      "margin_mean": 8990.31,
+      "margin_median": 8685.06,
+      "margin_min": 6017.3,
+      "margin_sum": 143844.88,
       "ranked": 16,
-      "on_time_min": 0.9494,
-      "on_time_mean": 0.9746,
-      "won_mean": 220.9,
-      "requests_mean": 629,
+      "on_time_min": 0.9436,
+      "on_time_mean": 0.9675,
+      "won_mean": 227.8,
+      "requests_mean": 631,
       "safe": true
     },
     "holdout-L8.jsonl": {
       "n": 16,
       "failed": 0,
-      "margin_mean": 7942.2,
-      "margin_median": 8089.98,
-      "margin_min": 1675.06,
-      "margin_sum": 127075.22,
+      "margin_mean": 9414.43,
+      "margin_median": 9528.1,
+      "margin_min": 3648.58,
+      "margin_sum": 150630.81,
       "ranked": 16,
-      "on_time_min": 0.9274,
-      "on_time_mean": 0.9645,
-      "won_mean": 229.5,
-      "requests_mean": 631,
-      "safe": true
+      "on_time_min": 0.9181,
+      "on_time_mean": 0.9623,
+      "won_mean": 236.7,
+      "requests_mean": 636,
+      "safe": false
     }
   }
 }

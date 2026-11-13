@@ -17,7 +17,8 @@ Level 8 (the final's level), mean margin per week on our 16 development and 16 h
 | Kit starter | −€72,612 on `spread-1` | 45.5% | 0/1 | quotes the list price, posts at the typical fee |
 | First desk | €6,962 (5 worlds) | 83.5% | 2/5 | selection, learned prices, rising fees |
 | v0 | €6,447 dev · €6,837 holdout | 93.0% · 93.2% | 32/32 | only pickups with ≥ 30 drivers within 30 km; aim for a 35% win rate |
-| **v1** (champion) | **€7,926** dev · **€7,942** holdout | **94.9%** · **92.7%** | **32/32** | the ring (count drivers within 55 km, slow options only there) + quote only the speeds we can staff |
+| v1 | €7,926 dev · €7,942 holdout | 94.9% · 92.7% | 32/32 | the ring (count drivers within 55 km, slow options only there) + quote only the speeds we can staff |
+| **v2** (champion) | **€8,990** dev · **€9,414** holdout | **94.4%** · **91.8%** | **32/32** | open fees at 0.85×, a faster price tracker, no direct offers, 3 h of slack |
 
 How we got there, with every variant we measured (including the ones that failed):
 [`experiments/20261113-2230-claude-v0-baseline.md`](experiments/20261113-2230-claude-v0-baseline.md).

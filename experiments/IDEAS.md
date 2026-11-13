@@ -50,12 +50,12 @@ Each is one command on smoke, then dev if it looks good. One short note per swee
 
 | # | Status | Command | Why |
 |---|---|---|---|
-| S1 | `taken (exp/gemini-sweeps)` | `lab sweep -g supply_radius_km=30,40,55` | 55 km puts Hyvinkää (and Porvoo) inside the capital's supply. Crude form of idea 1. Watch the on-time share: this also wins Hyvinkää `same_day`. |
-| S2 | `taken (exp/gemini-sweeps)` | `lab sweep -g price_mult_max=1.8,2.3 -g dealer_adj_max=1.3,1.6` | The caps bind on worlds with a dear competitor and high trust. |
-| S3 | `taken (exp/gemini-sweeps)` | `lab sweep -g fee_open=0.85,0.9,1.0` | Most gigs book in minutes at 1.0: is the floor lower? Crude form of idea 6. Watch `deadline_close` and drops. |
-| S4 | `taken (exp/gemini-sweeps)` | `lab sweep -g loss_streak_freeze=12,9999 -g price_lr=0.02,0.05` | Does following the price war down beat sitting it out? Crude form of idea 3. |
-| S5 | `taken (exp/gemini-sweeps)` | `lab eval --seeds-from smoke -s offers_per_warning=0` | 3 offers accepted of 218: if nothing changes, the offers go, and the desk is simpler. |
-| S6 | `taken (exp/gemini-sweeps)` | `lab sweep -g min_slack_min=120,180,240` | `same_day` long drives are late; more slack is the bluntest fix (idea 2 is the sharp one). |
+| S1 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab sweep -g supply_radius_km=30,40,55` | 55 km puts Hyvinkää (and Porvoo) inside the capital's supply. Crude form of idea 1. Watch the on-time share: this also wins Hyvinkää `same_day`. |
+| S2 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab sweep -g price_mult_max=1.8,2.3 -g dealer_adj_max=1.3,1.6` | The caps bind on worlds with a dear competitor and high trust. |
+| S3 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab sweep -g fee_open=0.85,0.9,1.0` | Most gigs book in minutes at 1.0: is the floor lower? Crude form of idea 6. Watch `deadline_close` and drops. |
+| S4 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab sweep -g loss_streak_freeze=12,9999 -g price_lr=0.02,0.05` | Does following the price war down beat sitting it out? Crude form of idea 3. |
+| S5 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab eval --seeds-from smoke -s offers_per_warning=0` | 3 offers accepted of 218: if nothing changes, the offers go, and the desk is simpler. |
+| S6 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab sweep -g min_slack_min=120,180,240` | `same_day` long drives are late; more slack is the bluntest fix (idea 2 is the sharp one). |
 
 ## Tier 1: mechanisms, ordered by expected gain per hour of work
 

@@ -47,7 +47,7 @@ class Params:
     price_mult_low: float = 1.00      # prior at levels 4-6
     price_mult_min: float = 1.05
     price_mult_max: float = 1.80
-    price_lr: float = 0.02            # log-step of the global multiplier per quote outcome
+    price_lr: float = 0.05            # log-step of the global multiplier per quote outcome (v2: was 0.02)
     price_target_win: float = 0.35    # the win rate that the multiplier tracks (dev sweep 13.11: 0.35 > 0.45 > 0.55 on safety)
     dealer_lr: float = 0.02           # log-step of the per-dealer factor
     dealer_adj_min: float = 0.85
@@ -61,7 +61,7 @@ class Params:
     min_supply: int = 30              # decline below this many drivers near the pickup (6 missed 90% on 3/5 worlds; 20 on 1/32)
     expected_fee_mult: float = 1.25   # expected fee as a multiple of the typical fee
     min_margin_frac: float = 0.08     # price is raised to keep (price - expected fee) / price at least this
-    min_slack_min: int = 120          # an option needs deadline - max(now, ready) - drive minutes >= this
+    min_slack_min: int = 180          # an option needs deadline - max(now, ready) - drive minutes >= this (v2: was 120)
     slack_per_drive: float = 0.5      # an option needs slack of at least min_slack_min + slack_per_drive * drive (v1; v0 = 0)
     long_drive_min: int = 300         # if drive > this (and > 0), quote only options with deadline on a later day than ready (v1; v0 = 0)
     same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
@@ -75,7 +75,7 @@ class Params:
     guard_risk_weight: float = 0.5    # an unstaffed order past its deadline warning counts this much as late
     guard_supply_mult: float = 3.0    # at full tightening min_supply is this many times higher, backlog limit 0
     # --- fees ---------------------------------------------------------------------------------------
-    fee_open: float = 1.00            # opening fee, times the typical fee
+    fee_open: float = 0.85            # opening fee, times the typical fee (v2: was 1.00)
     fee_warn: float = 1.60            # fee reached at the deadline warning (lastPickupAt - 3 h)
     fee_step_min: int = 30            # minutes between steps of the rising schedule
     day_start: int = 7 * 60           # raises only between these minutes of the day
@@ -84,7 +84,7 @@ class Params:
     steep_step: float = 0.25          # added every half hour
     steep_max: float = 3.00
     # --- direct offers after the deadline warning ---------------------------------------------------
-    offers_per_warning: int = 3       # at most 3 open offers per gig, 3 per driver per day (rules)
+    offers_per_warning: int = 0       # at most 3 open offers per gig, 3 per driver per day (rules) (v2: was 3; 3 of 218 offers were accepted)
     offer_mult: float = 2.20          # offer fee, times the typical fee of the cars
     offer_recent_view_min: int = 240  # drivers who viewed one of our gigs this recently go first
     # --- handling rules -----------------------------------------------------------------------------
