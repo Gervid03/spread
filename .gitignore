@@ -14,3 +14,6 @@ runs/
 
 # The organisers' documents, downloaded by `uv run lab docs`
 docs/kit/
+
+# Per-worktree Gemini CLI settings written by scripts/swarm.sh
+.gemini/

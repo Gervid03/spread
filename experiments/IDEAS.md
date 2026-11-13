@@ -50,16 +50,16 @@ Each is one command on smoke, then dev if it looks good. One short note per swee
 
 | # | Status | Command | Why |
 |---|---|---|---|
-| S1 | `open` | `lab sweep -g supply_radius_km=30,40,55` | 55 km puts Hyvinkää (and Porvoo) inside the capital's supply. Crude form of idea 1. Watch the on-time share: this also wins Hyvinkää `same_day`. |
-| S2 | `open` | `lab sweep -g price_mult_max=1.8,2.3 -g dealer_adj_max=1.3,1.6` | The caps bind on worlds with a dear competitor and high trust. |
-| S3 | `open` | `lab sweep -g fee_open=0.85,0.9,1.0` | Most gigs book in minutes at 1.0: is the floor lower? Crude form of idea 6. Watch `deadline_close` and drops. |
-| S4 | `open` | `lab sweep -g loss_streak_freeze=12,9999 -g price_lr=0.02,0.05` | Does following the price war down beat sitting it out? Crude form of idea 3. |
-| S5 | `open` | `lab eval --seeds-from smoke -s offers_per_warning=0` | 3 offers accepted of 218: if nothing changes, the offers go, and the desk is simpler. |
-| S6 | `open` | `lab sweep -g min_slack_min=120,180,240` | `same_day` long drives are late; more slack is the bluntest fix (idea 2 is the sharp one). |
+| S1 | `taken (exp/gemini-sweeps)` | `lab sweep -g supply_radius_km=30,40,55` | 55 km puts Hyvinkää (and Porvoo) inside the capital's supply. Crude form of idea 1. Watch the on-time share: this also wins Hyvinkää `same_day`. |
+| S2 | `taken (exp/gemini-sweeps)` | `lab sweep -g price_mult_max=1.8,2.3 -g dealer_adj_max=1.3,1.6` | The caps bind on worlds with a dear competitor and high trust. |
+| S3 | `taken (exp/gemini-sweeps)` | `lab sweep -g fee_open=0.85,0.9,1.0` | Most gigs book in minutes at 1.0: is the floor lower? Crude form of idea 6. Watch `deadline_close` and drops. |
+| S4 | `taken (exp/gemini-sweeps)` | `lab sweep -g loss_streak_freeze=12,9999 -g price_lr=0.02,0.05` | Does following the price war down beat sitting it out? Crude form of idea 3. |
+| S5 | `taken (exp/gemini-sweeps)` | `lab eval --seeds-from smoke -s offers_per_warning=0` | 3 offers accepted of 218: if nothing changes, the offers go, and the desk is simpler. |
+| S6 | `taken (exp/gemini-sweeps)` | `lab sweep -g min_slack_min=120,180,240` | `same_day` long drives are late; more slack is the bluntest fix (idea 2 is the sharp one). |
 
 ## Tier 1: mechanisms, ordered by expected gain per hour of work
 
-### 1. `open` The ring: gate on who can reach the car, not on who is notified
+### 1. `taken (exp/gemini-ring)` The ring: gate on who can reach the car, not on who is notified
 - **Mechanism.** The app notifies drivers within 30 km of the first pickup, but drivers browse further and
   book what pays them (rules: "a gig far away gets fewer views, unless its fee could pay them"). For a ring
   driver, Hyvinkää → capital even ends at home, so it costs less than the typical fee assumes.
@@ -72,7 +72,7 @@ Each is one command on smoke, then dev if it looks good. One short note per swee
 - **Risk.** Hyvinkää `same_day` was 9 late of 120 in the overloaded runs; start with `slow`.
 - **Guess.** +50–70 orders at €20–30: **+€1.0–2.0k**.
 
-### 2. `open` Option steering: quote the speed we can staff
+### 2. `taken (exp/gemini-options)` Option steering: quote the speed we can staff
 - **Mechanism.** We choose which options to quote. A `next_day` order gives drivers an evening to plan and a
   morning to travel; a `same_day` order needs a free driver within the hour.
 - **Evidence.** Point 2. In the overloaded runs `same_day` was 24% late in towns with 30–200 drivers and 32%
