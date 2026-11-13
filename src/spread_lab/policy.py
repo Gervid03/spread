@@ -56,6 +56,8 @@ class Params:
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
+    gate_radius_km: float = 0.0       # the straight-line radius of the supply count that the decline gate uses
+    far_options: str = "all"          # with "slow", quote next_day and within_3_days only for ring pickups
     min_supply: int = 30              # decline below this many drivers near the pickup (6 missed 90% on 3/5 worlds; 20 on 1/32)
     expected_fee_mult: float = 1.25   # expected fee as a multiple of the typical fee
     min_margin_frac: float = 0.08     # price is raised to keep (price - expected fee) / price at least this
@@ -128,6 +130,8 @@ class Desk:
         self.loss_streak, self.streak_day = 0, -1
         self.drivers = {d["id"]: d for d in roster}
         self.supply = geo.supply(roster, params.supply_radius_km)
+        r = params.gate_radius_km if params.gate_radius_km > 0 else params.supply_radius_km
+        self.gate_supply = geo.supply(roster, r)
         self.last_view: dict[str, int] = {}          # driver id -> minute of their last view of our gigs
         self.offers_sent: Counter = Counter()        # (driver id, day) -> direct offers sent
         self.stats: Counter = Counter()
@@ -167,7 +171,14 @@ class Desk:
             self.last_view[event["driverId"]] = event["at"]
         elif kind == "ledger":
             line = event["line"]
+            order = self.orders.get(line.get("orderId", "")) if line.get("orderId") else None
+            is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
+            if is_ring:
+                self.stats["margin_ring_cents"] += line["cents"]
             if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
+                if line["orderId"] not in self.late:
+                    if is_ring:
+                        self.stats["late_ring"] += 1
                 self.late.add(line["orderId"])
         elif kind == "offer_answered":
             self.stats[f"offer_{event['answer']}"] += 1
@@ -200,11 +211,14 @@ class Desk:
         p, legs = self.p, request["legs"]
         pickup = legs[0]["pickup"]["placeId"]
         supply = self.supply.get(pickup, 0)
+        gate_supply = self.gate_supply.get(pickup, 0)
         tight = self.tightening()
-        if supply < p.min_supply * (1 + (p.guard_supply_mult - 1) * tight):
+        gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
+        if gate_supply < gate_min:
             return {}, "decline"
-        if self.backlog_near(pickup) >= max(p.backlog_min, p.backlog_ratio * supply) * (1 - tight):
+        if self.backlog_near(pickup) >= max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight):
             return {}, "decline"
+        is_ring = supply < gate_min
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
@@ -214,6 +228,8 @@ class Desk:
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
+            if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
+                continue
             if option["deadline"] - ready - drive < p.min_slack_min:
                 continue
             price = option["listPriceCents"] * mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
@@ -277,6 +293,8 @@ class Desk:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
             self.stats["won"] += 1
+            if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
+                self.stats["won_ring"] += 1
             self.post(order, undelivered(order))
 
     def change(self, order: Order) -> None:
