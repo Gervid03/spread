@@ -60,6 +60,9 @@ class Params:
     expected_fee_mult: float = 1.25   # expected fee as a multiple of the typical fee
     min_margin_frac: float = 0.08     # price is raised to keep (price - expected fee) / price at least this
     min_slack_min: int = 120          # an option needs deadline - max(now, ready) - drive minutes >= this
+    slack_per_drive: float = 0.0      # an option needs slack of at least min_slack_min + slack_per_drive * drive
+    long_drive_min: int = 0           # if drive > this (and > 0), quote only options with deadline on a later day than ready
+    same_day_min_supply: int = 0      # quote same_day only where at least this many drivers live within supply_radius_km
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
     decline_mult: float = 4.0         # a decline quotes this times the list price
@@ -214,7 +217,15 @@ class Desk:
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
-            if option["deadline"] - ready - drive < p.min_slack_min:
+            if p.long_drive_min > 0 and drive > p.long_drive_min:
+                if option["deadline"] // DAY <= ready // DAY:
+                    self.stats["dropped_long_drive"] += 1
+                    continue
+            if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply:
+                self.stats["dropped_same_day_supply"] += 1
+                continue
+            if option["deadline"] - ready - drive < p.min_slack_min + p.slack_per_drive * drive:
+                self.stats["dropped_slack"] += 1
                 continue
             price = option["listPriceCents"] * mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
             floor = fee / (1 - p.min_margin_frac)
@@ -277,6 +288,7 @@ class Desk:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
             self.stats["won"] += 1
+            self.stats[f"won_{order['option']}"] += 1
             self.post(order, undelivered(order))
 
     def change(self, order: Order) -> None:
