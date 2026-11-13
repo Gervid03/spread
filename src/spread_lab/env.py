@@ -23,9 +23,11 @@ def load_dotenv() -> None:
                 line = line.strip()
                 if line and not line.startswith("#") and "=" in line:
                     key, value = line.split("=", 1)
-                    os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+                    os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'").replace("\r", ""))
             break
     os.environ.setdefault("SPREAD_URL", "https://spread.bahnexpress.com")
+    if "SPREAD_KEY" in os.environ:
+        os.environ["SPREAD_KEY"] = os.environ["SPREAD_KEY"].replace("\r", "")
 
 
 def lab_home() -> Path:

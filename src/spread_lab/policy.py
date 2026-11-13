@@ -67,6 +67,7 @@ class Params:
     same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
+    yard_cap_ratio: float = 0.0       # per pickup town and deadline day, unstaffed orders + in_flight_quotes * target_win <= max(backlog_min, ratio * supply)
     decline_mult: float = 4.0         # a decline quotes this times the list price
     # --- on-time guard: tighten intake when the projected on-time share falls -----------------------
     guard_target: float = 0.0         # 0 = off; else the projected on-time share to defend (e.g. 0.95)
@@ -122,6 +123,10 @@ class Desk:
         self.world, self.p, self.level, self.geo, self.now = world, params, level, geo, now
         self.outbox: list[Action] = []
         self.requests: dict[str, PriceRequest] = {}
+        self.pending_quotes: list[PriceRequest] = []
+        self.batch_sizes: Counter = Counter()
+        self.quotes_in_flight: set[str] = set()
+        self.quoted_options: dict[str, list[str]] = {}
         self.orders: dict[str, Order] = {}           # won and not cancelled; order id == request id
         self.leg_gigs: dict[str, dict[int, str]] = {}  # order id -> leg -> the gig that carries it
         self.booked: set[str] = set()                # gigs a driver holds now
@@ -144,12 +149,21 @@ class Desk:
     def handle(self, event: DeskEvent) -> None:
         kind = event["kind"]
         if kind == "price_request":
-            self.quote(event["request"])
+            req = event["request"]
+            self.requests[req["id"]] = req
+            if self.p.yard_cap_ratio <= 0:
+                self.do_quote(req)
+            else:
+                self.pending_quotes.append(req)
+                if req.get("batchId"):
+                    self.batch_sizes[req["batchId"]] += 1
         elif kind == "order_won":
             self.learn(event["order"]["id"], won=True)
+            self.quotes_in_flight.discard(event["order"]["id"])
             self.win(event["order"])
         elif kind == "order_lost":
             self.learn(event["requestId"], won=False)
+            self.quotes_in_flight.discard(event["requestId"])
         elif kind == "order_changed":
             self.change(event["order"])
         elif kind == "order_cancelled":
@@ -182,6 +196,9 @@ class Desk:
                 if line["orderId"] not in self.late:
                     if is_ring:
                         self.stats["late_ring"] += 1
+                    batch_id = self.requests[line["orderId"]].get("batchId") if line["orderId"] in self.requests else None
+                    if batch_id and self.batch_sizes[batch_id] >= 5:
+                        self.stats["late_from_batch_5"] += 1
                 self.late.add(line["orderId"])
         elif kind == "offer_answered":
             self.stats[f"offer_{event['answer']}"] += 1
@@ -191,22 +208,51 @@ class Desk:
                 self.orders[event["orderId"]]["deliveredAt"][event["leg"]] = event["at"]
 
     def tick(self) -> None:
-        """Called after every step (practice) or event (live). The baseline needs no timers."""
+        """Called after every step (practice) or event (live)."""
+        if not hasattr(self, "pending_quotes") or not self.pending_quotes:
+            return
+        ready = [req for req in self.pending_quotes if self.now > req["arrivedAt"] or self.now >= req["respondBy"] - 1]
+        if not ready:
+            return
+        self.pending_quotes = [req for req in self.pending_quotes if req not in ready]
+        
+        if self.p.yard_cap_ratio <= 0:
+            for req in ready:
+                self.do_quote(req)
+            return
+
+        batches = defaultdict(list)
+        for req in ready:
+            batches[req.get("batchId") or req["id"]].append(req)
+            
+        for batch_id, reqs in batches.items():
+            if len(reqs) > 1:
+                reqs.sort(key=lambda r: (
+                    -max(o["deadline"] for o in r["options"]),
+                    sum(self.geo.minutes(l["pickup"]["placeId"], l["delivery"]["placeId"]) for l in r["legs"]),
+                    -sum(self.supply.get(l["delivery"]["placeId"], 0) for l in r["legs"])
+                ))
+            for req in reqs:
+                self.do_quote(req)
 
     # --- quoting --------------------------------------------------------------------------------------
-    def quote(self, request: PriceRequest) -> None:
-        self.requests[request["id"]] = request
+    def do_quote(self, request: PriceRequest) -> None:
         prices, decision = self.price(request)
         self.stats[f"quote_{decision}"] += 1
         if self.level <= 3:  # every quote wins at its list price: send one only for what we take
             if prices:
                 first = request["options"][0]
                 self.outbox.append({"type": "quote", "requestId": request["id"], "prices": {first["kind"]: first["listPriceCents"]}})
+                self.quotes_in_flight.add(request["id"])
+                self.quoted_options[request["id"]] = [first["kind"]]
             return
         self.decided[request["id"]] = decision
         if not prices:  # decline: a quote that loses costs nothing, a missing one costs goodwill
             first = request["options"][0]
             prices = {first["kind"]: int(first["listPriceCents"] * self.p.decline_mult)}
+        else:
+            self.quotes_in_flight.add(request["id"])
+            self.quoted_options[request["id"]] = list(prices.keys())
         self.outbox.append({"type": "quote", "requestId": request["id"], "prices": prices})
 
     def price(self, request: PriceRequest) -> tuple[dict[str, int], str]:
@@ -250,6 +296,29 @@ class Desk:
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+            
+        if p.yard_cap_ratio > 0:
+            earliest_day = min(opt["deadline"] // DAY for opt in request["options"] if opt["kind"] in prices)
+            unstaffed = 0
+            for order in self.orders.values():
+                if order["legs"][0]["pickup"]["placeId"] == pickup and not self.staffed(order):
+                    if order["deadline"] // DAY == earliest_day:
+                        unstaffed += 1
+            in_flight = 0
+            for req_id in self.quotes_in_flight:
+                req = self.requests[req_id]
+                if req["legs"][0]["pickup"]["placeId"] == pickup:
+                    qopts = self.quoted_options.get(req_id, [])
+                    if qopts:
+                        q_earliest = min(opt["deadline"] // DAY for opt in req["options"] if opt["kind"] in qopts)
+                        if q_earliest == earliest_day:
+                            in_flight += 1
+            usage = unstaffed + in_flight * p.price_target_win
+            limit = max(p.backlog_min, p.yard_cap_ratio * supply)
+            if usage >= limit:
+                self.stats["declined_by_cap"] += 1
+                return {}, "decline"
+                
         return prices, "floor" if floored else "quote"
 
     def learn(self, request_id: str, won: bool) -> None:
@@ -502,7 +571,7 @@ class Desk:
                 if not any(stop["leg"] == event["leg"] for gig in later for stop in gig["stops"]):
                     self.retry(order["id"], event["leg"], event["reason"])
         for request in snapshot["openRequests"]:
-            self.quote(request)
+            self.do_quote(request)
 
 
 # --- helpers (the starter's) --------------------------------------------------------------------------
