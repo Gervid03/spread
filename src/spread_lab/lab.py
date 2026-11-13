@@ -92,16 +92,47 @@ def seed_set(name: str) -> list[str]:
     return [line.strip() for line in path.read_text(encoding="utf-8").splitlines() if line.strip() and not line.startswith("#")]
 
 
+# --- quiet hours: no practice while a final or test final runs ------------------------------------------------
+# The practice limit drops to 20 requests/s then, and the live desk must not compete with the swarm.
+QUIET_UTC = [  # (start, end), UTC; Helsinki is UTC+2. Finals start 14:00, 20:00 (Sat) and 08:00 (Sun).
+    ("2026-11-14T11:40", "2026-11-14T12:50"),
+    ("2026-11-14T17:40", "2026-11-14T18:50"),
+    ("2026-11-15T05:20", "2026-11-15T07:00"),
+]
+
+
+def quiet_until() -> Optional[dt.datetime]:
+    """When practice may resume, if a quiet window is on or `~/.spread-lab/pause` exists; else None."""
+    now = dt.datetime.now(dt.timezone.utc)
+    if (lab_home() / "pause").exists():
+        return now + dt.timedelta(minutes=1)
+    for start, end in QUIET_UTC:
+        a, b = (dt.datetime.fromisoformat(x).replace(tzinfo=dt.timezone.utc) for x in (start, end))
+        if a <= now < b:
+            return b
+    return None
+
+
+def wait_while_quiet() -> None:
+    said = 0.0
+    while (until := quiet_until()) is not None:
+        if time.time() - said > 60:   # a line a minute keeps agents' shell timeouts from firing
+            print(f"Practice paused (a final is on, or ~/.spread-lab/pause exists) until ~{until:%H:%M} UTC.", flush=True)
+            said = time.time()
+        time.sleep(15)
+
+
 # --- practice slots, shared by every process on the machine -----------------------------------------------
 class Slot:
     """Holds one of the harness's practice slots for the life of a `with` block (an OS file lock, so a
-    crashed process frees its slot by itself)."""
+    crashed process frees its slot by itself). Waits out the quiet hours first."""
 
     def __init__(self, budget: Optional[int] = None):
         self.budget = budget or slot_budget()
         self.lock: Optional[FileLock] = None
 
     def __enter__(self) -> "Slot":
+        wait_while_quiet()
         folder = lab_home() / "slots"
         folder.mkdir(exist_ok=True)
         while True:

@@ -39,6 +39,11 @@ Saturday, shared by all our machines) is not the bottleneck.
   other.
 - During a test final or the final the team's practice limit drops to 20 requests/s: pause the swarm.
 
+## Since Sat 01:00 (see docs/HANDOFF.md)
+- Quiet hours pause practice during the finals; `~/.spread-lab/pause` pauses it by hand.
+- The final runner restarts itself on a new main while no final is set (`.freeze` pins it).
+- `uv run lab board --auto --yes` plays what is left of the current ranking round.
+
 ## The swarm (Stockholm)
 - Start one agent per idea (a worktree and branch per agent, a turn cap per agent):
   `cd ~/spread && git pull && TURNS=120 setsid nohup bash scripts/swarm.sh <slug> gemini-3.1-pro-preview experiments/prompts/gemini-<slug>.md >/dev/null 2>&1 &`

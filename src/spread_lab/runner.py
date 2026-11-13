@@ -92,9 +92,12 @@ def clock(minute: int) -> str:
     return f"{name} {minute % DAY // 60:02d}:{minute % 60:02d}"
 
 
-def wait_for_final(client: Client, log: Callable[[str], None] = print) -> World:
-    """The team's copy of the final (or a test final) that is set or running. Waits while none is."""
+def wait_for_final(client: Client, log: Callable[[str], None] = print,
+                   idle: Optional[Callable[[], None]] = None) -> World:
+    """The team's copy of the final (or a test final) that is set or running. Waits while none is,
+    calling `idle` every 5 minutes (the service uses it to restart itself on a new champion)."""
     said = False
+    checked = time.monotonic()
     while True:
         try:
             world: Optional[World] = client.world(client.final()["worldId"])
@@ -109,16 +112,20 @@ def wait_for_final(client: Client, log: Callable[[str], None] = print) -> World:
         if not said:
             log("No final is set yet. Waiting: test finals are set 15 minutes before their start, the final at 07:30.")
             said = True
+        if idle is not None and time.monotonic() - checked >= 300:
+            checked = time.monotonic()
+            idle()
         time.sleep(10)
 
 
-def run_live_forever(client: Client, make_desk, log: Callable[[str], None] = print) -> None:
+def run_live_forever(client: Client, make_desk, log: Callable[[str], None] = print,
+                     idle: Optional[Callable[[], None]] = None) -> None:
     """The final loop: survives server restarts and dropped connections by rejoining."""
     world = None
     while True:
         try:
             if world is None:
-                world = wait_for_final(client, log)
+                world = wait_for_final(client, log, idle)
                 log(f"Final world {world.id}.")
             play_live(world, make_desk, log)
             score = world.score()

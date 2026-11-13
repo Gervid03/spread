@@ -177,29 +177,67 @@ def cmd_final(args) -> None:
     def make_desk(world, snapshot, now):
         level = next((w["level"] for w in client.worlds() if w["worldId"] == world.id), 8)
         return cls(world, cls.Params.from_dict(params), level, geo, world.roster(), now)
+    def idle() -> None:
+        """While no final is set: if main has a new champion or new code, exit, so that systemd restarts
+        the service on it (it pulls main before every start). A `.freeze` file in the checkout pins it."""
+        import subprocess
+        if (REPO / ".freeze").exists():
+            return
+        git = ["git", "-C", str(REPO)]
+        try:
+            subprocess.run(git + ["fetch", "-q", "origin", "main"], check=True, timeout=60)
+            moved = subprocess.run(git + ["diff", "--quiet", "HEAD", "origin/main", "--", "src", "champion",
+                                          "pyproject.toml", "uv.lock"], timeout=30).returncode != 0
+        except Exception as error:  # noqa: BLE001 - keep waiting on the code we have
+            log(f"Update check failed ({error}); staying on this version.")
+            return
+        if moved:
+            log("main has a new champion or new code: exiting so that the service restarts on it.")
+            raise SystemExit(0)
+
     log(f"Live desk: {policy} with {params or 'default params'}")
-    run_live_forever(client, make_desk, log)
+    run_live_forever(client, make_desk, log, idle)
 
 
 def cmd_board(args) -> None:
     """Plays the team's next ranking run at the level. It counts on the public practice rankings and
-    each round allows 5 per level: for the lead, not for swarm agents."""
+    each round allows 5 per level: for the lead, not for swarm agents. With --auto it plays whatever is
+    left of the current round's 5 (nothing if they are done), each in a practice slot, outside quiet hours."""
     if not args.yes:
         sys.exit("A ranking run counts publicly and each round has only 5 per level. Re-run with --yes if you mean it.")
+    import datetime as dt
+    import os
     from .geo import Geo, load_map
-    from .lab import CountingClient, load_policy
+    from .lab import CountingClient, Slot, load_policy
     from .runner import play_practice
     policy, params = _policy_and_params(args)
     cls = load_policy(policy)
     client = CountingClient()
+    runs, round_name = 1, "?"
+    if args.auto:
+        team = os.environ.get("SPREAD_TEAM", "Swarm Dispatch")
+        season = client.board(args.level).get("current") or {}
+        round_name = f"{season.get('season')} ({season.get('name')})"
+        me = next((t for t in season.get("teams", []) if t["name"] == team), None)
+        runs = max(0, 5 - (me["played"] if me else 0))
+        if not runs:
+            return
+        print(f"Round {round_name}: playing {runs} ranking run(s) for {team}.", flush=True)
     geo = Geo(load_map(client))
-    world = client.create(level=args.level, board=True)
-    print(f"Ranking run {world.id} at level {args.level} with {policy} {params or ''}")
-    snap = world.snapshot()
-    desk = cls(world, cls.Params.from_dict(params), args.level, geo, world.roster(), snap["now"])
-    play_practice(world, desk, snap["endsAt"])
-    s = world.score()
-    print(f"End: margin €{s['marginCents'] / 100:,.2f}  won {s['wonOrders']}  on time {s['onTimeShare']:.1%}  ranked {s['ranked']}")
+    for _ in range(runs):
+        with Slot():
+            world = client.create(level=args.level, board=True)
+            print(f"Ranking run {world.id} at level {args.level} with {policy} {params or ''}", flush=True)
+            snap = world.snapshot()
+            desk = cls(world, cls.Params.from_dict(params), args.level, geo, world.roster(), snap["now"])
+            play_practice(world, desk, snap["endsAt"])
+            s = world.score()
+        line = (f"End: margin €{s['marginCents'] / 100:,.2f}  won {s['wonOrders']}  on time {s['onTimeShare']:.1%}  "
+                f"ranked {s['ranked']}")
+        print(line, flush=True)
+        (REPO / "runs").mkdir(exist_ok=True)
+        with open(REPO / "runs" / "board.log", "a", encoding="utf-8") as f:
+            f.write(f"{dt.datetime.now():%Y-%m-%d %H:%M}  round {round_name}  {world.id}  {line}\n")
 
 
 def cmd_leaderboard(args) -> None:
@@ -319,6 +357,7 @@ def main() -> None:
     p = sub.add_parser("board", help="play the next public ranking run (the lead only; needs --yes)")
     _add_policy_args(p)
     p.add_argument("--yes", action="store_true")
+    p.add_argument("--auto", action="store_true", help="play what is left of the current round (up to 5 runs)")
     p.set_defaults(func=cmd_board)
 
     p = sub.add_parser("leaderboard", help="the public practice rankings")
