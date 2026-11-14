@@ -812,34 +812,109 @@ class Desk:
     def backlog_near(self, place: str, include_in_flight: bool = True) -> float:
         """Won orders without a driver for every undelivered car, picked up within the radius of `place`."""
         p, radius, n = self.p, self.p.supply_radius_km, 0.0
-        for order in self.orders.values():
+        last_ord = next(reversed(self.orders), None)
+        open_oids: Optional[list[str]] = getattr(self, "_open_oids", None)
+        last_seen_ord = getattr(self, "_ord_last_key", None)
+        if open_oids is None or (last_seen_ord is not None and last_seen_ord not in self.orders):
+            open_oids = [oid for oid, o in self.orders.items() if undelivered(o)]
+        elif last_ord != last_seen_ord:
+            added: list[str] = []
+            for oid in reversed(self.orders):
+                if oid == last_seen_ord:
+                    break
+                if undelivered(self.orders[oid]):
+                    added.append(oid)
+            if added:
+                open_oids.extend(reversed(added))
+        self._ord_last_key = last_ord
+        kept_oids: list[str] = []
+        for oid in open_oids:
+            order = self.orders.get(oid)
+            if order is None or not undelivered(order):
+                continue
+            kept_oids.append(oid)
             if self.geo.line_km(order["legs"][0]["pickup"]["placeId"], place) <= radius and not self.staffed(order):
-                if p.backlog_multiday_weight != 1.0 and order["deadline"] // DAY > self.now // DAY and order["id"] not in self.urgent:
+                if p.backlog_multiday_weight != 1.0 and order["deadline"] // DAY > self.now // DAY and oid not in self.urgent:
                     n += p.backlog_multiday_weight
                 else:
                     n += 1.0
+        self._open_oids = kept_oids
         if include_in_flight and p.backlog_in_flight_weight > 0:
-            for req_id, req in self.requests.items():
+            last_dec = next(reversed(self.decided), None)
+            if_open: Optional[list[str]] = getattr(self, "_if_open", None)
+            last_seen_dec = getattr(self, "_if_last_key", None)
+            if if_open is None or (last_seen_dec is not None and last_seen_dec not in self.decided):
+                if_open = [
+                    rid for rid in self.requests
+                    if self.decided.get(rid) in ("quote", "floor")
+                    and rid not in self.orders
+                    and rid not in self.lost_requests
+                    and self.now <= self.requests[rid]["respondBy"]
+                ]
+            elif last_dec != last_seen_dec:
+                added_if: list[str] = []
+                for rid in reversed(self.decided):
+                    if rid == last_seen_dec:
+                        break
+                    if self.decided[rid] in ("quote", "floor") and rid in self.requests:
+                        added_if.append(rid)
+                if added_if:
+                    if_open.extend(reversed(added_if))
+            self._if_last_key = last_dec
+            kept_if: list[str] = []
+            for req_id in if_open:
+                req = self.requests.get(req_id)
                 if (
-                    req_id not in self.orders
-                    and req_id not in self.lost_requests
-                    and self.decided.get(req_id) in ("quote", "floor")
-                    and self.now <= req["respondBy"]
-                    and self.geo.line_km(req["legs"][0]["pickup"]["placeId"], place) <= radius
+                    req is None
+                    or req_id in self.orders
+                    or req_id in self.lost_requests
+                    or self.now > req["respondBy"]
                 ):
+                    continue
+                kept_if.append(req_id)
+                if self.decided.get(req_id) in ("quote", "floor") and self.geo.line_km(req["legs"][0]["pickup"]["placeId"], place) <= radius:
                     n += p.backlog_in_flight_weight
+            self._if_open = kept_if
         return n
 
     def projected_on_time(self) -> float:
         """On-time share if every order known late stays late and each unstaffed order past its deadline
         warning is late with probability `guard_risk_weight`."""
         p, late, risk = self.p, 0, 0
-        for order_id, order in self.orders.items():
+        last_ord = next(reversed(self.orders), None)
+        open_oids: Optional[list[str]] = getattr(self, "_open_oids", None)
+        last_seen_ord = getattr(self, "_ord_last_key", None)
+        if open_oids is None or (last_seen_ord is not None and last_seen_ord not in self.orders):
+            open_oids = [oid for oid, o in self.orders.items() if undelivered(o)]
+        elif last_ord != last_seen_ord:
+            added: list[str] = []
+            for oid in reversed(self.orders):
+                if oid == last_seen_ord:
+                    break
+                if undelivered(self.orders[oid]):
+                    added.append(oid)
+            if added:
+                open_oids.extend(reversed(added))
+        self._ord_last_key = last_ord
+        kept_oids: list[str] = []
+        for order_id in open_oids:
+            order = self.orders.get(order_id)
+            if order is None:
+                continue
             open_legs = undelivered(order)
-            if order_id in self.late or (open_legs and self.now > order["deadline"]):
+            if not open_legs:
+                continue
+            kept_oids.append(order_id)
+            if order_id in self.late or self.now > order["deadline"]:
                 late += 1
-            elif open_legs and order_id in self.urgent and not self.staffed(order):
+            elif order_id in self.urgent and not self.staffed(order):
                 risk += 1
+        self._open_oids = kept_oids
+        if self.late:
+            for order_id in self.late:
+                order = self.orders.get(order_id)
+                if order is not None and not undelivered(order):
+                    late += 1
         return 1 - (late + p.guard_risk_weight * risk) / max(len(self.orders), p.guard_min_orders)
 
     def tightening(self) -> float:
@@ -1049,6 +1124,17 @@ class Desk:
         if self.level < 3 or not (7 * HOUR <= self.now % DAY < 21 * HOUR):
             return
         p, day = self.p, self.now // DAY
+        if p.dest_offer_mult <= 0 and (p.view_offer_mult <= 0 or not self.recent_views):
+            return
+        if p.dest_offer_mult <= 0 and self.recent_views:
+            win_m_chk = max(15, p.view_offer_window_min)
+            self.recent_views = [
+                (at, gid, d_id)
+                for (at, gid, d_id) in self.recent_views
+                if self.now - at <= win_m_chk + 5 and (gid, d_id) not in self.offered_pairs
+            ]
+            if not any(2 <= self.now - at <= win_m_chk and gid not in self.booked for at, gid, _ in self.recent_views):
+                return
         busy_drivers = set(self.booked_driver.values())
 
         def gig_base_and_ends(gid: str, post: PostAction) -> Optional[tuple[float, str, str]]:
@@ -1526,6 +1612,10 @@ class Desk:
     # --- restart (live mode) --------------------------------------------------------------------------
     def rejoin(self, snapshot: DeskSnapshot, history: list[DeskEvent]) -> None:
         """Rebuilds the books from the world after a (re)start, then answers what it missed."""
+        self._open_oids = None
+        self._ord_last_key = None
+        self._if_open = None
+        self._if_last_key = None
         self.ends_at = snapshot.get("endsAt", 14280)
         posted: dict[str, list[Gig]] = {}
         gigs_by_id = {g["id"]: g for g in snapshot["gigs"]}
@@ -1554,6 +1644,7 @@ class Desk:
         
         # replay ledger to build trust exactly as handle() does
         _late_replay = set()
+        snap_orders = {o["id"]: o for o in snapshot["orders"]}
         for e in history:
             if e["kind"] == "ledger":
                 line = e["line"]
@@ -1564,7 +1655,7 @@ class Desk:
                         self.dealer_trust[dealer] //= 2
                 elif line["kind"] == "revenue" and line.get("orderId"):
                     if dealer and line["orderId"] not in _late_replay:
-                        order = next((o for o in snapshot["orders"] if o["id"] == line["orderId"]), None)
+                        order = snap_orders.get(line["orderId"])
                         if order:
                             delivered = [d for d in order["deliveredAt"] if d is not None]
                             if len(delivered) == len(order["legs"]) and max(delivered) <= order["deadline"]:
@@ -1718,7 +1809,10 @@ def retry_from(order: Order, request: PriceRequest, leg: int, now: int) -> int:
 
 
 def undelivered(order: Order) -> list[int]:
-    return [leg for leg in range(len(order["legs"])) if order["deliveredAt"][leg] is None]
+    da = order["deliveredAt"]
+    if len(da) == 1:
+        return [0] if da[0] is None else []
+    return [leg for leg, d in enumerate(da) if d is None]
 
 
 def pickups(action: PostAction) -> int:

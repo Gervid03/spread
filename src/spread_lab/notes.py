@@ -8,6 +8,7 @@ with an unplaced time as `unsure`.
 """
 from __future__ import annotations
 
+from functools import lru_cache
 import re
 from typing import NamedTuple, Optional
 
@@ -117,13 +118,21 @@ _WORD_HOURS: list[tuple[str, int]] = [
 ]
 
 
+_WORD_HOURS_COMPILED: list[tuple[re.Pattern[str], str, re.Pattern[str], str]] = [
+    (
+        re.compile(r"\b(?:puoli|puolta|halv)\s+" + pat_str + r"\b"),
+        f"klo {(h + 12 if 1 <= h <= 7 else h) - 1}:30",
+        re.compile(r"\b" + pat_str + r"\b"),
+        f"klo {h + 12 if 1 <= h <= 7 else h}:00",
+    )
+    for pat_str, h in _WORD_HOURS
+]
+
+
 def _replace_word_hours(s: str) -> str:
-    for pat_str, h in _WORD_HOURS:
-        work_h = h + 12 if 1 <= h <= 7 else h
-        half_pat = re.compile(r"\b(?:puoli|puolta|halv)\s+" + pat_str + r"\b")
-        full_pat = re.compile(r"\b" + pat_str + r"\b")
-        s = half_pat.sub(f"klo {work_h - 1}:30", s)
-        s = full_pat.sub(f"klo {work_h}:00", s)
+    for half_pat, half_repl, full_pat, full_repl in _WORD_HOURS_COMPILED:
+        s = half_pat.sub(half_repl, s)
+        s = full_pat.sub(full_repl, s)
     return s
 
 
@@ -317,10 +326,19 @@ _SUMMER_ON_RE = re.compile(
 )
 
 
-def parse_note_v2(note: Optional[Note], arrived_at: int = 0) -> ParsedNote:
-    if not note or not note.get("text"):
-        return ParsedNote()
-    raw = note["text"]
+_ABBREV_DOT_RE = re.compile(r"\b(viim|n|oik|kl|t|ma|ti|ke|to|pe|la|su)\.")
+_CLAUSE_SPLIT_RE = re.compile(r"\.(?!\d)\s*|[!?/\x0a]+")
+_READY_NOW_RE = re.compile(r"\b(?:heti|waiting|right\s+away|now|pihalla|noudettavaksi|direkt|bilen\s+star\s+klar)\b")
+_HARMLESS_1_RE = re.compile(r"\b\d{4,6}\b")
+_HARMLESS_2_RE = re.compile(r"\b[24]\s*(?:rengasta|sarjaa|kesarengasta)\b")
+_HARMLESS_3_RE = re.compile(r"\b(?:10|15|20|30)\s*min\b")
+_HARMLESS_4_RE = re.compile(r"\b\d+\s*tkm\b")
+_HARMLESS_5_RE = re.compile(r"\b(?:ruudussa|bay|plats)\s*\d+\b")
+_EMPTY_PARSED_NOTE = ParsedNote()
+
+
+@lru_cache(maxsize=8192)
+def _parse_note_v2_cached(raw: str, arr_day: int) -> ParsedNote:
     norm = normalize_text(raw)
     norm = _DENY_PAREN_RE.sub(" ", norm)
     norm = _MERGE_CORR_RE.sub(", korjaus: ", norm)
@@ -332,7 +350,6 @@ def parse_note_v2(note: Optional[Note], arrived_at: int = 0) -> ParsedNote:
     plates = bool(_PLATES_V2_RE.search(norm))
     summer_tyres = bool(_SUMMER_ON_RE.search(norm))
 
-    arr_day = arrived_at // DAY
     ready_at: Optional[int] = None
     released_at: Optional[int] = None
     pickup_opens: Optional[int] = None
@@ -342,8 +359,8 @@ def parse_note_v2(note: Optional[Note], arrived_at: int = 0) -> ParsedNote:
     note_deadline: Optional[int] = None
     unsure = False
 
-    s_clean = re.sub(r"\b(viim|n|oik|kl|t|ma|ti|ke|to|pe|la|su)\.", r"\1", norm)
-    clauses = re.split(r"\.(?!\d)\s*|[!?/\x0a]+", s_clean)
+    s_clean = _ABBREV_DOT_RE.sub(r"\1", norm)
+    clauses = _CLAUSE_SPLIT_RE.split(s_clean)
 
     for clause in clauses:
         c = clause.strip(" ,.")
@@ -416,7 +433,7 @@ def parse_note_v2(note: Optional[Note], arrived_at: int = 0) -> ParsedNote:
             continue
 
         if _READY_RE.search(main_part):
-            if re.search(r"\b(?:heti|waiting|right\s+away|now|pihalla|noudettavaksi|direkt|bilen\s+star\s+klar)\b", main_part) and _extract_time(main_part) is None:
+            if _READY_NOW_RE.search(main_part) and _extract_time(main_part) is None:
                 continue
             d, t = resolve_dt(arr_day)
             if t is not None:
@@ -425,11 +442,11 @@ def parse_note_v2(note: Optional[Note], arrived_at: int = 0) -> ParsedNote:
                 unsure = True
             continue
 
-        harmless = re.sub(r"\b\d{4,6}\b", " ", main_part)
-        harmless = re.sub(r"\b[24]\s*(?:rengasta|sarjaa|kesarengasta)\b", " ", harmless)
-        harmless = re.sub(r"\b(?:10|15|20|30)\s*min\b", " ", harmless)
-        harmless = re.sub(r"\b\d+\s*tkm\b", " ", harmless)
-        harmless = re.sub(r"\b(?:ruudussa|bay|plats)\s*\d+\b", " ", harmless)
+        harmless = _HARMLESS_1_RE.sub(" ", main_part)
+        harmless = _HARMLESS_2_RE.sub(" ", harmless)
+        harmless = _HARMLESS_3_RE.sub(" ", harmless)
+        harmless = _HARMLESS_4_RE.sub(" ", harmless)
+        harmless = _HARMLESS_5_RE.sub(" ", harmless)
         if _extract_time(harmless) is not None or _extract_range(harmless) is not None:
             unsure = True
 
@@ -446,6 +463,15 @@ def parse_note_v2(note: Optional[Note], arrived_at: int = 0) -> ParsedNote:
         summer_tyres=summer_tyres,
         unsure=unsure,
     )
+
+
+def parse_note_v2(note: Optional[Note], arrived_at: int = 0) -> ParsedNote:
+    if not note:
+        return _EMPTY_PARSED_NOTE
+    raw = note.get("text")
+    if not raw:
+        return _EMPTY_PARSED_NOTE
+    return _parse_note_v2_cached(raw, arrived_at // DAY)
 
 
 def shift_business_days(deadline: int, extra_days: int) -> int:
