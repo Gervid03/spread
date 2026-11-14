@@ -34,6 +34,7 @@ class SundayStateParams(Params):
     sun_trust_decouple: float = 0.0         # e.g. 0.45 (zero-mean trust slope `0.01 * k * (trust - ema_trust)`)
     sun_war_defer: bool = False             # 08:00-09:30 <=12% win-rate War detector -> drop multi-opt same_day
     sun_comp_band: bool = False             # <68% Mon..Thu deadband guard + Thu 00:00 cold-start mult=1.50
+    sun_fri_endgame: bool = False           # Friday endgame: no loss_streak_freeze, 1.45x slow backlog, -4% slow quote
 
 
 class SundayStateDesk(Desk):
@@ -48,6 +49,7 @@ class SundayStateDesk(Desk):
             or sp.sun_trust_decouple > 0
             or sp.sun_war_defer
             or sp.sun_comp_band
+            or sp.sun_fri_endgame
         )
         self.ema_trust: float = 0.0
         self.ema_ready: bool = False
@@ -100,16 +102,49 @@ class SundayStateDesk(Desk):
         q = self.morn_quoted[d]
         return q >= 7 and (self.morn_won[d] / q) <= 0.12
 
+    def learn(self, request_id: str, won: bool) -> None:
+        if self.sun_active and self.sp.sun_fri_endgame and self.now // DAY >= 4:
+            self.loss_streak = 0
+            orig_tw = self.p.price_target_win
+            self.p.price_target_win = max(orig_tw, 0.52)
+            try:
+                super().learn(request_id, won)
+            finally:
+                self.p.price_target_win = orig_tw
+            return
+        super().learn(request_id, won)
+
     def price(self, request: PriceRequest) -> tuple[dict[str, int], str]:
         if not self.sun_active:
             return super().price(request)
 
-        prices, reason = super().price(request)
+        dlr = request["dealerId"]
+        d, tod = request["arrivedAt"] // DAY, request["arrivedAt"] % DAY
+
+        orig_br = self.p.backlog_ratio
+        fri_relaxed = False
+        if self.sp.sun_fri_endgame and d == 4:
+            self.p.backlog_ratio = orig_br * 1.60
+            fri_relaxed = True
+        try:
+            prices, reason = super().price(request)
+        finally:
+            if fri_relaxed:
+                self.p.backlog_ratio = orig_br
+
         if not prices:
             return prices, reason
 
-        dlr = request["dealerId"]
-        d, tod = request["arrivedAt"] // DAY, request["arrivedAt"] % DAY
+        # On Friday endgame, if normal backlog would have blocked it, keep only slow weekend-buffered options
+        if fri_relaxed:
+            pickup = request["legs"][0]["pickup"]["placeId"]
+            gate_sup = self.gate_supply.get(pickup, 0)
+            norm_cap = max(self.p.backlog_min + 1, orig_br * (1 - self.tightening()) * gate_sup)
+            if self.backlog_near(pickup) >= norm_cap:
+                prices = {k: v for k, v in prices.items() if k != "same_day"}
+                if not prices:
+                    return {}, "backlog"
+                self.stats["sun_fri_endgame_admitted"] += 1
 
         # 1. Live 09:30 Price-War same_day deferral on multi-option requests
         if self.is_live_war_day(d, tod) and "same_day" in prices and len(prices) > 1:
