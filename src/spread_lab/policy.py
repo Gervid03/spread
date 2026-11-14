@@ -24,7 +24,7 @@ from __future__ import annotations
 import math
 from collections import Counter, defaultdict
 from dataclasses import dataclass, fields
-from statistics import median
+from statistics import NormalDist, median
 from typing import Any, NamedTuple, Optional
 
 from spread.client import World
@@ -150,7 +150,7 @@ class Params:
                                       # fee + this EUR a car (the shadow price of a driver; offline best 20-40)
     ca_fee_mult: float = 0.95         # booked fee / typical fee on v7 dev (0.946)
     ca_sigma: float = 0.245           # log-sd of the dealer's limit around the desk's quote (dev-12 fit)
-    ca_learn_all: bool = False        # also let the priced-up quotes (> 1.1x the usual) move the win-rate controller
+    ca_learn_all: bool = False        # (retired: the 19:00 form kept priced-up quotes out of the controller: -EUR 4,227)
     # --- morning day supervisor (08:00 Mon-Fri) -----------------------------------------------------
     supervisor: bool = False          # master enable for 08:00 morning state supervisor
     sup_recover_frac: float = 0.0     # 0..1: at 08:00 Tue-Fri, recover mult toward yesterday's 08:00 mult after freeze
@@ -235,6 +235,7 @@ class Desk:
         self.posts: dict[str, PostAction] = {}       # gig id -> the post that made it
         self.urgent: set[str] = set()                # orders whose deadline warning has come
         self.decided: dict[str, str] = {}            # request id -> "quote" | "floor" | "decline"
+        self.ca_pwin: dict[str, float] = {}          # cost-aware: request id -> predicted win chance of our quote
         self.lost_requests: set[str] = set()         # request ids where order_lost was received
         self.mult = {8: params.price_mult_l8, 7: params.price_mult_l7}.get(level, params.price_mult_low)
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
@@ -745,6 +746,7 @@ class Desk:
 
         prices: dict[str, int] = {}
         floored = False
+        ca_probs: list[float] = []
         for option in request["options"]:
             ring_hub_sd = False
             if (pass_ext_ring or pass_return_hub or fri_thin_only) and option["kind"] == "same_day":
@@ -804,12 +806,14 @@ class Desk:
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
             if p.ca_lambda_eur > 0:  # cost-aware: the fee floor is folded into the cost
+                # The usual quote (list x M x ...) wins price_target_win (the controller's job), so the dealer's median
+                # limit sits sigma * z below it; pick the price that maximises (p - cost) x P(win) around that median.
+                z = NormalDist().inv_cdf(1 - p.price_target_win)
                 cost = request["referenceFeeCents"] * p.ca_fee_mult + 100 * p.ca_lambda_eur * len(legs)
-                best = cost_aware_price(price, cost, p.ca_sigma)
-                if best > price * 1.1:
-                    self.stats["ca_priced_up"] += 1
-                    if not p.ca_learn_all:
-                        floored = True  # priced out on purpose: keep it out of the win-rate controller
+                best = cost_aware_price(price * math.exp(-p.ca_sigma * z), cost, p.ca_sigma)
+                g = best / price
+                ca_probs.append(0.5 * math.erfc((math.log(g) / p.ca_sigma + z) / math.sqrt(2)))
+                self.stats["ca_priced_up" if g > 1.1 else ("ca_priced_down" if g < 0.95 else "ca_priced_same")] += 1
                 price = best
             else:
                 floor = fee / (1 - p.min_margin_frac)
@@ -818,6 +822,8 @@ class Desk:
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if ca_probs:
+            self.ca_pwin[request["id"]] = max(ca_probs)
         if p.nd_sdmenu_disc != 0 and "same_day" not in prices and any(o["kind"] == "same_day" for o in request["options"]):
             floor = fee / (1 - p.min_margin_frac)
             for kind in prices:
@@ -850,7 +856,11 @@ class Desk:
         self.loss_streak = 0 if won else self.loss_streak + 1
         if self.loss_streak > self.day_max_streak[day]:
             self.day_max_streak[day] = self.loss_streak
-        step = (1 - p.price_target_win) if won else -p.price_target_win
+        if p.ca_lambda_eur > 0 and request_id in self.ca_pwin:
+            # each quote at its own predicted chance; for a usual quote that is price_target_win: the same controller
+            step = (1.0 if won else 0.0) - self.ca_pwin[request_id]
+        else:
+            step = (1 - p.price_target_win) if won else -p.price_target_win
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
