@@ -15,6 +15,8 @@
 #   - a restart at Wednesday 12:00 (dev-01) finishes ranked.
 # Then: `lab promote` dev and holdout, a line in experiments/PROMOTIONS.md, one commit, `git push origin HEAD:main`.
 # If main moved meanwhile the push is refused: run it again. DRY=1 runs every gate but doesn't commit or push.
+# REBASE=1: a neutral instrument change (e.g. the practice step, scripts/promote_gate.py --rebase): it may also touch
+# src/spread_lab/runner.py, and dev needs |Δ| <= max(€200, 2 SE) instead of a gain; the tail gates stay.
 # Exit codes: 0 promoted (or DRY passed) · 2 frozen · 3 merge · 4 files · 5 import · 6 restart · 7 gates · 8 push.
 set -euo pipefail
 branch=${1:?usage: scripts/promote.sh <branch> [-s key=value ...]}; shift
@@ -33,7 +35,9 @@ cd "$wt"
 base=$(git rev-parse HEAD)
 id=(-c user.name="Swarm Dispatch lab (promote)" -c user.email=swarm-dispatch-agents@users.noreply.github.com)
 git "${id[@]}" merge -q --no-ff --no-edit "origin/$branch" || { say "refused: origin/$branch does not merge cleanly onto main"; exit 3; }
-bad=$(git diff --name-only "$base" HEAD | grep -vE '^(src/spread_lab/(policy|notes)\.py|src/spread_lab/policies/|experiments/|night-queue/|README\.md$)' || true)
+allow='^(src/spread_lab/(policy|notes)\.py|src/spread_lab/policies/|experiments/|night-queue/|README\.md$)'
+[ "${REBASE:-0}" = 1 ] && allow='^(src/spread_lab/(policy|notes|runner)\.py|src/spread_lab/policies/|experiments/|night-queue/|README\.md$)'
+bad=$(git diff --name-only "$base" HEAD | grep -vE "$allow" || true)
 [ -z "$bad" ] || { say "refused: the merge touches files outside the policy:"; echo "$bad"; exit 4; }
 
 uv sync -q
@@ -49,9 +53,10 @@ say "restart at minute 3600 (Wednesday 12:00) on dev-01"
 uv run lab play --seed dev-01 "${flags[@]}" --restart-at 3600 2>&1 | tee runs/restart.txt || true
 grep -q 'ranked True' runs/restart.txt || { say "refused: the restarted world did not finish ranked"; exit 6; }
 
-set +e; uv run python "$root/scripts/promote_gate.py" "$dev" "$hold" runs/restart.txt | tee runs/gate.txt; rc=${PIPESTATUS[0]}; set -e
+gateopt=(); [ "${REBASE:-0}" = 1 ] && gateopt=(--rebase)
+set +e; uv run python "$root/scripts/promote_gate.py" "${gateopt[@]}" "$dev" "$hold" runs/restart.txt | tee runs/gate.txt; rc=${PIPESTATUS[0]}; set -e
 [ "$rc" = 0 ] || { say "refused: a gate failed (runs/gate.txt in $wt)"; exit 7; }
-line=$(grep '^ALL GATES PASSED' runs/gate.txt | sed 's/^ALL GATES PASSED: //')
+line=$(grep '^ALL GATES PASSED' runs/gate.txt | sed 's/^ALL GATES PASSED[^:]*: //')
 note="$branch with ${flags[*]:-no overrides}: $line"
 if [ "${DRY:-0}" = 1 ]; then say "DRY=1: every gate passed; not committing or pushing. $note"; exit 0; fi
 
@@ -60,7 +65,8 @@ uv run lab promote "$hold" --note "$note"
 [ -f experiments/PROMOTIONS.md ] || printf '# Promotions\n\nOne line per champion that scripts/promote.sh pushed to main.\n\n' > experiments/PROMOTIONS.md
 echo "- $(date -u +%FT%H:%MZ) \`$branch\` (dev \`$(basename "$dev")\`, holdout \`$(basename "$hold")\`): $line. Flags: \`${flags[*]:-}\`" >> experiments/PROMOTIONS.md
 git add champion experiments/PROMOTIONS.md
-git "${id[@]}" commit -qm "Champion: $branch ($line)"
+kind=Champion; [ "${REBASE:-0}" = 1 ] && kind="Re-baseline"
+git "${id[@]}" commit -qm "$kind: $branch ($line)"
 if git push -q origin HEAD:refs/heads/main; then
   say "PROMOTED: main is $(git rev-parse --short HEAD). The final runner picks it up within ~5 minutes (unless .freeze)."
 else

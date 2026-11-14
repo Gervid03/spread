@@ -76,6 +76,11 @@ worlds each. It promotes one arm only if it beats v3 without a worse tail. (`cap
 14-minute steps and event-driven evenings make practice worlds 20–40% cheaper without changing what they measure.
 Practice slots are the lab's bottleneck, so this is the cheapest capacity there is.
 
+**6b. Faster practice, once the final-champion study is done.** When INPUT.md shows the `final-champion` worker
+finished, copy `experiments/prompts/night2/rebase-capacity.md` into `night-queue/`, once. It re-baselines the champion
+on 14-minute steps with event-driven evenings: neutral on margin (+€26 ± 149), +61% worlds per hour (n14-06041). Don't
+run it before then, because it would change the baseline under that study.
+
 **7. Promotion.** `01-validate-top` runs A, 03111, 03501 and the best v7 stack on holdout plus 32 fresh worlds,
 checks a restart and `step_min=3`, and promotes the winner through `scripts/promote.sh` (gated against the
 champion on dev, holdout and a restart). Nobody else touches `champion/` or `main`. To promote a later winner,
