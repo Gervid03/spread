@@ -6,6 +6,7 @@ against the champion of the time, on the 16 dev worlds unless a set is named (±
 Promotions are in [PROMOTIONS.md](PROMOTIONS.md); round 3 (ideas 15–30) is in `docs/HANDOFF.md`.
 
 ## Update Sat 13:40 Helsinki (laptop lead)
+- **The 14:00 test final does not start on Monday.** World faa312d87508a2987baef, set at 13:45: at the start its clock is already **Thu 00:00** (now 4320, endsAt 14280), with Mon-Wed pre-played: 614 price requests, all 614 `order_lost` (we had no desk there), one forecast (snow in Kemi/Oulu/Rovaniemi Tue). So the desk joins Thursday with 0 orders, 0 trust, and three days of 0% win share behind it (by tas-state's law the competitor has raised on every busy dealer each morning). If the Sun 08:00 final does the same, Thursday-first play (no Monday warm-up, the Friday-is-last endgame) is what matters. Every event, a snapshot a minute and the score are dumped on Verda to `/home/lab/final-logs/<worldId>/` by `/home/lab/final_watch.py` (read-only, a separate process).
 - **Champion v6 = cp-supervisor on v5** (f817abe, promoted 13:18): dev +€195 ± 93 (t 2.11), holdout +€187 ± 110, holdout on-time min 94.8%. Verda pulled it at 13:20; it plays the 14:00 test final.
 - cp-chains re-measured on v5: stacked dev t 2.75, night-32 32/32 safe (not promoted yet; must now gate on v6).
 - TAS: step 0 green on v5 (to the cent, 0 CHECK, ~600-1,000 forks/min). Layer 1 on dev-12: the same 246 orders at each dealer's limit = €14,572.94, +€3,662 (+33.6%) with driver_fee identical: **pricing alone leaves about a third of the margin**.
