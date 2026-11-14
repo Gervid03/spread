@@ -83,7 +83,7 @@ class Params:
     floored_sd_prem: float = 0.0      # if > 0, keep same_day >= next_day * (1 + prem) when next_day hits floor
     trust_center_slope: float = 0.0   # if > 0, zero-drift centered trust multiplier exp(slope * (trust - trust_ema))
     trust_ema_alpha: float = 0.05     # EMA step for mean quoted dealer trust when trust_center_slope > 0
-    floored_sd_prem: float = 0.0      # minimum relative premium of same_day over slower options on multi-option quotes
+    uncond_sd_prem: float = 0.0       # minimum relative premium of same_day over slower options on multi-option quotes
     inbound_hub_disc: float = 0.0     # price discount on non-hub (<200) -> hub (>=200) return legs matching competitor cost
     inbound_hub_fee_mult: float = 0.0 # if > 0, expected_fee_mult for the floor on non-private non-hub (<200) -> hub (>=200)
     outbound_markup: float = 0.0      # price markup on hub->nonhub and long (>=180m) ->nonhub (1.5x when both)
@@ -110,6 +110,7 @@ class Params:
     live_from_min: int = 0            # practice only: the desk sits out until this minute, as in a live final it joins late
                                       # (the Sat 14:00 test final started at Thu 00:00 = 4320 with Mon-Wed lost); 0 = off
     max_next_day_drive_min: int = 0   # if > 0 and drive > this, drop options with deadline <= ready day + 1
+    next_day_biz_check: bool = False  # use shift_business_days(ready, 1) so Fri-ready -> Mon-due counts as next_day
     thin_long_next_day_supply: int = 0  # if > 0, non-ring pickup with supply < this and drive > long_drive_min drops next_day
     fri_same_day_max_drive: int = 0   # if > 0, on Friday (ready // DAY >= 4), drop same_day with drive >= this
     priv_pickup_min_slot_min: int = 0 # if > 0, decline/drop private pickups whose slot ends < this min after respondBy
@@ -214,6 +215,10 @@ class Params:
     net_relay_max_home_km: float = 0.0  # > 0: require B.delivery within this many km of A.pickup (true round-trip)
     net_relay_max_splits: int = 2     # max failed relay splits per order (0 = unlimited)
     net_relay_preserve_age: bool = True  # preserve car's first-posting age on rising schedule after split
+    net_guard_on_time: float = 0.0    # > 0: pause thin network admission/seeding & non-RT relays when projected OT < this
+    net_max_urgent: int = 0           # > 0: pause thin network admission/seeding & non-RT relays when open urgent >= this
+    net_surge_unstaffed: int = 0      # > 0: pause thin network admission/seeding & non-RT relays when unstaffed_total >= this
+    live_fast_tick: bool = False      # skip redundant same-(now, state_seq) relay/net_offer ticks & empty flushes
     lead_car_allow_benign_notes: bool = False
     lead_car_cross_slow: bool = False
     # --- handling rules -----------------------------------------------------------------------------
@@ -482,10 +487,29 @@ class Desk:
         self.relay_quote_reqs: set[str] = set()
         self.relay_quote_partner: dict[str, str] = {}
         self.relay_won_day: Counter = Counter()
+        self._state_seq: int = 0
+        self._last_relay_key: tuple[int, int] = (-1, -1)
+        self._last_net_offer_key: tuple[int, int] = (-1, -1)
+
+    def _net_stressed(self) -> bool:
+        p = self.p
+        if p.net_guard_on_time > 0 and self.projected_on_time() < p.net_guard_on_time:
+            return True
+        if p.net_max_urgent > 0:
+            urg_open = sum(
+                1 for oid in self.urgent if oid in self.orders and undelivered(self.orders[oid]) and not self.staffed(self.orders[oid])
+            )
+            if urg_open >= p.net_max_urgent:
+                return True
+        if p.net_surge_unstaffed > 0 and self.unstaffed_total() >= p.net_surge_unstaffed:
+            return True
+        return False
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
         kind = event["kind"]
+        if kind not in ("price_request", "order_lost", "ledger", "forecast") and (kind != "gig_viewed" or self.p.net_viewer_offer):
+            self._state_seq += 1
         if self.p.live_from_min and self.now < self.p.live_from_min:
             # not there yet: remember what a late join's rejoin() would rebuild from the history, and nothing else
             if kind == "price_request":
@@ -1031,8 +1055,31 @@ class Desk:
         tod = self.now % DAY
         if not (7 * HOUR <= tod < 21 * HOUR):
             return
-        if p.net_offer and any(a["type"] == "post" for a in self.outbox):
-            self._flush_non_quotes()
+        pending_posts = [a for a in self.outbox if a["type"] == "post"]
+        if p.live_fast_tick and not pending_posts and (self.now, self._state_seq) == self._last_net_offer_key:
+            return
+        if p.net_offer and pending_posts:
+            should_flush = True
+            if p.live_fast_tick:
+                should_flush = False
+                for act in pending_posts:
+                    if not act["stops"]:
+                        continue
+                    s0 = act["stops"][0]
+                    ord0 = self.orders.get(s0["orderId"])
+                    if ord0 is None:
+                        continue
+                    pk0 = ord0["legs"][s0["leg"]]["pickup"]["placeId"]
+                    if any(
+                        not (pe.done and self.now > pe.planned_finish)
+                        and self.geo.line_km(pe.finish_place, pk0) <= p.net_km
+                        for pe in self.pos_ledger.values()
+                    ):
+                        should_flush = True
+                        break
+            if should_flush:
+                self._flush_non_quotes()
+        self._last_net_offer_key = (self.now, self._state_seq)
 
         day = self.now // DAY
         dd_counts = self._driver_gigs_on_day()
@@ -1584,13 +1631,17 @@ class Desk:
                 if want_return_hub and not pass_return_hub:
                     self.stats["return_hub_throttled"] += 1
             if not (pass_ext_ring or pass_return_hub) and p.net_relay_quote and self.level >= 3:
-                if self._relay_cap_available():
+                if self._net_stressed():
+                    self.stats["net_throttled"] += 1
+                elif self._relay_cap_available():
                     found_r = self._find_relay_partner_for_request(request, extra_days)
                     if found_r is not None:
                         relay_partner, relay_ok_kinds = found_r
                         pass_relay_quote = True
             if not (pass_ext_ring or pass_return_hub or pass_relay_quote) and p.net_quote and ready_pre is not None:
-                if self.net_won_day[self.now // DAY] < p.net_cap_day:
+                if self._net_stressed():
+                    self.stats["net_throttled"] += 1
+                elif self.net_won_day[self.now // DAY] < p.net_cap_day:
                     net_sponsor = self._find_net_sponsor(request, ready_pre, drive, extra_days, thin_admission=True)
                     pass_net_thin = net_sponsor is not None
             if not (pass_ext_ring or pass_return_hub or pass_relay_quote or pass_net_thin):
@@ -1646,7 +1697,7 @@ class Desk:
             )
 
         is_seed = False
-        if p.net_seed > 0 and self.now >= 12 * HOUR and supply >= 100 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) < 100 and (p.seed_max_drive_min <= 0 or drive <= p.seed_max_drive_min):
+        if p.net_seed > 0 and not self._net_stressed() and self.now >= 12 * HOUR and supply >= 100 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) < 100 and (p.seed_max_drive_min <= 0 or drive <= p.seed_max_drive_min):
             deliv_place = legs[-1]["delivery"]["placeId"]
             is_seed = any(
                 cnt >= p.seed_min and self.geo.line_km(deliv_place, pl) <= 30.0
@@ -1755,12 +1806,13 @@ class Desk:
                     continue
             if fri_thin_only and deadline // DAY < 7:
                 continue
+            nd_limit_day = (shift_business_days(eff_ready, 1) // DAY) if p.next_day_biz_check else (eff_ready // DAY + 1)
             if p.max_next_day_drive_min > 0 and drive > p.max_next_day_drive_min and not (fri_thin_only and deadline // DAY >= 7):
-                if deadline // DAY <= eff_ready // DAY + 1:
+                if deadline // DAY <= nd_limit_day:
                     self.stats["dropped_next_day_long"] += 1
                     continue
             if p.thin_long_next_day_supply > 0 and not is_ring and supply < p.thin_long_next_day_supply and drive > p.long_drive_min and not (fri_thin_only and deadline // DAY >= 7) and not unblock_long_nd:
-                if deadline // DAY <= eff_ready // DAY + 1:
+                if deadline // DAY <= nd_limit_day:
                     self.stats["dropped_thin_long_next_day"] += 1
                     continue
             if eff_fri_sd_drive > 0 and eff_ready // DAY >= 4 and option["kind"] == "same_day" and drive >= eff_fri_sd_drive:
@@ -1872,9 +1924,9 @@ class Desk:
         if inb_saved:
             self.inb_floor_saved_reqs.add(request["id"])
             self.stats["inb_floor_saved"] += 1
-        if p.floored_sd_prem > 0 and "same_day" in prices and len(prices) > 1:
+        if p.uncond_sd_prem > 0 and "same_day" in prices and len(prices) > 1:
             slow_min = min(v for k, v in prices.items() if k != "same_day")
-            min_sd = int(slow_min * (1.0 + p.floored_sd_prem) + 0.5)
+            min_sd = int(slow_min * (1.0 + p.uncond_sd_prem) + 0.5)
             if prices["same_day"] < min_sd:
                 prices["same_day"] = min_sd
                 self.stats["floored_sd_lifted"] += 1
@@ -2817,6 +2869,9 @@ class Desk:
 
     def _tick_relay(self) -> None:
         p = self.p
+        if p.live_fast_tick and not self.newly_won_relay and (self.now, self._state_seq) == self._last_relay_key:
+            return
+        stressed = self._net_stressed()
         for gid, info in list(self.relay_gigs.items()):
             if gid in self.booked:
                 continue
@@ -2824,11 +2879,13 @@ class Desk:
             if any(oid not in self.orders or oid in self.urgent or oid in self.lost or not undelivered(self.orders[oid]) for oid in oids):
                 self._split_relay_gig(gid, "urgent")
                 continue
-            if daytime_minutes(info["unbooked_since"], self.now, p.day_start, p.day_end) >= p.net_relay_patience_min:
+            pat = min(p.net_relay_patience_min, 15) if (stressed and not info.get("roundtrip", False)) else p.net_relay_patience_min
+            if daytime_minutes(info["unbooked_since"], self.now, p.day_start, p.day_end) >= pat:
                 self._split_relay_gig(gid, "patience")
 
         new_set = set(self.newly_won_relay)
         self.newly_won_relay.clear()
+        self._last_relay_key = (self.now, self._state_seq)
         waiting = self._waiting_single_orders()
         if len(waiting) < 2:
             return
@@ -2871,6 +2928,8 @@ class Desk:
                 last_start, total_drive = feas
                 thin_b = 0 if (oid_b in self.relay_quote_reqs or self.gate_supply.get(sb.place_p, 0) < p.min_supply) else 1
                 home_gap = round(self.geo.line_km(sb.place_d, sa.place_p), 2)
+                if stressed and home_gap > 35.0 and oid_b not in self.relay_quote_reqs:
+                    continue
                 mid_gap = round(self.geo.line_km(sa.place_d, sb.place_p), 2)
                 cand_pairs.append((thin_b, home_gap, mid_gap, total_drive, oid_a, oid_b, last_start))
 
@@ -2907,6 +2966,8 @@ class Desk:
             self.outbox.append(post_action)
             self.stats["posts"] += 1
             self._flush_non_quotes()
+            self._state_seq += 1
+            self._last_relay_key = (self.now, self._state_seq)
             gigs_a = self.gigs_of(oid_a)
             gigs_b = self.gigs_of(oid_b)
             if len(gigs_a) == 1 and gigs_a == gigs_b:
@@ -2919,6 +2980,7 @@ class Desk:
                     "single_open_sum": single_open_sum,
                     "ref_sum": ref_sum,
                     "thin_b": is_thin_b,
+                    "roundtrip": home_gap <= 35.0,
                 }
                 self.relay_ever_paired.update((oid_a, oid_b))
                 self.stats["relay_paired"] += 1
