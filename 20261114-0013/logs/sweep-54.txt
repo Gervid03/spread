@@ -2,3 +2,34 @@
 # started 2026-11-14T05:41:05Z
 
 === fee_warn=1.45,dealer_lr=0.01
+  mean margin €9,313.87  (median €9,166.59, min €6,663.61)  ranked 16/16  on time min 94.1% mean 96.4%  won 234  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+323.57 ± 231.82 (SE) t=1.4  better on 10, worse on 6  Δon-time -0.32%
+
+=== fee_warn=1.45,dealer_lr=0.015
+  mean margin €9,279.65  (median €8,630.51, min €6,356.18)  ranked 16/16  on time min 92.9% mean 96.2%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+289.34 ± 290.59 (SE) t=1.0  better on 9, worse on 7  Δon-time -0.52%
+
+=== fee_warn=1.45,dealer_lr=0.02
+  mean margin €9,315.55  (median €8,899.65, min €6,766.30)  ranked 16/16  on time min 93.6% mean 96.3%  won 233  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+325.25 ± 222.11 (SE) t=1.46  better on 11, worse on 5  Δon-time -0.42%
+
+=== fee_warn=1.50,dealer_lr=0.01
+  mean margin €9,457.83  (median €8,570.99, min €6,600.28)  ranked 16/16  on time min 94.6% mean 96.4%  won 235  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+467.52 ± 190.28 (SE) t=2.46  better on 11, worse on 5  Δon-time -0.34%
+
+=== fee_warn=1.50,dealer_lr=0.015
+  mean margin €9,190.74  (median €9,138.42, min €5,884.81)  ranked 16/16  on time min 93.7% mean 96.5%  won 234  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+200.43 ± 263.12 (SE) t=0.76  better on 10, worse on 6  Δon-time -0.27%
+
+=== fee_warn=1.50,dealer_lr=0.02
+  mean margin €9,118.17  (median €8,748.92, min €6,028.20)  ranked 16/16  on time min 93.4% mean 96.3%  won 233  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+127.86 ± 228.51 (SE) t=0.56  better on 8, worse on 8  Δon-time -0.48%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  fee_warn=1.50,dealer_lr=0.01                       €     9,458  on-time min 94.6%  SAFE  Δ €+468±190  20261114-054507-n-s140-fw145-dlr-fee_warn1.50-dealer_lr0.01
+  fee_warn=1.45,dealer_lr=0.02                       €     9,316  on-time min 93.6%  SAFE  Δ €+325±222  20261114-054320-n-s140-fw145-dlr-fee_warn1.45-dealer_lr0.02
+  fee_warn=1.45,dealer_lr=0.01                       €     9,314  on-time min 94.1%  SAFE  Δ €+324±232  20261114-054106-n-s140-fw145-dlr-fee_warn1.45-dealer_lr0.01
+  fee_warn=1.45,dealer_lr=0.015                      €     9,280  on-time min 92.9%  SAFE  Δ €+289±291  20261114-054148-n-s140-fw145-dlr-fee_warn1.45-dealer_lr0.015
+  fee_warn=1.50,dealer_lr=0.015                      €     9,191  on-time min 93.7%  SAFE  Δ €+200±263  20261114-054550-n-s140-fw145-dlr-fee_warn1.50-dealer_lr0.015
+  fee_warn=1.50,dealer_lr=0.02                       €     9,118  on-time min 93.4%  SAFE  Δ €+128±229  20261114-054636-n-s140-fw145-dlr-fee_warn1.50-dealer_lr0.02
+# exit 0 at 2026-11-14T05:47:24Z

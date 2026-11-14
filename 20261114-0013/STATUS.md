@@ -1,4 +1,4 @@
-# Night status, 2026-11-14 05:41 UTC (ends 2026-11-14T10:13:17Z)
+# Night status, 2026-11-14 06:01 UTC (ends 2026-11-14T10:13:17Z)
 
 ## Workers
 
@@ -59,13 +59,15 @@
 | n14-05021-morning-reset-and-exact-trust-on-v7 | 05:03 | done 05:35 (32 min) | 32 | no |  |
 | n14-05022-stack-v9-grand-v7-extring-leadcar-budget | 05:08 | done 05:35 (26 min) | 48 | no | Dev paired delta: `Δmargin €+1,779.99 ± 258.50 (SE), t = 6.89` (mean `€10,770.30`, median `€10,201.17`, min `€7,721.60`, 15/16 better vs Champion v2; `+€122.23/ |
 | n14-05023-two-slope-multiday-hold-on-v7 | 05:09 | done 05:30 (20 min) | 33 | no | dev (`v7-convex-hubsd-dev` vs champion v2): Δmargin €+1,522.29 ± 267.79 (t=5.68, 14/2, mean €10,512.60, all-time record min €8,096.61, driver_fee -€355.50/wk vs |
-| n14-05024-undelivered-rescue-and-window-gate-on-v7 | 05:11 | running | 50 | no |  |
-| n14-05161-validate-top | 05:16 | running | 58 | no |  |
-| n14-05162-thin-volume | 05:30 | running | 34 | no |  |
-| n14-05163-triage | 05:35 | running | 29 | no |  |
-| n14-05164-thermostat | 05:35 | running | 25 | no |  |
+| n14-05024-undelivered-rescue-and-window-gate-on-v7 | 05:11 | done 05:56 (44 min) | 65 | yes | Dev paired delta: `€+1,595.88 ± 279.27` (`t = 5.71`, 15/1 better vs Champion v2, mean `€10,586.19`, `undelivered_penalty` `-€64.00 -> -€20.16/wk`, worst on-time |
+| n14-05161-validate-top | 05:16 | running | 70 | no |  |
+| n14-05162-thin-volume | 05:30 | running | 59 | no |  |
+| n14-05163-triage | 05:35 | done 05:57 (22 min) | 54 | yes | dev mean margin €10,842.27: vs A Δmargin €+264.35 ± 63.80 (t=4.14, 13/16 better, Δon-time -0.27%), vs champion Δmargin €+1,851.96 ± 217.66 (t=8.51, 16/16 better |
+| n14-05164-thermostat | 05:35 | running | 39 | no |  |
+| n14-05165-research-volume | 05:56 | running | 23 | no |  |
+| n14-05166-quota | 05:57 | running | 20 | no |  |
 
-Queued prompts: 05165-research-volume.md, 05166-quota.md
+Queued prompts: none
 
 ## Sweeps started (in order; logs/sweep-NN.txt has each table)
 
@@ -123,6 +125,8 @@ Queued prompts: 05165-research-volume.md, 05166-quota.md
 52. `sweep --seeds-from dev --name n-s140-fw145-step30 -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g fee_warn=1.42,1.45,1.48 -g fee_step_min=25,30`
 53. `sweep --seeds-from dev --name n-s140-ptw40-ms22-fw -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s price_target_win=0.40 -g min_supply=22,25 -g fee_warn=1.45,1.50,1.60`
 54. `sweep --seeds-from dev --name n-s140-fw145-dlr -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=30 -g fee_warn=1.45,1.50 -g dealer_lr=0.01,0.015,0.02`
+55. `sweep --seeds-from dev --name n-s140-ptw40-ms25-step -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s price_target_win=0.40 -s min_supply=25 -g fee_warn=1.45,1.50 -g fee_step_min=20,25,30`
+56. `sweep --seeds-from dev --name n-slack140-sdsup-steep -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s steep_open=1.5 -g fee_warn=1.45,1.50 -g fee_step_min=20,25,30`
 
 ## Every evaluation since the night began
 
@@ -403,4 +407,17 @@ Champion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds 
 | 20261114-053757-n-s140-ptw40-ms22-fw-min_supply25-fee_warn1.45 | 16 | 9,221 | 6,692 | 92.5% | SAFE | +231 ± 264 (t +0.9, 11/16 better) |
 | 20261114-053858-n-s140-ptw40-ms22-fw-min_supply25-fee_warn1.50 | 16 | 9,150 | 6,151 | 91.6% | no | +159 ± 315 (t +0.5, 10/16 better) |
 | 20261114-053934-n-s140-ptw40-ms22-fw-min_supply25-fee_warn1.60 | 16 | 9,431 | 5,970 | 92.7% | SAFE | +440 ± 270 (t +1.6, 12/16 better) |
-| 20261114-054106-n-s140-fw145-dlr-fee_warn1.45-dealer_lr0.01 | 0 failed | | | | | |
+| 20261114-054106-n-s140-fw145-dlr-fee_warn1.45-dealer_lr0.01 | 16 | 9,314 | 6,664 | 94.1% | SAFE | +324 ± 232 (t +1.4, 10/16 better) |
+| 20261114-054148-n-s140-fw145-dlr-fee_warn1.45-dealer_lr0.015 | 16 | 9,280 | 6,356 | 92.9% | SAFE | +289 ± 291 (t +1.0, 9/16 better) |
+| 20261114-054320-n-s140-fw145-dlr-fee_warn1.45-dealer_lr0.02 | 16 | 9,316 | 6,766 | 93.6% | SAFE | +325 ± 222 (t +1.5, 11/16 better) |
+| 20261114-054507-n-s140-fw145-dlr-fee_warn1.50-dealer_lr0.01 | 16 | 9,458 | 6,600 | 94.6% | SAFE | +468 ± 190 (t +2.5, 11/16 better) |
+| 20261114-054550-n-s140-fw145-dlr-fee_warn1.50-dealer_lr0.015 | 16 | 9,191 | 5,885 | 93.7% | SAFE | +200 ± 263 (t +0.8, 10/16 better) |
+| 20261114-054636-n-s140-fw145-dlr-fee_warn1.50-dealer_lr0.02 | 16 | 9,118 | 6,028 | 93.4% | SAFE | +128 ± 229 (t +0.6, 8/16 better) |
+| 20261114-054811-n-s140-ptw40-ms25-step-fee_warn1.45-fee_step_min20 | 16 | 9,330 | 5,871 | 91.9% | no | +339 ± 262 (t +1.3, 12/16 better) |
+| 20261114-054902-n-s140-ptw40-ms25-step-fee_warn1.45-fee_step_min25 | 16 | 9,200 | 5,945 | 92.6% | SAFE | +210 ± 303 (t +0.7, 9/16 better) |
+| 20261114-055049-n-s140-ptw40-ms25-step-fee_warn1.45-fee_step_min30 | 16 | 9,221 | 6,692 | 92.5% | SAFE | +231 ± 264 (t +0.9, 11/16 better) |
+| 20261114-055318-n-s140-ptw40-ms25-step-fee_warn1.50-fee_step_min20 | 16 | 9,422 | 6,744 | 91.9% | no | +432 ± 283 (t +1.5, 12/16 better) |
+| 20261114-055447-n-s140-ptw40-ms25-step-fee_warn1.50-fee_step_min25 | 16 | 9,168 | 5,066 | 91.4% | no | +178 ± 383 (t +0.5, 11/16 better) |
+| 20261114-055731-n-s140-ptw40-ms25-step-fee_warn1.50-fee_step_min30 | 16 | 9,150 | 6,151 | 91.6% | no | +159 ± 315 (t +0.5, 10/16 better) |
+| 20261114-055953-n-slack140-sdsup-steep-fee_warn1.45-fee_step_min20 | 16 | 9,158 | 6,482 | 93.4% | SAFE | +168 ± 203 (t +0.8, 10/16 better) |
+| 20261114-060120-n-slack140-sdsup-steep-fee_warn1.45-fee_step_min25 (running) | 14 | 9,438 | 7,046 | 93.2% | no | +479 ± 179 (t +2.7, 9/14 better) |

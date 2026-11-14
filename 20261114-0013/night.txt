@@ -195,3 +195,11 @@
 05:35:45 worker n14-05164-thermostat started (pid 53939)
 05:36:05 sweep 53 started: sweep --seeds-from dev --name n-s140-ptw40-ms22-fw -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s price_target_win=0.40 -g min_supply=22,25 -g fee_warn=1.45,1.50,1.60
 05:41:05 sweep 54 started: sweep --seeds-from dev --name n-s140-fw145-dlr -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=30 -g fee_warn=1.45,1.50 -g dealer_lr=0.01,0.015,0.02
+05:41:11 published to night/20261114
+05:48:11 sweep 55 started: sweep --seeds-from dev --name n-s140-ptw40-ms25-step -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s price_target_win=0.40 -s min_supply=25 -g fee_warn=1.45,1.50 -g fee_step_min=20,25,30
+05:56:11 worker n14-05024-undelivered-rescue-and-window-gate-on-v7 finished after 44 min
+05:56:11 worker n14-05165-research-volume started (pid 57031)
+05:57:31 worker n14-05163-triage finished after 22 min
+05:57:31 worker n14-05166-quota started (pid 57219)
+05:57:53 lead tick started (pid 57370)
+05:59:53 sweep 56 started: sweep --seeds-from dev --name n-slack140-sdsup-steep -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s steep_open=1.5 -g fee_warn=1.45,1.50 -g fee_step_min=20,25,30
