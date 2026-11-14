@@ -198,20 +198,28 @@ class Params:
     lim_post_outage_snap: float = 0.0 # 0..1: 08:00 snap-down of outage-inflated mult toward yesterday's clean open
     lim_fri_war_unfreeze: bool = True # when lim_events: unfreeze Friday loss streak on healthy board (floor still guards)
     lim_dealer: bool = False          # zero-drift centered trust + wider dealer_adj bounds + cold-join calibration
-    lim_trust_slope: float = 0.0035   # log-price slope on (dealer_trust[d] - lim_trust_ema) at level >= 8
+    lim_trust_slope: float = 0.0030   # log-price slope on (dealer_trust[d] - lim_trust_ema) at level >= 8
     lim_trust_ema_alpha: float = 0.05 # online EMA rate of quoted dealer trust
     lim_comp_step: float = 0.0        # 08:00 log-step on dealer_adj after <30% (+step) or >=70% (-step) on >=10-req dealer
-    lim_dealer_adj_min: float = 0.80  # wider dealer_adj floor when lim_dealer=True
-    lim_dealer_adj_max: float = 1.40  # wider dealer_adj cap when lim_dealer=True
+    lim_dealer_adj_min: float = 0.85  # dealer_adj floor when lim_dealer=True
+    lim_dealer_adj_max: float = 1.30  # dealer_adj cap when lim_dealer=True
     lim_deadband_cap: float = 0.64    # Mon-Thu busy-dealer projected win-share threshold to add cliff guard bump
     lim_deadband_bump: float = 0.0    # fractional price bump when busy dealer approaches 70% competitor price-cut cliff
     lim_cold_join_mult: float = 1.50  # mult floor upon mid-week cold start (>=250 prior lost requests, 0 won orders)
+    lim_world_lane: bool = False      # online tracker for world-specific pickup/delivery/corridor limit factors
+    lim_pick_lr: float = 0.006        # online step rate for world-specific pickup place multiplier
+    lim_deliv_lr: float = 0.008       # online step rate for world-specific delivery place multiplier
+    lim_pair_lr: float = 0.006        # online step rate for world-specific (pickup, delivery) corridor multiplier
+    lim_place_min: float = 0.90       # lower clamp on world-specific place/corridor multiplier
+    lim_place_max: float = 1.14       # upper clamp on world-specific place/corridor multiplier
+    lim_wlane_pos_unstaffed: int = 12 # min active unstaffed orders before w_lane > 1.0 rations over-won towns
     lim_corridor: bool = False        # state-gated out-of-sample lane factor + inbound-to-hub floor + floor sd spread
     lim_lane_neg_w: float = 0.55      # weight on negative lane_eff (inbound) when fleet has surplus capacity
     lim_cong_pos_w: float = 0.0       # weight on positive lane_eff (outbound) when fleet is congested
     lim_lane_comp_slope: float = 2.2  # target-win slope compensation in learn() so lane_mult induces zero mult drift
     lim_inb_fee_mult: float = 1.08    # expected_fee_mult for non-hub -> hub (supply>=200) floor when fleet has surplus
     lim_inb_max_unstaffed: int = 16   # max active unstaffed orders to allow inbound lane/floor discounting
+    lim_inb_max_daily_pace: float = 65.5  # max won-orders/day pace (after Mon) to allow inbound volume discounting
     lim_inb_min_ot: float = 0.945     # min projected_on_time to allow inbound lane/floor discounting
     lim_floored_sd_prem: float = 0.10 # min (same_day / next_day - 1) spread when quote hits margin floor
     # --- practice runner ----------------------------------------------------------------------------
@@ -319,6 +327,9 @@ class Desk:
         self.lim_deadband_reqs: set[str] = set()
         self.lim_cold_join_checked: bool = False
         self.lim_req_lane_mult: dict[str, float] = {}
+        self.lim_pick_adj: dict[str, float] = defaultdict(lambda: 1.0)
+        self.lim_deliv_adj: dict[str, float] = defaultdict(lambda: 1.0)
+        self.lim_pair_adj: dict[tuple[str, str], float] = defaultdict(lambda: 1.0)
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -906,16 +917,39 @@ class Desk:
         lane_mult = 1.0
         inb_surplus_ok = False
         is_inb_to_hub = False
-        if p.lim_corridor:
+        if p.lim_corridor or (p.lim_world_lane and self.level >= 6):
             dest_place = legs[-1]["delivery"]["placeId"]
             unstaffed_now = sum(1 for o in self.orders.values() if undelivered(o) and not self.staffed(o))
-            inb_surplus_ok = (unstaffed_now <= p.lim_inb_max_unstaffed and self.projected_on_time() >= p.lim_inb_min_ot)
+            eff_max_u = (
+                min(p.lim_inb_max_unstaffed, max(3, p.sup_fri_max_backlog - 1))
+                if (p.supervisor and cur_day == 3 and cur_tod >= 12 * HOUR)
+                else p.lim_inb_max_unstaffed
+            )
+            pace_ok = True
+            if p.lim_inb_max_daily_pace > 0 and cur_day >= 1:
+                day_frac = clamp((cur_tod - 8 * HOUR) / (10.0 * HOUR), 0.0, 1.0)
+                pace_ok = len(self.orders) <= p.lim_inb_max_daily_pace * (cur_day + day_frac)
+            inb_surplus_ok = (
+                tight == 0.0
+                and pace_ok
+                and unstaffed_now <= eff_max_u
+                and self.projected_on_time() >= p.lim_inb_min_ot
+            )
             is_inb_to_hub = (supply < 200 and self.supply.get(dest_place, 0) >= 200)
-            eff = LIM_LANE_PICKUP.get(pickup, 0.0) + LIM_LANE_DELIVERY.get(dest_place, 0.0)
-            if eff < 0.0 and inb_surplus_ok and p.lim_lane_neg_w > 0:
-                lane_mult = clamp(math.exp(p.lim_lane_neg_w * eff), 0.86, 1.0)
-            elif eff > 0.0 and not inb_surplus_ok and p.lim_cong_pos_w > 0:
-                lane_mult = clamp(math.exp(p.lim_cong_pos_w * eff), 1.0, 1.10)
+            if p.lim_corridor:
+                eff = LIM_LANE_PICKUP.get(pickup, 0.0) + LIM_LANE_DELIVERY.get(dest_place, 0.0)
+                if eff < 0.0 and inb_surplus_ok and p.lim_lane_neg_w > 0:
+                    lane_mult *= clamp(math.exp(p.lim_lane_neg_w * eff), 0.86, 1.0)
+                elif eff > 0.0 and not inb_surplus_ok and p.lim_cong_pos_w > 0:
+                    lane_mult *= clamp(math.exp(p.lim_cong_pos_w * eff), 1.0, 1.10)
+            if p.lim_world_lane and self.level >= 6:
+                raw_w = self.lim_pick_adj[pickup] * self.lim_deliv_adj[dest_place] * self.lim_pair_adj[(pickup, dest_place)]
+                w_lane = clamp(raw_w, p.lim_place_min, p.lim_place_max)
+                if w_lane < 1.0 and not inb_surplus_ok:
+                    w_lane = 1.0
+                elif w_lane > 1.0 and unstaffed_now < p.lim_wlane_pos_unstaffed:
+                    w_lane = 1.0
+                lane_mult *= w_lane
             if lane_mult != 1.0:
                 mult *= lane_mult
 
@@ -939,6 +973,7 @@ class Desk:
 
         prices: dict[str, int] = {}
         floored = False
+        nd_floored = False
         inb_floor_saved = False
         for option in request["options"]:
             ring_hub_sd = False
@@ -998,17 +1033,17 @@ class Desk:
                 option_mult *= (1.0 - p.return_hub_discount)
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            if price < std_floor:
-                floored = True
-                if eff_floor < std_floor and price < std_floor:
-                    inb_floor_saved = True
+            if eff_floor < std_floor and price < std_floor:
+                inb_floor_saved = True
             if price < eff_floor:
-                price = eff_floor
+                price, floored = eff_floor, True
+                if option["kind"] == "next_day":
+                    nd_floored = True
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
-        if p.lim_corridor and p.lim_floored_sd_prem > 0 and floored and "same_day" in prices and "next_day" in prices:
-            min_sd = int(round(prices["next_day"] * (1.0 + p.lim_floored_sd_prem)))
+        if p.lim_corridor and p.lim_floored_sd_prem > 0 and nd_floored and "same_day" in prices and "next_day" in prices:
+            min_sd = int(prices["next_day"] * (1.0 + p.lim_floored_sd_prem) + 0.5)
             if prices["same_day"] < min_sd:
                 prices["same_day"] = min_sd
                 self.stats["lim_sd_prem_lifted"] += 1
@@ -1064,7 +1099,7 @@ class Desk:
         if self.loss_streak > self.day_max_streak[day]:
             self.day_max_streak[day] = self.loss_streak
         eff_target = p.price_target_win
-        if p.lim_corridor and p.lim_lane_comp_slope > 0:
+        if (p.lim_corridor or p.lim_world_lane) and p.lim_lane_comp_slope > 0:
             lm = self.lim_req_lane_mult.get(request_id, 1.0)
             if lm != 1.0:
                 eff_target = clamp(p.price_target_win - p.lim_lane_comp_slope * math.log(lm), 0.15, 0.70)
@@ -1089,6 +1124,26 @@ class Desk:
             old_d = self.dealer_adj[dealer]
             self.dealer_adj[dealer] = clamp(old_d * math.exp(p.dealer_lr * step), d_min, d_max)
             d_log_dlr = math.log(self.dealer_adj[dealer] / old_d) if old_d > 0 else 0.0
+            if p.lim_world_lane and self.level >= 6:
+                dest_w = req["legs"][-1]["delivery"]["placeId"]
+                if p.lim_pick_lr > 0:
+                    self.lim_pick_adj[pickup] = clamp(
+                        self.lim_pick_adj[pickup] * math.exp(p.lim_pick_lr * step),
+                        p.lim_place_min,
+                        p.lim_place_max,
+                    )
+                if p.lim_deliv_lr > 0:
+                    self.lim_deliv_adj[dest_w] = clamp(
+                        self.lim_deliv_adj[dest_w] * math.exp(p.lim_deliv_lr * step),
+                        p.lim_place_min,
+                        p.lim_place_max,
+                    )
+                if p.lim_pair_lr > 0:
+                    self.lim_pair_adj[(pickup, dest_w)] = clamp(
+                        self.lim_pair_adj[(pickup, dest_w)] * math.exp(p.lim_pair_lr * step),
+                        p.lim_place_min,
+                        p.lim_place_max,
+                    )
 
         if p.lim_events and self.level >= 6 and day <= 4:
             outs = self.lim_day_outcomes[day]
@@ -1984,6 +2039,25 @@ class Desk:
                             break
                 if self.lim_outage_day >= 0:
                     break
+        if self.p.lim_world_lane and self.level >= 6:
+            p = self.p
+            for e in history:
+                if e["kind"] in ("order_won", "order_lost"):
+                    rid_e = e["order"]["id"] if e["kind"] == "order_won" else e["requestId"]
+                    req_e = self.requests.get(rid_e)
+                    if req_e is None or rid_e in self.ext_ring_reqs:
+                        continue
+                    pk_e = req_e["legs"][0]["pickup"]["placeId"]
+                    if self.gate_supply.get(pk_e, 0) < p.min_supply:
+                        continue
+                    dl_e = req_e["legs"][-1]["delivery"]["placeId"]
+                    st_e = (1.0 - p.price_target_win) if e["kind"] == "order_won" else -p.price_target_win
+                    if p.lim_pick_lr > 0:
+                        self.lim_pick_adj[pk_e] = clamp(self.lim_pick_adj[pk_e] * math.exp(p.lim_pick_lr * st_e), p.lim_place_min, p.lim_place_max)
+                    if p.lim_deliv_lr > 0:
+                        self.lim_deliv_adj[dl_e] = clamp(self.lim_deliv_adj[dl_e] * math.exp(p.lim_deliv_lr * st_e), p.lim_place_min, p.lim_place_max)
+                    if p.lim_pair_lr > 0:
+                        self.lim_pair_adj[(pk_e, dl_e)] = clamp(self.lim_pair_adj[(pk_e, dl_e)] * math.exp(p.lim_pair_lr * st_e), p.lim_place_min, p.lim_place_max)
         ratios = []  # the price level of the latest wins, so a restarted desk does not relearn from the prior
         for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"])[-30:]:
             req_o = self.requests[order["id"]]
@@ -1995,6 +2069,10 @@ class Desk:
                 denom = float(option["listPriceCents"])
                 if self.p.lim_dealer and self.p.lim_trust_slope > 0 and self.level >= 8:
                     denom *= math.exp(self.p.lim_trust_slope * (self.dealer_trust[req_o["dealerId"]] - self.lim_trust_ema))
+                if self.p.lim_world_lane and self.level >= 6:
+                    pk_o = req_o["legs"][0]["pickup"]["placeId"]
+                    dl_o = req_o["legs"][-1]["delivery"]["placeId"]
+                    denom *= clamp(self.lim_pick_adj[pk_o] * self.lim_deliv_adj[dl_o] * self.lim_pair_adj[(pk_o, dl_o)], self.p.lim_place_min, self.p.lim_place_max)
                 ratios.append(order["priceCents"] / denom)
         if ratios:
             self.mult = clamp(median(ratios), self.p.price_mult_min, self.p.price_mult_max)
