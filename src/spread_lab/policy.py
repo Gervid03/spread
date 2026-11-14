@@ -74,6 +74,10 @@ class Params:
     backlog_multiday_weight: float = 1.0  # weight in backlog_near for unurgent orders due on a future day
     backlog_in_flight_weight: float = 0.0  # weight in backlog_near for open unanswered non-declined quotes
     decline_mult: float = 4.0         # a decline quotes this times the list price
+    dense_supply: int = 0             # coplay: > 0 marks pickups with at least this 30 km supply as dense
+    dense_fee_mult: float = 0.0       # coplay: if > 0, expected fee multiple for dense pickups
+    dense_mult_cap: float = 0.0       # coplay: if > 0, the price multiplier for dense pickups is at most this
+    dense_cap_max_drive: int = 0      # coplay: if > 0, the cap applies only to dense->dense trips of at most this drive
     ext_ring_radius_km: float = 70.0  # extended ring radius for slow short/medium-drive orders
     ext_ring_min_supply: int = 0      # 0 = off; min drivers within ext_ring_radius_km to admit slow orders
     ext_ring_max_drive_min: int = 240 # max drive minutes for orders admitted via ext_ring_min_supply
@@ -419,6 +423,9 @@ class Desk:
             ]
         )
         fee = request["referenceFeeCents"] * p.expected_fee_mult
+        dense = p.dense_supply > 0 and self.supply.get(request["legs"][0]["pickup"]["placeId"], 0) >= p.dense_supply
+        if dense and p.dense_fee_mult > 0:
+            fee = request["referenceFeeCents"] * p.dense_fee_mult
         mult = self.mult * self.dealer_adj[request["dealerId"]]
         if p.trust_gain > 0:
             count = self.dealer_trust[request["dealerId"]]
@@ -481,6 +488,11 @@ class Desk:
                 self.ring_hub_same_day.add(request["id"])
 
             option_mult = mult
+            if dense and p.dense_mult_cap > 0:
+                dest_dense = self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= p.dense_supply
+                if p.dense_cap_max_drive <= 0 or (dest_dense and drive <= p.dense_cap_max_drive):
+                    option_mult = min(option_mult, p.dense_mult_cap)
+                    self.stats["dense_capped"] += 1
             if is_invest and slack >= 360:
                 option_mult *= (1 - p.trust_invest)
             if p.return_hub_discount > 0 and pass_return_hub and not pass_ext_ring:
