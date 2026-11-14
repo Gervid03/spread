@@ -52,6 +52,10 @@ OPEN = {1: 0.5, 2: 0.6, 3: 0.5, 4: 0.45, "c": 0.65}   # 1 = a homeward single (o
 SOLO, RESCUE = 0.9, 1.4
 LO, HI, STEPS = 0.4, 1.4, 3
 HOME_OFFER, POOL = 0.75, 40   # ride home: offered at 0.75x to drivers living near the delivery; a pool = 40+ drivers
+RET = {"ret6": 0.6, "ret9": 0.9}   # way back offered to the driver the minute they deliver the first car, at this x typical
+THIN = {"thin10": 1.0, "thin12": 1.2}   # his "driver first": thin-town cars (< 22 drivers near), paid up front
+THIN_MAX = 22
+OFF_OPEN = 0.75                    # offers arms: every car alone at 0.75x, raised to 0.9x after BUMP; offa/offu add offers
 geo = Geo(load_map(None))
 TAPE = tape(SEED)
 REQ = {r["id"]: r for r in TAPE["requests"]}
@@ -182,6 +186,8 @@ class Desk:
         self.open_offers = defaultdict(int)       # gig -> offers still open
         self.offers_today = Counter()             # (driver, day) -> offers sent
         self.offer_fee = {}
+        self.ret_wait = {}                        # ret arms: first car of a pair -> the second car, held
+        self.ret_offer = []                       # ret arms: (oid, driver) to offer once the post has a gig id
 
     def fee_mult(self, now):
         if self.arm in ("teach", "flat") and now >= DAY:
@@ -222,6 +228,19 @@ class Desk:
         return next((g for g, x in self.gigs.items() if oid in x["oids"]), None)
 
     def won(self, oid, now):
+        if self.arm in THIN:
+            return [self.post([oid], THIN[self.arm], "thin", now)]
+        if self.arm in ("off0", "offa", "offu"):
+            return [self.post([oid], OFF_OPEN, "offsolo", now)]
+        if self.arm in RET:
+            loop = self.loop_of[oid]
+            self.held.add(oid)
+            if any(i in self.lost for i in loop):
+                return [self.post([oid], SOLO, "broken", now)]
+            if all(i in self.held for i in loop):          # first car out now, the second waits for its delivery
+                self.ret_wait[loop[0]] = loop[1]
+                return [self.post([loop[0]], SOLO, "first", now)]
+            return []
         if self.arm.startswith("solo") or self.arm in ("teach", "flat"):
             if self.arm == "teach" and now < DAY:
                 self.search[oid] = {"lo": LO, "hi": HI, "m": HI, "steps": 0}
@@ -283,6 +302,14 @@ class Desk:
                 if e["orderId"] in self.orders:
                     retry = Retry(pickup_from=now + HOUR, manual_licence=e["reason"] == "licence", plates=e["reason"] == "no_plates")
                     out.append(self.post([e["orderId"]], RESCUE, "rescue", now, retry))
+            elif k == "delivered" and e["orderId"] in self.ret_wait:
+                b = self.ret_wait.pop(e["orderId"])
+                drv = self.driver.get(e["gigId"])
+                if b in self.held and b in self.orders:
+                    out.append(self.post([b], SOLO, "second", now))
+                    if drv:
+                        self.ret_offer.append((b, drv))
+                        self.log["ret_delivered_in_time"] += 1
             elif k == "ledger":
                 self.ledger.append(e["line"])
             elif k == "gig_viewed":
@@ -301,9 +328,10 @@ class Desk:
             if g in self.booked:
                 continue
             last = x["steps"][-1][0]
-            if (x["kind"].startswith("loop") or x["kind"] in ("home", "chain")) and not x.get("bumped") and now - x["at"] >= BUMP:
+            if (x["kind"].startswith("loop") or x["kind"] in ("home", "chain", "offsolo", "thin")) and not x.get("bumped") and now - x["at"] >= BUMP:
                 x["bumped"] = True
-                out.append(self.reprice(g, int(SOLO * sum(REQ[o]["referenceFeeCents"] for o in x["oids"])), now, "bump"))
+                up = RESCUE if x["kind"] == "thin" else SOLO
+                out.append(self.reprice(g, int(up * sum(REQ[o]["referenceFeeCents"] for o in x["oids"])), now, "bump"))
             elif x["kind"] == "search" and now - last >= HOUR:
                 o = x["oids"][0]
                 sr = self.search[o]
@@ -323,6 +351,11 @@ class Desk:
         if now % DAY < 7 * HOUR or now % DAY >= 23 * HOUR:       # nobody reads an offer at night
             return out
         for g, x in self.gigs.items():
+            if x["kind"] == "offsolo":
+                if self.arm in ("offa", "offu") and g not in self.booked and not x.get("bumped") \
+                        and all(o in self.orders for o in x["oids"]):
+                    out += self.offers_near_pickup(g, x, now)
+                continue
             if x["kind"] not in ("home", "chain") or g in self.booked or x.get("bumped") \
                     or not all(o in self.orders for o in x["oids"]):     # a cancelled order: leave it
                 continue
@@ -345,6 +378,49 @@ class Desk:
                 self.offer_fee[(g, v["id"])] = fee
                 self.log["offer_sent"] += 1
                 self.log["offer_to_recent_viewer"] += int(now - self.last_view.get(v["id"], -10 ** 6) <= 3 * HOUR)
+        return out
+
+    def offers_near_pickup(self, g, x, now):
+        """Offers arms: keep 3 offers open at the gig's own fee to drivers living within 30 km of its pickup. offa: drivers
+        who viewed one of our gigs in the last 6 h first (most recent first), then the rest; offu: a fixed random order."""
+        o = self.orders[x["oids"][0]]
+        p = o["legs"][0]["pickup"]["placeId"]
+        premium = o["legs"][0]["car"]["premium"]
+        manual = note_flags(REQ[o["id"]]["note"], v2=True).manual
+        cands = [v for v in ROSTER.values() if geo.line_km(v["homePlaceId"], p) <= 30 and v["id"] not in self.offers[g]
+                 and self.offers_today[(v["id"], now // DAY)] < 3
+                 and (not premium or (v["rating"] >= 4.8 and v["completedGigs"] >= 50))
+                 and (not manual or v["licence"] == "manual")]
+        shuffle = lambda v: sum(map(ord, v["id"] + g)) * 7919 % 997  # noqa: E731  (fixed, not Python's salted hash)
+        if self.arm == "offa":
+            recent = lambda v: now - self.last_view.get(v["id"], -10 ** 6) <= 6 * HOUR  # noqa: E731
+            cands.sort(key=lambda v: (0, -self.last_view[v["id"]]) if recent(v) else (1, shuffle(v)))
+        else:
+            cands.sort(key=shuffle)
+        out = []
+        for v in cands[:max(0, 3 - self.open_offers[g])]:
+            out.append({"type": "offer", "gigId": g, "driverId": v["id"], "feeCents": x["fee"]})
+            self.offers[g].add(v["id"])
+            self.open_offers[g] += 1
+            self.offers_today[(v["id"], now // DAY)] += 1
+            self.offer_fee[(g, v["id"])] = x["fee"]
+            self.log["offer_sent"] += 1
+            self.log["offer_to_recent_viewer"] += int(now - self.last_view.get(v["id"], -10 ** 6) <= 6 * HOUR)
+        return out
+
+    def ret_offers(self, now):
+        """ret arms: the second car's gig now has an id; offer it to the driver who just delivered the first."""
+        out = []
+        for b, drv in self.ret_offer:
+            g = self.gig_of(b)
+            if g and g not in self.booked:
+                fee = int(RET[self.arm] * REQ[b]["referenceFeeCents"])
+                out.append({"type": "offer", "gigId": g, "driverId": drv, "feeCents": fee})
+                self.offer_fee[(g, drv)] = fee
+                self.open_offers[g] += 1
+                self.log["offer_sent"] += 1
+                self.log["offer_sent_night"] += int(now % DAY < 7 * HOUR or now % DAY >= 23 * HOUR)
+        self.ret_offer = []
         return out
 
     def halve_down(self, g, now):
@@ -377,8 +453,14 @@ class Desk:
 KINDS = ["price_request", "order_won", "order_lost", "order_changed", "order_cancelled", "gig_booked", "deadline_close",
          "gig_expired", "gig_dropped", "no_show", "visit_failed", "offer_answered"]
 SELECT = {}
-GROUP = {"loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
+GROUP = {"thin10": "t", "thin12": "t", "ret6": "2", "ret9": "2", "off0": "4", "offa": "4", "offu": "4", "loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
          "home": "2h", "solo4": "2h", "homeonly": "h", "solo5": "h", "chain": "c", "solo6": "c"}
+
+
+def thin_singles():
+    """One-car slow-option requests whose pickup has fewer than THIN_MAX drivers within 30 km: the cars v7 declines."""
+    return [[r["id"]] for r in REQ.values() if len(r["legs"]) == 1 and slow_option(r)
+            and not r["legs"][0]["pickup"]["privateAddress"] and NEAR[ends(r)[0]] < THIN_MAX]
 
 
 def selection(arm):
@@ -391,6 +473,8 @@ def selection(arm):
         elif key == "2h":
             pairs, cands, n = selection("pairs")
             SELECT[key] = (pairs + homeward({i for c in pairs for i in c}), cands, n)
+        elif key == "t":
+            SELECT[key] = (thin_singles(), 0, 0)
         elif key == "c":
             SELECT[key] = (chains_home(), 0, 0)
         else:
@@ -404,10 +488,19 @@ def play(arm):
     desk.done = []
     with world(SEED, what=f"loops1-{arm}") as w:
         pending = []
+        if arm not in RET:
+            desk.ret_offer = None
         while w.now < w.ends_at:
-            tick = 10 if GROUP[arm] in ("2h", "h", "c") else 30          # offers last 10 minutes
-            results, events = w.advance(until=KINDS, max=min(w.ends_at, w.now + tick), actions=pending)
+            offers = GROUP[arm] in ("2h", "h", "c") or arm in ("offa", "offu")
+            tick = 10 if offers else 30          # offers last 10 minutes
+            until = KINDS + ["delivered"] if arm in RET else KINDS
+            results, events = w.advance(until=until, max=min(w.ends_at, w.now + tick), actions=pending)
             desk.took(pending, results)
+            if desk.ret_offer is not None and any(e["kind"] == "delivered" for e in events) and arm in RET:
+                pending = desk.step(events, w.now)
+                desk.took(pending, w.act(pending))     # post the second car now, then offer it in the same minute
+                pending = desk.ret_offers(w.now)
+                continue
             pending = desk.step(events, w.now)
         score = w.score()
         events = w.events
