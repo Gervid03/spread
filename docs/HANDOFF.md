@@ -3,6 +3,26 @@
 ## Sat 14 Nov, 07:15 Helsinki (the cloud lead, night shift)
 Read this, then the directive at the top of `experiments/IDEAS.md`, then `docs/OPERATIONS.md`.
 
+**Update 08:40 Helsinki: v3 is the champion.** `n14-05161-validate-top` measured the four stacks on 48 fresh worlds
+(holdout + `night-01..32`) and promoted D through `scripts/promote.sh` (`34e7063`). It then reset the swarm host's root
+checkout to main, so the ranking rounds and the sweep track play v3. Verda picks it up for the 14:00 test final.
+
+| on 48 fresh worlds | mean | Δ vs v2 (t) | worst world | under 92% |
+|---|---:|---:|---:|---:|
+| v2 | €9,267 | — | 90.5% | 4 |
+| A (fee-drop) | €10,778 | +1,511 (8.2) | **92.0%** | **0** |
+| B (buffer-alarm) | €10,714 | +1,447 (9.4) | 91.6% | 1 |
+| C (v7) | €10,932 | +1,665 (8.9) | **89.3%: unranked** | 2 |
+| **D = v3** | **€10,960** | **+1,694 (9.4)** | 90.7% | 2 |
+
+v3's checks: dev €10,529 reproduced to the cent; holdout €11,281 at a 94.4% minimum; `step_min=3` (the final's live
+pace) better on all 4 smoke worlds (+€199, on-time up); a restart at Wednesday noon finished ranked. Round-3 results
+on A so far: **triage (15) +€264 ± 64, t 4.1**; thermostat (19) −€307; thin-town volume (24+25) loses above ~1 win a
+day, because it takes drivers from the other orders. **The binding constraint is drivers, not demand**, so the volume
+route is chains and staffing, not opening more towns. **Queued: `final-champion`** (v3 / +A's safety flags / +triage /
+both, 96 worlds each). It promotes only an arm with a tail no worse than v3's. **The open decision for Sunday is mean
+against tail**: v3 has 2 of 48 fresh worlds under 92%, and A has none.
+
 **The night (scripts/night.sh on the swarm VM, 02:13–12:13 Helsinki; results force-pushed every 20 minutes to
 `night/20261114`):** about 50 Gemini 4 Argon workers and 47 dev sweeps on v2. The best stacks are 16-seed dev numbers,
 not yet validated on fresh worlds:
