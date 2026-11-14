@@ -47,7 +47,8 @@ from spread_lab.policy import Retry, stops_for, without_windows  # noqa: E402
 HOUR = 60
 SEED = sys.argv[1]
 ARMS = sys.argv[2:]
-SPARE, BUMP, QUOTE, TEACH = 4 * HOUR, 120, 0.92, 0.7
+SPARE, BUMP, TEACH = 4 * HOUR, 120, 0.7
+QUOTE = float(__import__("os").environ.get("QUOTE", 0.92))   # x the bisected limit
 OPEN = {1: 0.5, 2: 0.6, 3: 0.5, 4: 0.45, "c": 0.65}   # 1 = a homeward single (offers meanwhile); "c" = chain home
 SOLO, RESCUE = 0.9, 1.4
 LO, HI, STEPS = 0.4, 1.4, 3
@@ -221,6 +222,8 @@ class Desk:
 
     def quote(self, r):
         o = slow_option(r) if r["id"] in self.loop_of else None
+        if self.arm in VAL and r["id"] in self.loop_of:
+            o = next(x for x in r["options"] if x["kind"] == OPT[r["id"]])
         if (self.arm in SD or (self.arm in WEEK and r["id"] in SAME_DAY)) and r["id"] in self.loop_of:
             o = next(x for x in r["options"] if x["kind"] == "same_day")
         if o:
@@ -233,6 +236,10 @@ class Desk:
         return next((g for g, x in self.gigs.items() if oid in x["oids"]), None)
 
     def won(self, oid, now):
+        if self.arm in VAL and len(self.loop_of[oid]) == 1:
+            out = [self.post([oid], VAL_OPEN, "val", now)]
+            self.sent[-1]["mult"] = VAL_OPEN
+            return out
         if self.arm in THIN:
             return [self.post([oid], THIN[self.arm], "thin", now)]
         if self.arm in SD or (self.arm in WEEK and oid in SAME_DAY):
@@ -337,7 +344,12 @@ class Desk:
             if g in self.booked:
                 continue
             last = x["steps"][-1][0]
-            if self.arm in ("week1", "week10", "week2", "week2s") and x["kind"] in LADDER:
+            if x["kind"] == "val":           # v7's schedule: +0.05 every daytime half hour, up to 1.6x
+                if 7 * HOUR <= now % DAY < 22 * HOUR and now - x.get("raised", x["at"]) >= 30 and x["mult"] < VAL_TOP:
+                    x["raised"], x["mult"] = now, min(VAL_TOP, x["mult"] + VAL_STEP)
+                    out.append(self.reprice(g, int(x["mult"] * sum(REQ[o]["referenceFeeCents"] for o in x["oids"])), now, "bump"))
+                continue
+            if (self.arm in ("week1", "week10", "week2", "week2s") or self.arm in VAL) and x["kind"] in LADDER:
                 rung = x.get("rung", 0)
                 if rung < len(LADDER[x["kind"]]) and now - x["at"] >= LADDER[x["kind"]][rung][0]:
                     x["rung"] = rung + 1
@@ -470,7 +482,7 @@ class Desk:
 KINDS = ["price_request", "order_won", "order_lost", "order_changed", "order_cancelled", "gig_booked", "deadline_close",
          "gig_expired", "gig_dropped", "no_show", "visit_failed", "offer_answered"]
 SELECT = {}
-GROUP = {"week2": "w2", "week2s": "w2s", "week": "w", "week0": "w0", "week1": "w", "week10": "w0", "sd75": "s", "sd100": "s", "rest": "r", "solo7": "r", "thin10": "t", "thin12": "t", "ret6": "2", "ret9": "2", "off0": "4", "offa": "4", "offu": "4", "loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
+GROUP = {"val50": "vval50", "val70": "vval70", "val90": "vval90", "val70s": "vval70s", "week2": "w2", "week2s": "w2s", "week": "w", "week0": "w0", "week1": "w", "week10": "w0", "sd75": "s", "sd100": "s", "rest": "r", "solo7": "r", "thin10": "t", "thin12": "t", "ret6": "2", "ret9": "2", "off0": "4", "offa": "4", "offu": "4", "loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
          "home": "2h", "solo4": "2h", "homeonly": "h", "solo5": "h", "chain": "c", "solo6": "c"}
 
 
@@ -517,7 +529,9 @@ def thin_singles():
 
 SAME_DAY = set()
 WEEK = ("week", "week0", "week1", "week10", "week2", "week2s")
-CHAINS = set()                       # week2: the 2-car open chains (not closed pairs), as frozensets
+CHAINS = set()
+VAL = {"val50": (50, True), "val70": (70, True), "val90": (90, True), "val70s": (70, False)}   # cars a day, shapes?
+OPT = {}                             # val arms: request -> the option quoted (the one with the best margin)                       # week2: the 2-car open chains (not closed pairs), as frozensets
 LADDER = {"solo": [(120, 1.15), (240, 1.4)], "sd": [(60, 1.0), (120, 1.4)],
           "loop2": [(120, 0.9), (240, 1.15)], "loop3": [(120, 0.9), (240, 1.15)], "chain": [(120, 0.9), (240, 1.15)]}   # week1/week10: raise as time passes
 
@@ -582,6 +596,60 @@ def week2():
     return loops + sd + chains + [[r["id"]] for r in ok if r["id"] not in paired]
 
 
+VAL_OPEN, VAL_STEP, VAL_TOP = 0.85, 0.05, 1.6
+
+
+def value_week(per_day, shapes):
+    """Value first (his call, Sun ~01:20): drivers are the bottleneck, so take the cars with the most margin. For each
+    one-car request, the option with the best QUOTE x limit - cost (cost: 1.0x typical, same_day 1.1x), among options a
+    driver can do safely (v7's rules: 22+ drivers near the pickup; same_day only with 50+ near, or into a pool within
+    2 h; slack >= 150 min + 0.75 x drive; drives over 5 h only with two days); margin >= €15. Each day the best
+    `per_day` of them. With shapes: the closed pairs/triangles whose cars are all chosen (slow options) go as one gig."""
+    cands = defaultdict(list)
+    for r in REQ.values():
+        leg = r["legs"][0]
+        if len(r["legs"]) != 1 or leg["pickup"]["privateAddress"] or leg["delivery"]["privateAddress"]:
+            continue
+        p, d = ends(r)
+        drive, n = geo.minutes(p, d), NEAR[p]
+        ready = max(leg["pickup"]["window"]["from"], r["respondBy"])
+        best = None
+        for o in r["options"]:
+            lim = LIMIT.get((r["id"], o["kind"]))
+            if not lim:
+                continue
+            if o["kind"] == "same_day":
+                if not (n >= 50 or (NEAR[d] >= POOL and drive <= 120)):
+                    continue
+                cost = 1.1
+            else:
+                if n < THIN_MAX:
+                    continue
+                cost = 1.0
+            if o["deadline"] - ready - drive < 150 + 0.75 * drive:
+                continue
+            if drive > 300 and o["deadline"] // DAY <= ready // DAY + 1:
+                continue
+            m = QUOTE * lim - cost * r["referenceFeeCents"]
+            if m >= 1500 and (best is None or m > best[0]):
+                best = (m, o["kind"])
+        if best:
+            cands[r["arrivedAt"] // DAY].append((best[0], r["id"], best[1]))
+    chosen = {}
+    for day, xs in cands.items():
+        for m, rid, kind in sorted(xs, reverse=True)[:per_day]:
+            chosen[rid] = kind
+    OPT.update(chosen)
+    loops = []
+    if shapes:
+        for c in selection("tri")[0] + selection("pairs")[0]:
+            if all(chosen.get(i) in ("next_day", "within_3_days") and OPT[i] == slow_option(REQ[i])["kind"] for i in c) \
+                    and not any(i in {j for l in loops for j in l} for i in c):
+                loops.append(c)
+    inloop = {i for c in loops for i in c}
+    return loops + [[i] for i in chosen if i not in inloop]
+
+
 def selection(arm):
     """The loops an arm aims at: '4', '3', '2' = closed loops up to that size; '2h' = pairs, then the homeward
     singles not in a pair; 'h' = homeward singles only."""
@@ -600,6 +668,8 @@ def selection(arm):
             SELECT[key] = (week2(), 0, 0)
         elif key == "w2s":
             SELECT[key] = ([[i] for c in selection("week2")[0] for i in c], 0, 0)
+        elif key.startswith("v"):
+            SELECT[key] = (value_week(*VAL[key[1:]]), 0, 0)
         elif key == "s":
             SELECT[key] = (same_day_in(), 0, 0)
         elif key == "r":
