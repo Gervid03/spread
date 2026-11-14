@@ -118,6 +118,8 @@ class Params:
     note_unsure: str = "quote"        # "quote" or "decline" when a note has a time the reader cannot place
     ready_from_deadline: bool = False # (23a) move first pickup window by deadline shift from order_won
     eligible_supply: bool = False     # (23b) count only experienced / manual-licence drivers when required
+    eligible_min_supply_mult: float = 1.0  # gate_min multiplier when eligible_supply=True and prem/manual required
+    eligible_backlog: bool = False    # match backlog_near against eligible-competing orders when eligible_supply=True
     use_release: bool = False         # (23c) align retry pickup_from with release event / parsed release time
     # --- trust --------------------------------------------------------------------------------------
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
@@ -410,11 +412,15 @@ class Desk:
                     default=0,
                 )
         pickup = legs[0]["pickup"]["placeId"]
+        is_prem, is_man = self._req_eligibility(request)
+        use_elig = p.eligible_supply and (is_prem or is_man)
         sup_table, gate_sup_table, ext_sup_table = self._supply_tables_for_req(request)
         supply = sup_table.get(pickup, 0)
         gate_supply = gate_sup_table.get(pickup, 0)
         tight = self.tightening()
-        gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
+        base_gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
+        elig_mult = p.eligible_min_supply_mult if use_elig else 1.0
+        gate_min = base_gate_min * elig_mult
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
@@ -423,25 +429,58 @@ class Desk:
         if gate_supply < gate_min:
             pass_ext_ring = (
                 p.ext_ring_min_supply > 0
-                and ext_sup_table.get(pickup, 0) >= p.ext_ring_min_supply
+                and ext_sup_table.get(pickup, 0) >= p.ext_ring_min_supply * elig_mult
                 and drive <= p.ext_ring_max_drive_min
             )
             pass_return_hub = (
                 p.return_hub_min_supply > 0
-                and sup_table.get(legs[-1]["delivery"]["placeId"], 0) >= p.return_hub_min_supply
+                and sup_table.get(legs[-1]["delivery"]["placeId"], 0) >= p.return_hub_min_supply * elig_mult
                 and drive <= p.return_hub_max_drive_min
             )
             if not (pass_ext_ring or pass_return_hub):
+                if use_elig:
+                    raw_pass = (
+                        self.gate_supply.get(pickup, 0) >= base_gate_min
+                        or (p.ext_ring_min_supply > 0 and self.ext_supply.get(pickup, 0) >= p.ext_ring_min_supply and drive <= p.ext_ring_max_drive_min)
+                        or (p.return_hub_min_supply > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= p.return_hub_min_supply and drive <= p.return_hub_max_drive_min)
+                    )
+                    if raw_pass:
+                        self.stats["prem_Manual_declined_elig"] += 1
+                        self.stats["prem_declined_elig_gate"] += 1
                 return {}, "decline"
-            if self.backlog_near(pickup) + 1e-9 >= p.backlog_min:
+            if use_elig and p.eligible_backlog:
+                elig_bn = self.backlog_near(pickup, req_prem=is_prem, req_man=is_man)
+                raw_gate = self.gate_supply.get(pickup, 0)
+                raw_cap = (p.backlog_min if raw_gate < base_gate_min else max(p.backlog_min, p.backlog_ratio * raw_gate)) * (1 - tight)
+                if self.backlog_near(pickup) + 1e-9 >= raw_cap or elig_bn + 1e-9 >= p.backlog_min:
+                    self.stats["declined_backlog"] += 1
+                    if self.backlog_near(pickup) + 1e-9 < raw_cap:
+                        self.stats["prem_Manual_declined_elig"] += 1
+                        self.stats["prem_declined_elig_backlog"] += 1
+                    return {}, "decline"
+            elif self.backlog_near(pickup) + 1e-9 >= p.backlog_min:
                 self.stats["declined_backlog"] += 1
                 if p.backlog_in_flight_weight > 0 and self.backlog_near(pickup, include_in_flight=False) + 1e-9 < p.backlog_min:
                     self.stats["in_flight_blocked"] += 1
                 return {}, "decline"
         else:
             backlog_cap = max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight)
-            if self.backlog_near(pickup) + 1e-9 >= backlog_cap:
+            if use_elig and p.eligible_backlog:
+                raw_cap = max(p.backlog_min, p.backlog_ratio * self.gate_supply.get(pickup, 0)) * (1 - tight)
+                elig_bn = self.backlog_near(pickup, req_prem=is_prem, req_man=is_man)
+                if self.backlog_near(pickup) + 1e-9 >= raw_cap or elig_bn + 1e-9 >= backlog_cap:
+                    self.stats["declined_backlog"] += 1
+                    if self.backlog_near(pickup) + 1e-9 < raw_cap:
+                        self.stats["prem_Manual_declined_elig"] += 1
+                        self.stats["prem_declined_elig_backlog"] += 1
+                    return {}, "decline"
+            elif self.backlog_near(pickup) + 1e-9 >= backlog_cap:
                 self.stats["declined_backlog"] += 1
+                if use_elig:
+                    raw_cap = max(p.backlog_min, p.backlog_ratio * self.gate_supply.get(pickup, 0)) * (1 - tight)
+                    if self.backlog_near(pickup) + 1e-9 < raw_cap:
+                        self.stats["prem_Manual_declined_elig"] += 1
+                        self.stats["prem_declined_elig_backlog"] += 1
                 if p.backlog_in_flight_weight > 0 and self.backlog_near(pickup, include_in_flight=False) + 1e-9 < backlog_cap:
                     self.stats["in_flight_blocked"] += 1
                 return {}, "decline"
@@ -541,6 +580,14 @@ class Desk:
                 price, floored = floor, True
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
+            if use_elig:
+                raw_supply = self.supply.get(pickup, 0)
+                if supply < raw_supply and any(
+                    o["kind"] == "same_day" and raw_supply >= p.same_day_min_supply and supply < p.same_day_min_supply
+                    for o in request["options"]
+                ):
+                    self.stats["prem_Manual_declined_elig"] += 1
+                    self.stats["prem_declined_elig_opts"] += 1
             return {}, "decline"
         if pass_ext_ring or pass_return_hub:
             self.ext_ring_reqs.add(request["id"])
@@ -569,11 +616,23 @@ class Desk:
         dealer = self.requests[request_id]["dealerId"]
         self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, p.dealer_adj_max)
 
-    def backlog_near(self, place: str, include_in_flight: bool = True) -> float:
+    def backlog_near(
+        self,
+        place: str,
+        include_in_flight: bool = True,
+        req_prem: bool = False,
+        req_man: bool = False,
+    ) -> float:
         """Won orders without a driver for every undelivered car, picked up within the radius of `place`."""
         p, radius, n = self.p, self.p.supply_radius_km, 0.0
         for order in self.orders.values():
             if self.geo.line_km(order["legs"][0]["pickup"]["placeId"], place) <= radius and not self.staffed(order):
+                if req_prem or req_man:
+                    o_req = self.requests.get(order["id"])
+                    if o_req is not None:
+                        o_prem, o_man = self._req_eligibility(o_req)
+                        if (req_prem and not o_prem) or (req_man and not o_man):
+                            continue
                 if p.backlog_multiday_weight != 1.0 and order["deadline"] // DAY > self.now // DAY and order["id"] not in self.urgent:
                     n += p.backlog_multiday_weight
                 else:
@@ -587,6 +646,10 @@ class Desk:
                     and self.now <= req["respondBy"]
                     and self.geo.line_km(req["legs"][0]["pickup"]["placeId"], place) <= radius
                 ):
+                    if req_prem or req_man:
+                        o_prem, o_man = self._req_eligibility(req)
+                        if (req_prem and not o_prem) or (req_man and not o_man):
+                            continue
                     n += p.backlog_in_flight_weight
         return n
 
@@ -1037,13 +1100,16 @@ class Desk:
         self.late = set(_late_replay)
         for req_id, req in self.requests.items():
             pickup = req["legs"][0]["pickup"]["placeId"]
-            if self.gate_supply.get(pickup, 0) < self.p.min_supply:
+            sup_t, gate_sup_t, _ = self._supply_tables_for_req(req)
+            is_prem, is_man = self._req_eligibility(req)
+            elig_m = self.p.eligible_min_supply_mult if (self.p.eligible_supply and (is_prem or is_man)) else 1.0
+            if gate_sup_t.get(pickup, 0) < self.p.min_supply * elig_m:
                 self.ext_ring_reqs.add(req_id)
-            elif self.supply.get(pickup, 0) < self.p.min_supply and self.p.ring_to_hub_same_day_min > 0:
+            elif sup_t.get(pickup, 0) < self.p.min_supply * elig_m and self.p.ring_to_hub_same_day_min > 0:
                 drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in req["legs"])
                 if len(req["legs"]) == 2:
                     drive += self.geo.minutes(req["legs"][0]["delivery"]["placeId"], req["legs"][1]["pickup"]["placeId"])
-                if self.supply.get(req["legs"][-1]["delivery"]["placeId"], 0) >= 200 and drive <= self.p.ring_to_hub_same_day_min:
+                if sup_t.get(req["legs"][-1]["delivery"]["placeId"], 0) >= 200 and drive <= self.p.ring_to_hub_same_day_min:
                     self.ring_hub_same_day.add(req_id)
 
         for e in history:
