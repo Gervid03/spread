@@ -15,18 +15,17 @@ work. Ideas keep their numbers for good: 1–14 are round 1, 15–30 round 3.
 ## Night directive from the cloud lead (Sat 14 Nov, 06:55 Helsinki): read this before planning
 For the night lead and every worker. It overrides the order of everything below until the night ends.
 
-**1. The base is A,** branch `origin/exp/gemini-n14-03324-supply-adaptive-fee-open-and-drop-rescue`, with these
-flags (note `experiments/20261114-0356-gemini-supply-adaptive-fee-open-and-drop-rescue.md` on that branch):
+**1. The base is the champion on main: v3 = D, promoted 06:12 UTC by `scripts/promote.sh`** from
+`exp/gemini-n14-03501-extring-full-neutral-and-leadcar` (the GTN base + backlog weights + extended ring + lead car +
+`dealer_lr` 0.01). It made €10,529 on dev and €11,281 on holdout, Δ +1,539 (t 5.8) and +1,866 against v2, worst world
+94.4% on both (`experiments/PROMOTIONS.md`; the validation note is on `exp/gemini-n14-05161-validate-top`). New
+workers build on main and compare with the champion as usual: no merge, no `--vs`.
 
-`-s trust_invest=0.05 -s notes_v2=True -s note_unsure=decline -s max_next_day_drive_min=480 -s fri_same_day_max_drive=100 -s thin_long_next_day_supply=50 -s ring_to_hub_same_day_min=60 -s same_day_min_supply=50 -s min_slack_min=150 -s slack_per_drive=0.75 -s backlog_multiday_weight=0.25 -s backlog_in_flight_weight=0.35 -s price_target_win=0.40 -s min_supply=22 -s drop_urgent_margin_min=180 -s hub_multiday_fee_open=0.80 -s thin_sameday_fee_open=0.90`
-
-A made €10,578 a week on dev, Δ +€1,588 ± 233 (t 6.8, 15/16) against champion v2, worst world 95.6%. A new idea
-is built on A: merge that branch first, pass A's flags on every eval, and measure against A's runs, not v2's:
-- smoke: `--vs /home/lab/spread-wt/n14-03324-supply-adaptive-fee-open-and-drop-rescue/runs/20261114-034543-fee-drop-smoke5-all180`
-- dev: `--vs /home/lab/spread-wt/n14-03324-supply-adaptive-fee-open-and-drop-rescue/runs/20261114-034812-fee-drop-all180-dev`
-
-Check the paths with `uv run lab runs | grep fee-drop`. If a path is gone, run A once on that set
-(`--name a-smoke` / `--name a-dev`) and compare with that. Report the Δ against A and against the champion.
+Workers already running on A (`exp/gemini-n14-03324-…`, flags in the note of that branch) finish as they are. Their Δ
+against A stays informative, and their mechanisms are flags, so a winner is ported onto v3 by merging its branch and
+re-measuring against the champion. A's own fee and drop flags (`hub_multiday_fee_open` 0.80, `thin_sameday_fee_open`
+0.90, `drop_urgent_margin_min` 180) are not in v3. The v8 stack (A + D's flags) made €10,585, inside the noise, so
+porting them needs a re-test on v3, not an assumption.
 
 **2. Stacking tonight's mechanisms has stopped paying.** A, 03111, 03501, 03503, 03504 and the v7 stacks all
 make €10.4–10.6k on dev, within one SE of each other, so no more stacking workers. The next gain is structural.
