@@ -70,6 +70,8 @@ class Params:
     thin_long_next_day_supply: int = 0  # if > 0, non-ring pickup with supply < this and drive > long_drive_min drops next_day
     fri_same_day_max_drive: int = 0   # if > 0, on Friday (ready // DAY >= 4), drop same_day with drive >= this
     ring_to_hub_same_day_min: int = 0  # if > 0, allow ring same_day into dense hub (supply >= 200) when drive <= this
+    ring_min_supply: int = -1         # a pickup with fewer drivers within supply_radius_km is a ring (slow options, ring
+                                      # rules); -1 = the gate's min_supply, as before
     ring_hub_min_supply: int = 200    # ... the hub: at least this many drivers within supply_radius_km of the delivery
     same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
@@ -360,7 +362,8 @@ class Desk:
             line = event["line"]
             order = self.orders.get(line.get("orderId", "")) if line.get("orderId") else None
             dealer = self.requests[line["orderId"]]["dealerId"] if line.get("orderId") and line["orderId"] in self.requests else None
-            is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
+            is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < (
+                self.p.min_supply if self.p.ring_min_supply < 0 else self.p.ring_min_supply)
             is_ext_ring = order and self.gate_supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
             if is_ring:
                 self.stats["margin_ring_cents"] += line["cents"]
@@ -672,7 +675,7 @@ class Desk:
                 if p.backlog_in_flight_weight > 0 and self.backlog_near(pickup, include_in_flight=False) + 1e-9 < backlog_cap:
                     self.stats["in_flight_blocked"] += 1
                 return {}, "decline"
-        is_ring = supply < gate_min
+        is_ring = supply < (gate_min if p.ring_min_supply < 0 else p.ring_min_supply * (1 + (p.guard_supply_mult - 1) * tight))
 
         if p.trust_guard and self.dealer_trust[request["dealerId"]] >= 13:
             has_same_day = any(o["kind"] == "same_day" for o in request["options"])
@@ -1580,7 +1583,7 @@ class Desk:
             pickup = req["legs"][0]["pickup"]["placeId"]
             if self.gate_supply.get(pickup, 0) < self.p.min_supply:
                 self.ext_ring_reqs.add(req_id)
-            elif self.supply.get(pickup, 0) < self.p.min_supply and self.p.ring_to_hub_same_day_min > 0:
+            elif self.supply.get(pickup, 0) < (self.p.min_supply if self.p.ring_min_supply < 0 else self.p.ring_min_supply) and self.p.ring_to_hub_same_day_min > 0:
                 drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in req["legs"])
                 if len(req["legs"]) == 2:
                     drive += self.geo.minutes(req["legs"][0]["delivery"]["placeId"], req["legs"][1]["pickup"]["placeId"])
