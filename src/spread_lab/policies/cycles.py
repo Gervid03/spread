@@ -52,6 +52,7 @@ class Params(SundayParams):
     cyc_rotate_min: int = 0           # an unbooked cycle is reposted from its next town after this many daytime minutes
                                       # (a car can be in one live gig only, so the rotations take turns; 0 = off)
     cyc_min_on_time: float = 0.0      # hold cars only while the projected on-time share is at least this (0 = always)
+    cyc_from_day: int = 0             # hold cars only from the desk's Nth day of play (0 = from the start)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Params":
@@ -233,6 +234,7 @@ class Desk(SundayDesk):
                     oid = oids[0]
                     o = self.orders.get(oid)
                     if (oid not in self.cyc_done and oid not in self.cyc_held and self._clean(oid)
+                            and self.now // DAY - self.first_day >= self.p.cyc_from_day
                             and o["lastPickupAt"] - self.now >= self.p.cyc_hold_slack_min):
                         if tight is None:
                             tight = bool(self.p.cyc_min_on_time) and self.projected_on_time() < self.p.cyc_min_on_time

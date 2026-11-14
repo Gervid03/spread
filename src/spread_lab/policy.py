@@ -139,6 +139,8 @@ class Params:
     # --- trust --------------------------------------------------------------------------------------
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
+    trust_invest_top: int = 3         # ... for this many of the busiest dealers
+    trust_invest_days: int = 0        # ... on the desk's first this many days of play (0 = Mon-Wed, as before)
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
     # --- morning day supervisor (08:00 Mon-Fri) -----------------------------------------------------
     supervisor: bool = False          # master enable for 08:00 morning state supervisor
@@ -197,6 +199,7 @@ class Desk:
 
     def __init__(self, world: World, params: Params, level: int, geo: Geo, roster: list[DriverProfile], now: int):
         self.world, self.p, self.level, self.geo, self.now = world, params, level, geo, now
+        self.first_day = max(now, params.live_from_min) // DAY                  # the day the desk started playing (a final may start on Thu)
         self.outbox: list[Action] = []
         self.requests: dict[str, PriceRequest] = {}
         self.orders: dict[str, Order] = {}           # won and not cancelled; order id == request id
@@ -697,8 +700,9 @@ class Desk:
             mult *= (1 + p.trust_gain * count / 100.0)
 
         is_invest = False
-        if p.trust_invest > 0 and (self.now // DAY) <= 2 and self.dealer_trust[request["dealerId"]] < 25 and supply >= 100 and not request.get("note"):
-            top3 = sorted(self.dealer_request_count.keys(), key=lambda d: self.dealer_request_count[d], reverse=True)[:3]
+        invest_day = (self.now // DAY) - self.first_day < p.trust_invest_days if p.trust_invest_days else (self.now // DAY) <= 2
+        if p.trust_invest > 0 and invest_day and self.dealer_trust[request["dealerId"]] < 25 and supply >= 100 and not request.get("note"):
+            top3 = sorted(self.dealer_request_count.keys(), key=lambda d: self.dealer_request_count[d], reverse=True)[:p.trust_invest_top]
             is_invest = request["dealerId"] in top3
 
         eff_sd_supply = self.sup_sd_supply if (p.supervisor and self.sup_sd_supply is not None) else p.same_day_min_supply
