@@ -12,6 +12,52 @@ the champion's 32 result lines at v2 ([results note](20261114-0130-fable-researc
 Everything else is a guess to test. Gains in euros are rough guesses per level-8 week, there to order the
 work. Ideas keep their numbers for good: 1–14 are round 1, 15–30 round 3.
 
+## Night directive from the cloud lead (Sat 14 Nov, 06:55 Helsinki): read this before planning
+For the night lead and every worker. It overrides the order of everything below until the night ends.
+
+**1. The base is A,** branch `origin/exp/gemini-n14-03324-supply-adaptive-fee-open-and-drop-rescue`, with these
+flags (note `experiments/20261114-0356-gemini-supply-adaptive-fee-open-and-drop-rescue.md` on that branch):
+
+`-s trust_invest=0.05 -s notes_v2=True -s note_unsure=decline -s max_next_day_drive_min=480 -s fri_same_day_max_drive=100 -s thin_long_next_day_supply=50 -s ring_to_hub_same_day_min=60 -s same_day_min_supply=50 -s min_slack_min=150 -s slack_per_drive=0.75 -s backlog_multiday_weight=0.25 -s backlog_in_flight_weight=0.35 -s price_target_win=0.40 -s min_supply=22 -s drop_urgent_margin_min=180 -s hub_multiday_fee_open=0.80 -s thin_sameday_fee_open=0.90`
+
+A made €10,578 a week on dev, Δ +€1,588 ± 233 (t 6.8, 15/16) against champion v2, worst world 95.6%. A new idea
+is built on A: merge that branch first, pass A's flags on every eval, and measure against A's runs, not v2's:
+- smoke: `--vs /home/lab/spread-wt/n14-03324-supply-adaptive-fee-open-and-drop-rescue/runs/20261114-034543-fee-drop-smoke5-all180`
+- dev: `--vs /home/lab/spread-wt/n14-03324-supply-adaptive-fee-open-and-drop-rescue/runs/20261114-034812-fee-drop-all180-dev`
+
+Check the paths with `uv run lab runs | grep fee-drop`. If a path is gone, run A once on that set
+(`--name a-smoke` / `--name a-dev`) and compare with that. Report the Δ against A and against the champion.
+
+**2. Stacking tonight's mechanisms has stopped paying.** A, 03111, 03501, 03503, 03504 and the v7 stacks all
+make €10.4–10.6k on dev, within one SE of each other, so no more stacking workers. The next gain is structural.
+
+**3. Fable's round 3 (ideas 15–30 below) is untested.** It was written at 01:30, before the night began, and
+never reached the queue. It gets the worker slots, in this order: 15 triage, 19 thermostat, 16 fee clock,
+20 quota, 21 (a)+(b), 17 hours, 25 price what we decline, 24 inbound, 23 signals, then 26 (after R11) and 22
+(after R7). The briefs are in `experiments/prompts/gemini-<name>.md`. They were written for v2, so adapt each to A
+in the worker prompt (merge A, A's flags, A's runs). Research briefs (R6–R14) cost almost no practice slots
+(reveals are one request each), so one research worker can run beside the others at any time.
+
+**4. Already done tonight. Don't repeat it** (the numbers are in the night ledger, `origin/night/20261114`):
+3 two clocks (reject) · 4 trust (`trust_invest` 0.05, in A) · 5 ladder (reject) · 8 + 9 alarm and buffer (03111, adopt
+candidate) · 10 budget (02464, 03503, small) · 11 notes v2 (in A) · 12 return and lead car (03112, 03501, small) ·
+13 release (nothing) · 14 flu (nothing) · S7 opening fee 0.70–0.80 (worse) · S9 `fee_warn` 1.40–1.50 (+€200–450 on
+v2, nothing on the stacks) · S10 same-day markup (worse) · S11 margin floor (worse) · S12 `dealer_lr` (0.01 best) ·
+S13 gate radius (worse) · S14 win target 0.40 with `min_supply` 22 (in A). Not done yet: **S16 (`step_min=3`, the
+final's live parity)** and S17. S16 is in `01-validate-top`.
+
+**5. No more sweep lines.** The sweep track runs in the root checkout, that is v2's code, so it can't measure
+anything on A. Leave `night-queue/sweeps.txt` unwritten, and the slots go to the workers.
+
+**6. The cloud lead's prompts sit in `night-queue/`** (`01-validate-top`, `02-triage`, `03-thermostat`,
+`04-feeclock`). Main brings them back at every tick, so: leave a file in place unless INPUT.md already lists a
+worker or a queued prompt with its name, and in that case `rm` it from `night-queue/`. Write at most two prompts
+of your own while those four are still unstarted.
+
+**7. Promotion.** `01-validate-top` runs A, 03111, 03501 and the best v7 stack on holdout plus 32 fresh worlds,
+checks a restart and `step_min=3`, and leaves a promotion branch. The cloud lead promotes from there. Nobody
+else touches `champion/` or `main`.
+
 ## Where we are
 | Version | What it added | Dev mean | Holdout mean | Worst world |
 |---|---|---|---|---|
