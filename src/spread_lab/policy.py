@@ -61,6 +61,7 @@ class Params:
     min_supply: int = 30              # decline below this many drivers near the pickup (6 missed 90% on 3/5 worlds; 20 on 1/32)
     expected_fee_mult: float = 1.25   # expected fee as a multiple of the typical fee
     min_margin_frac: float = 0.08     # price is raised to keep (price - expected fee) / price at least this
+    floor_all_only: bool = False      # only mark quote as "floor" (skipping learn) when all quoted options hit the floor
     min_slack_min: int = 180          # an option needs deadline - max(now, ready) - drive minutes >= this (v2: was 120)
     slack_per_drive: float = 0.5      # an option needs slack of at least min_slack_min + slack_per_drive * drive (v1; v0 = 0)
     long_drive_min: int = 300         # if drive > this (and > 0), quote only options with deadline on a later day than ready (v1; v0 = 0)
@@ -235,6 +236,9 @@ class Desk:
             day = self.now // DAY
             self.stats[f"price_list_sum_d{day}"] += ratio
             self.stats[f"price_list_count_d{day}"] += 1
+            self.stats[f"price_ratio_d{day}_pct"] = round(
+                100.0 * self.stats[f"price_list_sum_d{day}"] / self.stats[f"price_list_count_d{day}"], 1
+            )
         if not prices:  # decline: a quote that loses costs nothing, a missing one costs goodwill
             first = request["options"][0]
             prices = {first["kind"]: int(first["listPriceCents"] * self.p.decline_mult)}
@@ -303,7 +307,8 @@ class Desk:
             is_invest = request["dealerId"] in top3
 
         prices: dict[str, int] = {}
-        floored = False
+        any_floored = False
+        all_floored = True
         for option in request["options"]:
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
                 continue
@@ -340,11 +345,17 @@ class Desk:
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
             floor = fee / (1 - p.min_margin_frac)
             if price < floor:
-                price, floored = floor, True
+                price, any_floored = floor, True
+            else:
+                all_floored = False
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
-        return prices, "floor" if floored else "quote"
+        if p.floor_all_only:
+            if any_floored and not all_floored:
+                self.stats["quote_unblinded"] += 1
+            return prices, ("floor" if all_floored else "quote")
+        return prices, "floor" if any_floored else "quote"
 
     def learn(self, request_id: str, won: bool) -> None:
         """Moves the multiplier towards the price that wins `price_target_win` of the normal quotes."""
