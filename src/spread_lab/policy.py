@@ -82,6 +82,10 @@ class Params:
     ext_ring_no_learn: bool = False   # if True, lost ext_ring/return_hub quotes do not step mult/dealer_adj down
     ext_ring_neutral_learn: bool = False  # if True, both won and lost ext_ring/return_hub quotes skip learn()
     return_hub_discount: float = 0.0  # discount on option_mult when admitted via pass_return_hub (and not pass_ext_ring)
+    fri_gate_min_supply: int = -1     # -1 = min_supply; on Friday, Monday-deadline slow options pass gate from this supply
+    fri_slow_discount: float = 0.0    # discount on Monday-deadline options quoted on Friday; decided as "tilt"
+    surplus_min: int = 0              # 0 = off; from Thu 12:00, open surplus_relax classes while surplus >= this
+    surplus_relax: str = ""           # comma list of classes to open with surplus: "slack", "midtown", "ring"
     # --- on-time guard: tighten intake when the projected on-time share falls -----------------------
     guard_target: float = 0.0         # 0 = off; else the projected on-time share to defend (e.g. 0.95)
     guard_band: float = 0.04          # tightening is full this far under the target
@@ -173,6 +177,12 @@ class Desk:
         self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
         self.ring_hub_same_day: set[str] = set()     # request/order ids where ring_to_hub_same_day_min allowed same_day
         self.ext_ring_reqs: set[str] = set()         # request/order ids admitted via pass_ext_ring or pass_return_hub
+        self.fri_gate_reqs: set[str] = set()         # request/order ids admitted only via fri_gate_min_supply
+        self.surplus_classes: set[str] = {c.strip() for c in params.surplus_relax.split(",") if c.strip()}
+        self.surplus_open: bool = False
+        self.surplus_quoted: dict[str, dict[str, str]] = {}  # request id -> option kind -> surplus class
+        self.surplus_orders: dict[str, str] = {}     # won order id -> surplus class
+        self._last_tick_now: int = now
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -225,27 +235,40 @@ class Desk:
             self.last_view[event["driverId"]] = event["at"]
         elif kind == "ledger":
             line = event["line"]
-            order = self.orders.get(line.get("orderId", "")) if line.get("orderId") else None
-            dealer = self.requests[line["orderId"]]["dealerId"] if line.get("orderId") and line["orderId"] in self.requests else None
+            oid = line.get("orderId", "")
+            order = self.orders.get(oid) if oid else None
+            dealer = self.requests[oid]["dealerId"] if oid and oid in self.requests else None
             is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
             is_ext_ring = order and self.gate_supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
+            is_fri_gate = bool(order and oid in self.fri_gate_reqs)
+            surplus_cls = self.surplus_orders.get(oid) if order else None
             if is_ring:
                 self.stats["margin_ring_cents"] += line["cents"]
             if is_ext_ring:
                 self.stats["margin_ext_ring_cents"] += line["cents"]
-            if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
-                if line["orderId"] not in self.late:
+            if is_fri_gate:
+                self.stats["margin_fri_gate_cents"] += line["cents"]
+            if surplus_cls is not None:
+                self.stats["margin_surplus_cents"] += line["cents"]
+                self.stats[f"margin_surplus_{surplus_cls}_cents"] += line["cents"]
+            if line["kind"] in ("late_refund", "undelivered_penalty") and oid:
+                if oid not in self.late:
                     if is_ring:
                         self.stats["late_ring"] += 1
-                    if order and order["option"] == "same_day" and line["orderId"] in self.ring_hub_same_day:
+                    if order and order["option"] == "same_day" and oid in self.ring_hub_same_day:
                         self.stats["late_ring_hub_same_day"] += 1
                     if is_ext_ring:
                         self.stats["late_ext_ring"] += 1
-                self.late.add(line["orderId"])
+                    if is_fri_gate:
+                        self.stats["late_fri_gate"] += 1
+                    if surplus_cls is not None:
+                        self.stats["late_surplus"] += 1
+                        self.stats[f"late_surplus_{surplus_cls}"] += 1
+                self.late.add(oid)
                 if dealer:
                     self.dealer_trust[dealer] //= 2
-            elif line["kind"] == "revenue" and line["orderId"]:
-                if dealer and line["orderId"] not in self.late:
+            elif line["kind"] == "revenue" and oid:
+                if dealer and oid not in self.late:
                     if order and self.now <= order["deadline"]:
                         self.dealer_trust[dealer] = min(25, self.dealer_trust[dealer] + 1)
         elif kind == "offer_answered":
@@ -255,8 +278,34 @@ class Desk:
             if event["orderId"] in self.orders:
                 self.orders[event["orderId"]]["deliveredAt"][event["leg"]] = event["at"]
 
+    def surplus(self) -> int:
+        late_ids = set(self.late)
+        for order_id, order in self.orders.items():
+            open_legs = undelivered(order)
+            if open_legs and (self.now > order["deadline"] or (order_id in self.urgent and not self.staffed(order))):
+                late_ids.add(order_id)
+        return math.floor(0.06 * len(self.orders)) - len(late_ids)
+
+    def update_surplus(self) -> None:
+        p = self.p
+        if p.surplus_min <= 0 or not self.surplus_classes or self.now < 3 * DAY + 12 * HOUR:
+            self.surplus_open = False
+            return
+        s = self.surplus()
+        if not self.surplus_open:
+            if s >= p.surplus_min:
+                self.surplus_open = True
+        else:
+            if s < p.surplus_min / 2:
+                self.surplus_open = False
+
     def tick(self) -> None:
         """Called after every step (practice) or event (live)."""
+        dt_min = max(0, self.now - self._last_tick_now)
+        self._last_tick_now = self.now
+        self.update_surplus()
+        if self.surplus_open and dt_min > 0:
+            self.stats["surplus_open_min"] += dt_min
         day = self.now // DAY
         if not hasattr(self, "_last_day"):
             self._last_day = day
@@ -292,6 +341,8 @@ class Desk:
     def price(self, request: PriceRequest) -> tuple[dict[str, int], str]:
         """The prices to quote, and "quote", "floor" (a price raised to keep the margin) or "decline"."""
         p, legs = self.p, request["legs"]
+        self.update_surplus()
+        open_classes = self.surplus_classes if self.surplus_open else set()
         extra_days = 0
         if p.notes_v2 and request["note"]:
             pn = parse_note_v2(request["note"], request["arrivedAt"])
@@ -316,6 +367,7 @@ class Desk:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
         pass_ext_ring = False
         pass_return_hub = False
+        pass_fri_gate = False
         if gate_supply < gate_min:
             pass_ext_ring = (
                 p.ext_ring_min_supply > 0
@@ -327,7 +379,13 @@ class Desk:
                 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= p.return_hub_min_supply
                 and drive <= p.return_hub_max_drive_min
             )
-            if not (pass_ext_ring or pass_return_hub):
+            pass_fri_gate = (
+                p.fri_gate_min_supply >= 0
+                and (self.now // DAY) == 4
+                and gate_supply >= p.fri_gate_min_supply * (1 + (p.guard_supply_mult - 1) * tight)
+                and any(o["kind"] in ("next_day", "within_3_days") and o["deadline"] // DAY == 7 for o in request["options"])
+            )
+            if not (pass_ext_ring or pass_return_hub or pass_fri_gate):
                 return {}, "decline"
             if self.backlog_near(pickup) + 1e-9 >= p.backlog_min:
                 self.stats["declined_backlog"] += 1
@@ -376,13 +434,21 @@ class Desk:
 
         prices: dict[str, int] = {}
         floored = False
+        tilted = False
         for option in request["options"]:
             ring_hub_sd = False
+            ring_surplus_sd = False
+            used_surplus_class: Optional[str] = None
             if (pass_ext_ring or pass_return_hub) and option["kind"] == "same_day":
+                continue
+            if pass_fri_gate and (option["kind"] not in ("next_day", "within_3_days") or option["deadline"] // DAY != 7):
                 continue
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
                 if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
                     ring_hub_sd = True
+                elif "ring" in open_classes and request["arrivedAt"] % DAY < 11 * HOUR:
+                    ring_surplus_sd = True
+                    used_surplus_class = "ring"
                 else:
                     continue
             deadline = option["deadline"]
@@ -399,6 +465,8 @@ class Desk:
                     )["to"]
                     for leg in legs
                 )
+            if pass_fri_gate and deadline // DAY != 7:
+                continue
             if p.max_next_day_drive_min > 0 and drive > p.max_next_day_drive_min:
                 if deadline // DAY <= ready // DAY + 1:
                     self.stats["dropped_next_day_long"] += 1
@@ -414,22 +482,35 @@ class Desk:
                 if deadline // DAY <= ready // DAY:
                     self.stats["dropped_long_drive"] += 1
                     continue
-            if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply and not ring_hub_sd:
-                self.stats["dropped_same_day_supply"] += 1
-                continue
+            if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply and not ring_hub_sd and not ring_surplus_sd:
+                if "midtown" in open_classes and supply >= 30:
+                    used_surplus_class = used_surplus_class or "midtown"
+                else:
+                    self.stats["dropped_same_day_supply"] += 1
+                    continue
             slack = deadline - ready - drive
             if slack < p.min_slack_min + p.slack_per_drive * drive:
-                self.stats["dropped_slack"] += 1
-                continue
+                if "slack" in open_classes and slack >= min(p.min_slack_min, 120) + p.slack_per_drive * drive:
+                    used_surplus_class = used_surplus_class or "slack"
+                else:
+                    self.stats["dropped_slack"] += 1
+                    continue
             if ring_hub_sd:
                 self.stats["quoted_ring_hub_same_day"] += 1
                 self.ring_hub_same_day.add(request["id"])
+            if used_surplus_class is not None:
+                self.surplus_quoted.setdefault(request["id"], {})[option["kind"]] = used_surplus_class
+                self.stats["quoted_surplus"] += 1
+                self.stats[f"quoted_surplus_{used_surplus_class}"] += 1
 
             option_mult = mult
             if is_invest and slack >= 360:
                 option_mult *= (1 - p.trust_invest)
             if p.return_hub_discount > 0 and pass_return_hub and not pass_ext_ring:
                 option_mult *= (1.0 - p.return_hub_discount)
+            if p.fri_slow_discount > 0 and (self.now // DAY) == 4 and option["deadline"] // DAY == 7 and deadline // DAY == 7:
+                option_mult *= (1.0 - p.fri_slow_discount)
+                tilted = True
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
             floor = fee / (1 - p.min_margin_frac)
@@ -438,12 +519,15 @@ class Desk:
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if pass_fri_gate and not (pass_ext_ring or pass_return_hub):
+            self.fri_gate_reqs.add(request["id"])
+            self.stats["quoted_fri_gate"] += 1
         if pass_ext_ring or pass_return_hub:
             self.ext_ring_reqs.add(request["id"])
             self.stats["quoted_ext_ring"] += 1
             if pass_return_hub:
                 self.stats["quoted_return_hub"] += 1
-        return prices, "floor" if floored else "quote"
+        return prices, "tilt" if tilted else ("floor" if floored else "quote")
 
     def learn(self, request_id: str, won: bool) -> None:
         """Moves the multiplier towards the price that wins `price_target_win` of the normal quotes."""
@@ -479,7 +563,7 @@ class Desk:
                 if (
                     req_id not in self.orders
                     and req_id not in self.lost_requests
-                    and self.decided.get(req_id) in ("quote", "floor")
+                    and self.decided.get(req_id) in ("quote", "floor", "tilt")
                     and self.now <= req["respondBy"]
                     and self.geo.line_km(req["legs"][0]["pickup"]["placeId"], place) <= radius
                 ):
@@ -525,6 +609,16 @@ class Desk:
                 if self.p.return_hub_min_supply > 0 and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply:
                     self.stats["won_return_hub"] += 1
             self.stats[f"won_{order['option']}"] += 1
+            if (self.now // DAY) == 4:
+                self.stats["won_fri"] += 1
+                self.stats[f"won_fri_{order['option']}"] += 1
+            if order["id"] in self.fri_gate_reqs:
+                self.stats["won_fri_gate"] += 1
+            surplus_cls = self.surplus_quoted.get(order["id"], {}).get(order["option"])
+            if surplus_cls is not None:
+                self.surplus_orders[order["id"]] = surplus_cls
+                self.stats["won_surplus"] += 1
+                self.stats[f"won_surplus_{surplus_cls}"] += 1
             self.post(order, undelivered(order))
 
     def change(self, order: Order) -> None:
@@ -873,7 +967,9 @@ class Desk:
                             delivered = [d for d in order["deliveredAt"] if d is not None]
                             if len(delivered) == len(order["legs"]) and max(delivered) <= order["deadline"]:
                                 self.dealer_trust[dealer] = min(25, self.dealer_trust[dealer] + 1)
-                            
+        self.late = set(_late_replay)
+        self._last_tick_now = self.now
+
         for e in history:
             if e["kind"] == "gig_viewed":
                 self.last_view[e["driverId"]] = e["at"]
