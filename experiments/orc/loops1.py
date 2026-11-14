@@ -55,6 +55,8 @@ HOME_OFFER, POOL = 0.75, 40   # ride home: offered at 0.75x to drivers living ne
 RET = {"ret6": 0.6, "ret9": 0.9}   # way back offered to the driver the minute they deliver the first car, at this x typical
 THIN = {"thin10": 1.0, "thin12": 1.2}   # his "driver first": thin-town cars (< 22 drivers near), paid up front
 THIN_MAX = 22
+SD = {"sd75": 0.75, "sd100": 1.0}    # same_day into a pool from a town v7 won't quote same_day in; posted at once at this x
+SD_BUMP = 60                         # same_day: raise to 1.4x after an hour unbooked
 OFF_OPEN = 0.75                    # offers arms: every car alone at 0.75x, raised to 0.9x after BUMP; offa/offu add offers
 geo = Geo(load_map(None))
 TAPE = tape(SEED)
@@ -218,6 +220,8 @@ class Desk:
 
     def quote(self, r):
         o = slow_option(r) if r["id"] in self.loop_of else None
+        if self.arm in SD and r["id"] in self.loop_of:
+            o = next(x for x in r["options"] if x["kind"] == "same_day")
         if o:
             lim = LIMIT.get((r["id"], o["kind"]))
             price = int(QUOTE * lim) if lim else o["listPriceCents"]
@@ -230,6 +234,8 @@ class Desk:
     def won(self, oid, now):
         if self.arm in THIN:
             return [self.post([oid], THIN[self.arm], "thin", now)]
+        if self.arm in SD:
+            return [self.post([oid], SD[self.arm], "sd", now)]
         if self.arm in ("off0", "offa", "offu"):
             return [self.post([oid], OFF_OPEN, "offsolo", now)]
         if self.arm in RET:
@@ -251,7 +257,7 @@ class Desk:
         if any(i in self.lost for i in loop):
             return [self.post([oid], SOLO, "broken", now)]
         if all(i in self.held for i in loop):
-            if self.arm == "chain":
+            if self.arm in ("chain", "rest"):
                 return [self.post(list(loop), OPEN["c"], "chain", now)]
             return [self.post(list(loop), OPEN[len(loop)], "home" if len(loop) == 1 else f"loop{len(loop)}", now)]
         return []
@@ -328,9 +334,10 @@ class Desk:
             if g in self.booked:
                 continue
             last = x["steps"][-1][0]
-            if (x["kind"].startswith("loop") or x["kind"] in ("home", "chain", "offsolo", "thin")) and not x.get("bumped") and now - x["at"] >= BUMP:
+            wait = SD_BUMP if x["kind"] == "sd" else BUMP
+            if (x["kind"].startswith("loop") or x["kind"] in ("home", "chain", "offsolo", "thin", "sd")) and not x.get("bumped") and now - x["at"] >= wait:
                 x["bumped"] = True
-                up = RESCUE if x["kind"] == "thin" else SOLO
+                up = RESCUE if x["kind"] in ("thin", "sd") else SOLO
                 out.append(self.reprice(g, int(up * sum(REQ[o]["referenceFeeCents"] for o in x["oids"])), now, "bump"))
             elif x["kind"] == "search" and now - last >= HOUR:
                 o = x["oids"][0]
@@ -356,7 +363,7 @@ class Desk:
                         and all(o in self.orders for o in x["oids"]):
                     out += self.offers_near_pickup(g, x, now)
                 continue
-            if x["kind"] not in ("home", "chain") or g in self.booked or x.get("bumped") \
+            if x["kind"] not in ("home", "chain") or self.arm == "rest" or g in self.booked or x.get("bumped") \
                     or not all(o in self.orders for o in x["oids"]):     # a cancelled order: leave it
                 continue
             last = x["oids"][-1]                  # the car that ends at the driver's home
@@ -453,8 +460,43 @@ class Desk:
 KINDS = ["price_request", "order_won", "order_lost", "order_changed", "order_cancelled", "gig_booked", "deadline_close",
          "gig_expired", "gig_dropped", "no_show", "visit_failed", "offer_answered"]
 SELECT = {}
-GROUP = {"thin10": "t", "thin12": "t", "ret6": "2", "ret9": "2", "off0": "4", "offa": "4", "offu": "4", "loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
+GROUP = {"sd75": "s", "sd100": "s", "rest": "r", "solo7": "r", "thin10": "t", "thin12": "t", "ret6": "2", "ret9": "2", "off0": "4", "offa": "4", "offu": "4", "loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
          "home": "2h", "solo4": "2h", "homeonly": "h", "solo5": "h", "chain": "c", "solo6": "c"}
+
+
+def chains_rest(max_road=480):
+    """His idea (Sun ~01:30): after the closed pairs and triangles, link what is left two at a time, back to back (y's
+    pickup within 30 km of x's delivery), wherever they end; one gig, under max_road road minutes, deadlines with SPARE."""
+    taken = {i for c in selection("tri")[0] for i in c}
+    ok = [r for r in REQ.values() if r["id"] not in taken and len(r["legs"]) == 1 and slow_option(r)
+          and not r["legs"][0]["pickup"]["privateAddress"] and not r["legs"][0]["delivery"]["privateAddress"]]
+    road = lambda x, y: geo.minutes(*ends(x)) + geo.minutes(ends(x)[1], ends(y)[0]) + geo.minutes(*ends(y))  # noqa: E731
+    g = nx.Graph()
+    for x in ok:
+        for y in ok:
+            if x is y or abs(x["arrivedAt"] - y["arrivedAt"]) > DAY or geo.line_km(ends(x)[1], ends(y)[0]) > 30:
+                continue
+            if road(x, y) <= max_road and drivable([x, y]):
+                w = (x["referenceFeeCents"] + y["referenceFeeCents"]) * (SOLO - OPEN["c"])
+                if not g.has_edge(x["id"], y["id"]) or g.edges[x["id"], y["id"]]["w"] < w:
+                    g.add_edge(x["id"], y["id"], w=w, c=[x["id"], y["id"]])
+    return [g.edges[e]["c"] for e in nx.max_weight_matching(g, maxcardinality=True)]
+
+
+def same_day_in():
+    """same_day cars from a town with fewer than 50 drivers near the pickup (v7 declines same_day there) into a pool
+    (40+ drivers near the delivery), at most 2 h of driving: a capital driver trains out and drives home the same day."""
+    out = []
+    for r in REQ.values():
+        if len(r["legs"]) != 1 or not any(o["kind"] == "same_day" for o in r["options"]):
+            continue
+        leg = r["legs"][0]
+        if leg["pickup"]["privateAddress"] or leg["delivery"]["privateAddress"]:
+            continue
+        p, d = ends(r)
+        if NEAR[p] < 50 and NEAR[d] >= POOL and geo.minutes(p, d) <= 120 and (r["id"], "same_day") in LIMIT:
+            out.append([r["id"]])
+    return out
 
 
 def thin_singles():
@@ -473,6 +515,10 @@ def selection(arm):
         elif key == "2h":
             pairs, cands, n = selection("pairs")
             SELECT[key] = (pairs + homeward({i for c in pairs for i in c}), cands, n)
+        elif key == "s":
+            SELECT[key] = (same_day_in(), 0, 0)
+        elif key == "r":
+            SELECT[key] = (chains_rest(), 0, 0)
         elif key == "t":
             SELECT[key] = (thin_singles(), 0, 0)
         elif key == "c":
