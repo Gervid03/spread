@@ -103,8 +103,8 @@ class _OracleMixin:
 
     def expected_fee_eur(self, request: PriceRequest, kind: str, meta: dict) -> float:
         ref = request["referenceFeeCents"] / 100.0
-        if kind != "same_day" and meta.get("closes_cycle"):
-            return max(1.0, ref * 0.52)
+        if kind != "same_day" and meta.get("closes_cycle") and meta["supply"] >= 20:
+            return max(1.0, ref * 0.56)
         ds = meta["dest_supply"]
         ps = meta["supply"]
         drive = meta["drive"]
@@ -122,8 +122,8 @@ class _OracleMixin:
     def driver_blocks(self, kind: str, meta: dict) -> float:
         p = self.p
         blocks = 1.0 + (meta["drive"] / 150.0)
-        if kind != "same_day" and meta.get("closes_cycle"):
-            return 0.50 * blocks
+        if kind != "same_day" and meta.get("closes_cycle") and meta["supply"] >= 20:
+            return 0.65 * blocks
         if meta["dest_supply"] < 25:
             blocks += p.oracle_deadend_block_add
         if kind == "same_day" and meta["supply"] < 100:
@@ -136,7 +136,7 @@ class _OracleMixin:
             return None, 0, -1.0
 
         cur_bl = self.backlog_near(meta["pickup"], include_in_flight=True)
-        if cur_bl + 1e-9 >= meta["max_backlog"] and not meta.get("closes_cycle"):
+        if cur_bl + 1e-9 >= meta["max_backlog"]:
             return None, 0, -1.0
 
         load_ratio = min(1.0, max(0.0, cur_bl / max(1.0, meta["max_backlog"])))
