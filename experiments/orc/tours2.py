@@ -22,6 +22,7 @@ from spread_lab.env import lab_home  # noqa: E402
 SEED = sys.argv[1] if len(sys.argv) > 1 else "dev-12"
 T = int(sys.argv[2]) if len(sys.argv) > 2 else 1100
 MULTS = [float(x) for x in sys.argv[3].split(",")] if len(sys.argv) > 3 else [0.35, 0.45, 0.55, 0.7]
+PACK = sys.argv[4] if len(sys.argv) > 4 else "big"      # big: 4-car tours first; small: 2-car tours first (more tours, for depth)
 EVENING = T % DAY >= 720                    # posted in the evening for the next day, or in the morning for today
 DAY0 = (T // DAY + 1) * DAY if EVENING else T // DAY * DAY
 UNTIL = DAY0 + 570 if EVENING else T + 180  # the next morning 09:30, or three hours after a morning post
@@ -154,7 +155,7 @@ with world(SEED, what="tours2") as w:
         if br:
             dead = br[3][1] - sum(cars[x]["drive"] for x in cyc)
             scored.append((len(cyc), -dead, near[cars[br[1][0]]["P"]], br))
-    scored.sort(key=lambda s: (-s[0], -s[1], -s[2]))
+    scored.sort(key=lambda s: ((-s[0] if PACK == "big" else s[0]), -s[1], -s[2]))
     used, tours = set(), []
     for size, negdead, sup, br in scored:
         rot = br[1]
@@ -210,5 +211,5 @@ with world(SEED, what="tours2") as w:
                 f"views/tour {sum(views.values()) / max(1, len(gid)):.1f}")
             if bad:
                 say("  refusals:", Counter(str(b)[:70] for b in bad).most_common(3))
-        (home(SEED) / f"tours2-{T}.json").write_text(json.dumps(out), encoding="utf-8")
+        (home(SEED) / f"tours2-{T}-{PACK}.json").write_text(json.dumps(out), encoding="utf-8")
     say("requests", w.client.requests)
