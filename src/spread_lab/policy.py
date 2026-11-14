@@ -146,6 +146,11 @@ class Params:
     dest_supply_exp: float = 0.0      # price x (dest_supply_ref / drivers within 30 km of the delivery) ** this
                                       # (fit: log limit -0.036 per log of delivery supply; Helsinki 359, Kemi 0)
     dest_supply_ref: float = 40.0
+    ca_lambda_eur: float = 0.0        # > 0: cost-aware price, argmax (p - cost) P(win), cost = ca_fee_mult x typical
+                                      # fee + this EUR a car (the shadow price of a driver; offline best 20-40)
+    ca_fee_mult: float = 0.95         # booked fee / typical fee on v7 dev (0.946)
+    ca_sigma: float = 0.245           # log-sd of the dealer's limit around the desk's quote (dev-12 fit)
+    ca_learn_all: bool = False        # also let the priced-up quotes (> 1.1x the usual) move the win-rate controller
     # --- morning day supervisor (08:00 Mon-Fri) -----------------------------------------------------
     supervisor: bool = False          # master enable for 08:00 morning state supervisor
     sup_recover_frac: float = 0.0     # 0..1: at 08:00 Tue-Fri, recover mult toward yesterday's 08:00 mult after freeze
@@ -193,6 +198,25 @@ class Retry(NamedTuple):
 
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
+
+
+_CA_GRID = [math.exp(-0.6 + 1.2 * i / 120) for i in range(121)]
+_CA_SURV: dict[float, list[float]] = {}
+
+
+def cost_aware_price(center: float, cost: float, sigma: float) -> float:
+    """The price that maximises (price - cost) x P(the dealer's limit >= price), for a limit that is lognormal around
+    `center` (the desk's usual quote) with log-sd `sigma`. claude-price-oracle, Sat 14 Nov: on dev-12's measured limits,
+    at the same 251 wins, this with a fixed EUR 30 a car in `cost` made EUR 18,792 against 17,331 for list x M + floor."""
+    surv = _CA_SURV.get(sigma)
+    if surv is None:
+        surv = _CA_SURV[sigma] = [0.5 * math.erfc(math.log(g) / (sigma * math.sqrt(2))) for g in _CA_GRID]
+    best, value = center, -1e18
+    for g, s in zip(_CA_GRID, surv):
+        v = (center * g - cost) * s
+        if v > value:
+            best, value = center * g, v
+    return best
 
 
 class Desk:
@@ -779,9 +803,18 @@ class Desk:
                 option_mult *= (1.0 - p.return_hub_discount)
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            floor = fee / (1 - p.min_margin_frac)
-            if price < floor:
-                price, floored = floor, True
+            if p.ca_lambda_eur > 0:  # cost-aware: the fee floor is folded into the cost
+                cost = request["referenceFeeCents"] * p.ca_fee_mult + 100 * p.ca_lambda_eur * len(legs)
+                best = cost_aware_price(price, cost, p.ca_sigma)
+                if best > price * 1.1:
+                    self.stats["ca_priced_up"] += 1
+                    if not p.ca_learn_all:
+                        floored = True  # priced out on purpose: keep it out of the win-rate controller
+                price = best
+            else:
+                floor = fee / (1 - p.min_margin_frac)
+                if price < floor:
+                    price, floored = floor, True
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
