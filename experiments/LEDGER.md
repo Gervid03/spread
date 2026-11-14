@@ -5,6 +5,12 @@ against the champion of the time, on the 16 dev worlds unless a set is named (±
 32 unseen worlds (`night-01..32`). The detail is in each branch's note (`experiments/<date>-gemini-<slug>.md`).
 Promotions are in [PROMOTIONS.md](PROMOTIONS.md); round 3 (ideas 15–30) is in `docs/HANDOFF.md`.
 
+## Update Sat 13:40 Helsinki (laptop lead)
+- **Champion v6 = cp-supervisor on v5** (f817abe, promoted 13:18): dev +€195 ± 93 (t 2.11), holdout +€187 ± 110, holdout on-time min 94.8%. Verda pulled it at 13:20; it plays the 14:00 test final.
+- cp-chains re-measured on v5: stacked dev t 2.75, night-32 32/32 safe (not promoted yet; must now gate on v6).
+- TAS: step 0 green on v5 (to the cent, 0 CHECK, ~600-1,000 forks/min). Layer 1 on dev-12: the same 246 orders at each dealer's limit = €14,572.94, +€3,662 (+33.6%) with driver_fee identical: **pricing alone leaves about a third of the margin**.
+- tas-state measured the competitor's morning reaction: busy dealers (10+ requests) with our win share under 30% raise next morning +1 step (~+4%), 30-69% no change, 70%+ cut -1 step; small dealers never react; Friday has no penalty.
+
 ## Sat 14 Nov: the day run (d14) and the ten co-players (cp), recorded 13:00 Helsinki by the laptop lead
 
 **Champion v5 = cp-fees** (promoted 12:51 by promote.sh): dev +€794 ± 139 (t 5.73, 16/16 better), holdout +€567 ±
