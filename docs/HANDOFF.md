@@ -1,5 +1,18 @@
 # Handoff: where the lab stands
 
+## Sat 14 Nov, 09:55 Helsinki (the user's board session): three more Carbon briefs, after c1 and c2
+The user asked for everything else worth running. In `experiments/prompts/carbon/`, each starts like c1/c2 (prepend
+`_protocol.md`):
+1. **`c3-acceptance-model.md`**, start it first, whenever a Carbon slot frees: Part 1 is slot-free (one logistic fit
+   over every revealed quote; is the lane effect stable across worlds; is trust's +1% visible; which classes are under
+   2% late). Part 2, the lane table as a price prior, runs only if Part 1 holds out of sample.
+2. **`c4-buffer-spender.md`**: cheaper quotes on easy orders only while the week's projected on-time share is ≥ 95.5%.
+   Better after c3 (it can use c3's late classes) but it doesn't need it.
+3. **`c5-day-supervisor.md`**: an LLM (Argon) sets three dials each world-evening within limits, against a formula
+   arm on the same worlds; answers cached per seed and day so paired tests replay. For the jury's "creative"; lowest
+   priority for margin.
+Slots are the bottleneck: run at most one of these beside c1 and c2, in this order.
+
 ## Sat 14 Nov, 09:30 Helsinki (the laptop lead): two Carbons instead of the swarm
 The user's call: we use ~1% of Google's limits and practice worlds are the bottleneck, so fewer, stronger agents
 that test sparingly. The night run is over (stopped 09:22). Running on the swarm VM now:
