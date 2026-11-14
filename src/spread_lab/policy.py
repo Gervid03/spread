@@ -138,6 +138,32 @@ class Params:
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
+    # --- morning day supervisor (08:00 Mon-Fri) -----------------------------------------------------
+    supervisor: bool = False          # master enable for 08:00 morning state supervisor
+    sup_recover_frac: float = 0.0     # 0..1: at 08:00 Tue-Fri, recover mult toward yesterday's 08:00 mult after freeze
+    sup_calm_ot: float = 0.965        # projected_on_time >= this (with low backlog/warns & free drivers) => calm day
+    sup_calm_backlog: int = 3         # max unstaffed orders due within 24h for calm regime
+    sup_calm_warns: int = 3           # max deadline_close warnings in prior 24h for calm regime
+    sup_min_free_share: float = 0.80  # min share of roster not holding an active gig at 08:00 for calm/fri loosening
+    sup_calm_sd_supply: int = 35      # same_day_min_supply on calm Tue-Fri days (0 = keep p.same_day_min_supply)
+    sup_calm_slack_sub: int = 15      # subtract from min_slack_min on calm Tue-Fri days
+    sup_calm_ret_supply: int = 0      # if > 0 (e.g. 40), return_hub_min_supply on calm days
+    sup_calm_ret_drive: int = 0       # if > 0 (e.g. 280), return_hub_max_drive_min on calm days
+    sup_stress_ot: float = 0.955      # projected_on_time < this => stressed day
+    sup_stress_backlog: int = 6       # unstaffed orders due within 24h >= this => stressed day
+    sup_stress_warns: int = 6         # deadline_close warnings in prior 24h >= this => stressed day
+    sup_stress_sd_supply: int = 70    # min same_day_min_supply on stressed days (0 = keep p.same_day_min_supply)
+    sup_stress_slack_add: int = 20    # add to min_slack_min on stressed days
+    sup_emerg_unstaffed: int = 0      # 0 = off; if > 0 (e.g. 12) and warns >= sup_emerg_warns => emergency day
+    sup_emerg_warns: int = 5          # warnings in prior 24h (with unstaffed >= sup_emerg_unstaffed) => emergency day
+    sup_emerg_min_supply: int = 45    # min_supply on emergency days (also suspends ext_ring/return_hub)
+    sup_emerg_sd_supply: int = 150    # same_day_min_supply on emergency days
+    sup_emerg_slack_add: int = 50     # add to min_slack_min on emergency days
+    sup_fri_ot: float = 0.965         # Fri 08:00 projected_on_time threshold for endgame slow-gate opening
+    sup_fri_max_backlog: int = 5      # max total unstaffed orders at Fri 08:00 to open Friday surplus gates
+    sup_fri_slow_min_supply: int = 0  # if > 0 (e.g. 3), Fri 08:00 surplus opens Monday-due slow options down to this supply
+    sup_fri_sd_max_drive: int = 0     # if > 0 (e.g. 180), Fri 08:00 surplus relaxes fri_same_day_max_drive to this
+    sup_fri_neutral_learn: bool = False  # if True, thin-town Friday surplus quotes skip learn() via ext_ring_reqs
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -208,6 +234,19 @@ class Desk:
         self.chain_pairs: dict[str, int] = {}        # gig id -> minute paired via chain_pair_km
         self.chain_split_orders: Counter = Counter() # order id -> times split from chain_pair
         self.ends_at: int = 14280                    # second Wednesday 22:00
+        self.sup_days_done: set[int] = set()
+        self.day_open_mult: dict[int, float] = {}
+        self.day_max_streak: Counter = Counter()
+        self.warn_times: list[int] = []
+        self.drop_times: list[int] = []
+        self.sup_regime: str = "init"
+        self.sup_sd_supply: Optional[int] = None
+        self.sup_min_slack: Optional[int] = None
+        self.sup_ret_supply: Optional[int] = None
+        self.sup_ret_drive: Optional[int] = None
+        self.sup_emerg_active: bool = False
+        self.sup_fri_surplus_active: bool = False
+        self.sup_fri_thin_reqs: set[str] = set()
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -243,6 +282,7 @@ class Desk:
             self.repost(event["gigId"])
         elif kind == "deadline_close":
             self.stats["deadline_close"] += 1
+            self.warn_times.append(self.now)
             self.raise_fees(event["orderId"])
         elif kind == "gig_booked":
             gid = event["gigId"]
@@ -277,6 +317,7 @@ class Desk:
             self.booked.discard(gid)
             self.booked_driver.pop(gid, None)
             self.stats[kind] += 1
+            self.drop_times.append(self.now)
             post = self.posts.get(gid)
             if post:
                 for order_id in dict.fromkeys(s["orderId"] for s in post["stops"]):
@@ -310,6 +351,8 @@ class Desk:
                 self.stats["margin_ring_cents"] += line["cents"]
             if is_ext_ring:
                 self.stats["margin_ext_ring_cents"] += line["cents"]
+            if order and order["id"] in self.sup_fri_thin_reqs:
+                self.stats["sup_fri_thin_margin_cents"] += line["cents"]
             if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
                 if line["orderId"] not in self.late:
                     if is_ring:
@@ -318,6 +361,8 @@ class Desk:
                         self.stats["late_ring_hub_same_day"] += 1
                     if is_ext_ring:
                         self.stats["late_ext_ring"] += 1
+                    if line["orderId"] in self.sup_fri_thin_reqs:
+                        self.stats["sup_fri_thin_late"] += 1
                 self.late.add(line["orderId"])
                 if dealer:
                     self.dealer_trust[dealer] //= 2
@@ -350,8 +395,128 @@ class Desk:
                         else:
                             self.stats["late_more"] += 1
 
+    def maybe_supervise(self, allow_mult_recover: bool = True) -> None:
+        """At 08:00 on each working day (Mon-Fri), reads board state (backlog, free drivers, wins/on-time,
+        yesterday's warnings and freeze streak) and sets today's intake and recovery dials."""
+        p = self.p
+        if not p.supervisor:
+            return
+        day = self.now // DAY
+        if day > 4 or self.now < day * DAY + 8 * HOUR or day in self.sup_days_done:
+            return
+        self.sup_days_done.add(day)
+        self.stats["sup_calls"] += 1
+        if day == 0:
+            self.day_open_mult[0] = self.mult
+            self.sup_regime = "mon_init"
+            return
+
+        if allow_mult_recover and p.sup_recover_frac > 0:
+            prev = day - 1
+            prev_open = self.day_open_mult.get(prev, self.mult)
+            if self.day_max_streak[prev] > p.loss_streak_freeze and self.mult < prev_open:
+                new_mult = clamp(self.mult + p.sup_recover_frac * (prev_open - self.mult), p.price_mult_min, p.price_mult_max)
+                self.stats["sup_freeze_recoveries"] += 1
+                self.stats[f"sup_recover_d{day}_bp"] = int(round((new_mult - self.mult) * 10000))
+                self.mult = new_mult
+        self.day_open_mult[day] = self.mult
+
+        proj_ot = self.projected_on_time()
+        unstaffed_orders = [o for o in self.orders.values() if undelivered(o) and not self.staffed(o)]
+        unstaffed_all = len(unstaffed_orders)
+        unstaffed_soon = sum(1 for o in unstaffed_orders if o["lastPickupAt"] - self.now <= 24 * HOUR)
+        busy_gigs = sum(
+            1
+            for gid in self.booked
+            if gid in self.posts and any(oid in self.orders and undelivered(self.orders[oid]) for oid in order_ids_of(self.posts[gid]))
+        )
+        free_drivers = max(0, len(self.drivers) - busy_gigs)
+        free_share = free_drivers / max(1, len(self.drivers))
+        window_start = self.now - 24 * HOUR
+        warns_yday = sum(1 for t in self.warn_times if window_start < t <= self.now)
+
+        self.stats[f"sup_d{day}_unstaffed"] = unstaffed_all
+        self.stats[f"sup_d{day}_soon"] = unstaffed_soon
+        self.stats[f"sup_d{day}_free_pct"] = int(round(free_share * 100))
+        self.stats[f"sup_d{day}_ot_bp"] = int(round(proj_ot * 10000))
+        self.stats[f"sup_d{day}_warns"] = warns_yday
+
+        self.sup_sd_supply = None
+        self.sup_min_slack = None
+        self.sup_ret_supply = None
+        self.sup_ret_drive = None
+        self.sup_emerg_active = False
+        self.sup_fri_surplus_active = False
+
+        is_emergency = (
+            p.sup_emerg_unstaffed > 0
+            and unstaffed_all >= p.sup_emerg_unstaffed
+            and warns_yday >= p.sup_emerg_warns
+        )
+        is_stressed = (
+            is_emergency
+            or proj_ot < p.sup_stress_ot
+            or warns_yday >= p.sup_stress_warns
+            or unstaffed_soon >= p.sup_stress_backlog
+        )
+        is_calm = (
+            not is_stressed
+            and proj_ot >= p.sup_calm_ot
+            and warns_yday <= p.sup_calm_warns
+            and unstaffed_soon <= p.sup_calm_backlog
+            and free_share >= p.sup_min_free_share
+        )
+        if is_emergency:
+            self.sup_emerg_active = True
+            self.sup_regime = "emergency"
+            self.stats["sup_days_emergency"] += 1
+            self.stats[f"sup_d{day}_regime"] = -2
+            if p.sup_emerg_sd_supply > 0:
+                self.sup_sd_supply = max(p.same_day_min_supply, p.sup_emerg_sd_supply)
+            if p.sup_emerg_slack_add != 0:
+                self.sup_min_slack = p.min_slack_min + p.sup_emerg_slack_add
+        elif is_stressed:
+            self.sup_regime = "stressed"
+            self.stats["sup_days_stressed"] += 1
+            self.stats[f"sup_d{day}_regime"] = -1
+            if p.sup_stress_sd_supply > 0:
+                self.sup_sd_supply = max(p.same_day_min_supply, p.sup_stress_sd_supply)
+            if p.sup_stress_slack_add != 0:
+                self.sup_min_slack = p.min_slack_min + p.sup_stress_slack_add
+        elif is_calm:
+            self.sup_regime = "calm"
+            self.stats["sup_days_calm"] += 1
+            self.stats[f"sup_d{day}_regime"] = 1
+            if p.sup_calm_sd_supply > 0:
+                self.sup_sd_supply = p.sup_calm_sd_supply
+            if p.sup_calm_slack_sub != 0:
+                self.sup_min_slack = max(60, p.min_slack_min - p.sup_calm_slack_sub)
+            if p.sup_calm_ret_supply > 0:
+                self.sup_ret_supply = p.sup_calm_ret_supply
+            if p.sup_calm_ret_drive > 0:
+                self.sup_ret_drive = p.sup_calm_ret_drive
+        else:
+            self.sup_regime = "normal"
+            self.stats["sup_days_normal"] += 1
+            self.stats[f"sup_d{day}_regime"] = 0
+
+        if (
+            day == 4
+            and not is_stressed
+            and proj_ot >= p.sup_fri_ot
+            and unstaffed_all <= p.sup_fri_max_backlog
+            and warns_yday <= p.sup_calm_warns + 1
+            and free_share >= p.sup_min_free_share
+            and (p.sup_fri_slow_min_supply > 0 or p.sup_fri_sd_max_drive > 0)
+        ):
+            self.sup_fri_surplus_active = True
+            self.sup_regime = "fri_surplus"
+            self.stats["sup_fri_surplus_fired"] += 1
+            self.stats[f"sup_d{day}_regime"] = 2
+
     def tick(self) -> None:
         """Called after every step (practice) or event (live)."""
+        self.maybe_supervise()
         day = self.now // DAY
         if not hasattr(self, "_last_day"):
             self._last_day = day
@@ -400,6 +565,7 @@ class Desk:
 
     # --- quoting --------------------------------------------------------------------------------------
     def quote(self, request: PriceRequest) -> None:
+        self.maybe_supervise()
         self.requests[request["id"]] = request
         self.dealer_request_count[request["dealerId"]] += 1
         prices, decision = self.price(request)
@@ -443,22 +609,35 @@ class Desk:
         supply = self.supply.get(pickup, 0)
         gate_supply = self.gate_supply.get(pickup, 0)
         tight = self.tightening()
-        gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
+        if p.supervisor and self.sup_emerg_active and p.sup_emerg_min_supply > 0:
+            base_min_supply = max(p.min_supply, p.sup_emerg_min_supply)
+        elif p.supervisor and self.sup_fri_surplus_active and p.sup_fri_slow_min_supply > 0 and (self.now // DAY) == 4:
+            base_min_supply = p.sup_fri_slow_min_supply
+        else:
+            base_min_supply = p.min_supply
+        gate_min = base_min_supply * (1 + (p.guard_supply_mult - 1) * tight)
+        std_gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
         pass_ext_ring = False
         pass_return_hub = False
+        fri_thin_only = False
+        eff_ret_supply = self.sup_ret_supply if (p.supervisor and self.sup_ret_supply is not None) else p.return_hub_min_supply
+        eff_ret_drive = self.sup_ret_drive if (p.supervisor and self.sup_ret_drive is not None) else p.return_hub_max_drive_min
         if gate_supply < gate_min:
+            if p.supervisor and self.sup_emerg_active:
+                self.stats["sup_emerg_declined"] += 1
+                return {}, "decline"
             pass_ext_ring = (
                 p.ext_ring_min_supply > 0
                 and self.ext_supply.get(pickup, 0) >= p.ext_ring_min_supply
                 and drive <= p.ext_ring_max_drive_min
             )
             pass_return_hub = (
-                p.return_hub_min_supply > 0
-                and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= p.return_hub_min_supply
-                and drive <= p.return_hub_max_drive_min
+                eff_ret_supply > 0
+                and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= eff_ret_supply
+                and drive <= eff_ret_drive
             )
             if not (pass_ext_ring or pass_return_hub):
                 return {}, "decline"
@@ -468,6 +647,8 @@ class Desk:
                     self.stats["in_flight_blocked"] += 1
                 return {}, "decline"
         else:
+            if gate_supply < std_gate_min:
+                fri_thin_only = True
             backlog_cap = max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight)
             if self.backlog_near(pickup) + 1e-9 >= backlog_cap:
                 self.stats["declined_backlog"] += 1
@@ -507,11 +688,19 @@ class Desk:
             top3 = sorted(self.dealer_request_count.keys(), key=lambda d: self.dealer_request_count[d], reverse=True)[:3]
             is_invest = request["dealerId"] in top3
 
+        eff_sd_supply = self.sup_sd_supply if (p.supervisor and self.sup_sd_supply is not None) else p.same_day_min_supply
+        eff_min_slack = self.sup_min_slack if (p.supervisor and self.sup_min_slack is not None) else p.min_slack_min
+        eff_fri_sd_drive = (
+            p.sup_fri_sd_max_drive
+            if (p.supervisor and self.sup_fri_surplus_active and p.sup_fri_sd_max_drive > 0 and (self.now // DAY) == 4)
+            else p.fri_same_day_max_drive
+        )
+
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
             ring_hub_sd = False
-            if (pass_ext_ring or pass_return_hub) and option["kind"] == "same_day":
+            if (pass_ext_ring or pass_return_hub or fri_thin_only) and option["kind"] == "same_day":
                 continue
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
                 if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
@@ -532,26 +721,28 @@ class Desk:
                     )["to"]
                     for leg in legs
                 )
-            if p.max_next_day_drive_min > 0 and drive > p.max_next_day_drive_min:
+            if fri_thin_only and deadline // DAY < 7:
+                continue
+            if p.max_next_day_drive_min > 0 and drive > p.max_next_day_drive_min and not (fri_thin_only and deadline // DAY >= 7):
                 if deadline // DAY <= ready // DAY + 1:
                     self.stats["dropped_next_day_long"] += 1
                     continue
-            if p.thin_long_next_day_supply > 0 and not is_ring and supply < p.thin_long_next_day_supply and drive > p.long_drive_min:
+            if p.thin_long_next_day_supply > 0 and not is_ring and supply < p.thin_long_next_day_supply and drive > p.long_drive_min and not (fri_thin_only and deadline // DAY >= 7):
                 if deadline // DAY <= ready // DAY + 1:
                     self.stats["dropped_thin_long_next_day"] += 1
                     continue
-            if p.fri_same_day_max_drive > 0 and ready // DAY >= 4 and option["kind"] == "same_day" and drive >= p.fri_same_day_max_drive:
+            if eff_fri_sd_drive > 0 and ready // DAY >= 4 and option["kind"] == "same_day" and drive >= eff_fri_sd_drive:
                 self.stats["dropped_fri_same_day"] += 1
                 continue
             if p.long_drive_min > 0 and drive > p.long_drive_min:
                 if deadline // DAY <= ready // DAY:
                     self.stats["dropped_long_drive"] += 1
                     continue
-            if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply and not ring_hub_sd:
+            if option["kind"] == "same_day" and eff_sd_supply > 0 and supply < eff_sd_supply and not ring_hub_sd:
                 self.stats["dropped_same_day_supply"] += 1
                 continue
             slack = deadline - ready - drive
-            if slack < p.min_slack_min + p.slack_per_drive * drive:
+            if slack < eff_min_slack + p.slack_per_drive * drive:
                 self.stats["dropped_slack"] += 1
                 continue
             if ring_hub_sd:
@@ -571,6 +762,11 @@ class Desk:
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if fri_thin_only:
+            self.sup_fri_thin_reqs.add(request["id"])
+            self.stats["sup_fri_thin_quoted"] += 1
+            if p.sup_fri_neutral_learn:
+                self.ext_ring_reqs.add(request["id"])
         if pass_ext_ring or pass_return_hub:
             self.ext_ring_reqs.add(request["id"])
             self.stats["quoted_ext_ring"] += 1
@@ -591,6 +787,8 @@ class Desk:
         if day != self.streak_day:
             self.loss_streak, self.streak_day = 0, day
         self.loss_streak = 0 if won else self.loss_streak + 1
+        if self.loss_streak > self.day_max_streak[day]:
+            self.day_max_streak[day] = self.loss_streak
         step = (1 - p.price_target_win) if won else -p.price_target_win
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
@@ -696,9 +894,12 @@ class Desk:
             if order["option"] == "same_day" and order["id"] in self.ring_hub_same_day:
                 self.stats["won_ring_hub_same_day"] += 1
             if self.gate_supply.get(pickup, 0) < self.p.min_supply:
-                self.stats["won_ext_ring"] += 1
-                if self.p.return_hub_min_supply > 0 and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply:
-                    self.stats["won_return_hub"] += 1
+                if order["id"] in self.sup_fri_thin_reqs:
+                    self.stats["sup_fri_thin_won"] += 1
+                else:
+                    self.stats["won_ext_ring"] += 1
+                    if self.p.return_hub_min_supply > 0 and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply:
+                        self.stats["won_return_hub"] += 1
             self.stats[f"won_{order['option']}"] += 1
             if (
                 self.p.defer_multiday_min > 0
@@ -1376,6 +1577,10 @@ class Desk:
             elif e["kind"] == "offer_answered":
                 self.offers_sent[(e["driverId"], e["at"] // DAY)] += 1
                 self.offered_pairs.add((e["gigId"], e["driverId"]))
+            elif e["kind"] == "deadline_close":
+                self.warn_times.append(e["at"])
+            elif e["kind"] in ("gig_dropped", "no_show"):
+                self.drop_times.append(e["at"])
         self.orders = {o["id"]: o for o in snapshot["orders"] if o["id"] in self.requests and o["status"] != "cancelled"}
         for e in history:
             if e["kind"] == "gig_expired":
@@ -1418,6 +1623,13 @@ class Desk:
                 ratios.append(order["priceCents"] / option["listPriceCents"])
         if ratios:
             self.mult = clamp(median(ratios), self.p.price_mult_min, self.p.price_mult_max)
+        if self.p.supervisor:
+            cur_day = self.now // DAY
+            for prev_d in range(min(5, cur_day)):
+                self.sup_days_done.add(prev_d)
+                self.day_open_mult[prev_d] = self.mult
+            if cur_day <= 4 and self.now >= cur_day * DAY + 8 * HOUR:
+                self.maybe_supervise(allow_mult_recover=False)
         for order in self.orders.values():
             if order["status"] == "waiting" and not self.gigs_of(order["id"]):
                 self.post(order, undelivered(order))
