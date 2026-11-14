@@ -1,4 +1,4 @@
-# Night status, 2026-11-14 09:12 UTC (ends 2026-11-15T02:50:05Z)
+# Night status, 2026-11-14 09:16 UTC (ends 2026-11-15T02:50:05Z)
 
 ## Workers
 
@@ -9,7 +9,7 @@
 | d14-03-buffer-spender | 08:21 | done 08:56 (34 min) | 101 | yes | Dev (16 seeds vs Champion v3T): worst world on-time 94.60% (`dev-05`, 0/16 under 92%, SAFE, vs 94.33% `dev-13` champion), 303.0 won orders/wk (vs 280.2), Δmargi |
 | d14-04-day-supervisor | 08:31 | done 09:06 (35 min) | 107 | yes | Dev paired delta: 16-dev `llm` €-93.05 ± 116.71 (t = -0.80), worst on-time 94.24% (0/16 < 92%, SAFE; worst margin €7,862.58 vs €7,487.67); 8-dev `llm` €+34.85 ± |
 | d14-05-eligible-supply | 08:40 | done 09:07 (26 min) | 72 | yes | Dev paired delta: `Δmargin €+173.72 ± 149.32` (`t=1.16`, `10/16` better, mean `€11,058.61`, `136` total late, `prem_late=9/128`; `prem_late=1/75` without `eligi |
-| d14-08431-combo-lane-inbound-hours | 08:43 | running | 64 | yes |  |
+| d14-08431-combo-lane-inbound-hours | 08:43 | done 09:16 (32 min) | 76 | yes | dev (16): Δmargin €+319.02 ± 126.40 (t=2.52, 11W/5L, Δon-time +0.24%), worst on-time 95.31% (`dev-02`, 0/16 <92%, SAFE); night (32): Δmargin €+258.42 ± 100.53 ( |
 
 Queued prompts: 08432-offer-active-viewers.md, 08433-prior-roster-and-diurnal.md, 08434-tail-ballast-brake.md, 91040-class-trackers.md, 91041-ptw45-confirm.md
 
