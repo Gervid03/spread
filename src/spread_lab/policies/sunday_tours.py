@@ -41,6 +41,55 @@ def _corridor_cluster(place: str) -> str:
     return place
 
 
+V6_BASE_PARAMS: dict[str, Any] = {
+    "backlog_ratio": 0.06,
+    "price_target_win": 0.4,
+    "min_supply": 22,
+    "gate_radius_km": 55.0,
+    "far_options": "slow",
+    "same_day_min_supply": 50,
+    "slack_per_drive": 0.75,
+    "long_drive_min": 300,
+    "fee_open": 0.85,
+    "price_lr": 0.05,
+    "offers_per_warning": 0,
+    "min_slack_min": 150,
+    "trust_invest": 0.05,
+    "notes_v2": True,
+    "note_unsure": "decline",
+    "max_next_day_drive_min": 480,
+    "fri_same_day_max_drive": 100,
+    "thin_long_next_day_supply": 50,
+    "ring_to_hub_same_day_min": 60,
+    "backlog_multiday_weight": 0.25,
+    "backlog_in_flight_weight": 0.35,
+    "dealer_lr": 0.01,
+    "ext_ring_min_supply": 30,
+    "ext_ring_max_drive_min": 220,
+    "return_hub_min_supply": 200,
+    "return_hub_max_drive_min": 180,
+    "ext_ring_neutral_learn": True,
+    "lead_car": True,
+    "lead_car_max_gap_km": 0.0,
+    "lead_car_max_deliv_gap_km": 25.0,
+    "lead_car_fee_mult": 1.0,
+    "late_fee_open": 1.0,
+    "urgent_hygiene": True,
+    "late_reprice_grace_min": 60,
+    "drop_reprice_bump": 0.03,
+    "steep_open": 1.65,
+    "steep_step": 0.2,
+    "steep_max": 2.25,
+    "view_offer_mult": 1.03,
+    "view_offer_cap": 1.15,
+    "supervisor": True,
+    "sup_stress_sd_supply": 0,
+    "sup_stress_slack_add": 0,
+    "sup_fri_slow_min_supply": 3,
+    "sup_fri_sd_max_drive": 180,
+}
+
+
 @dataclass
 class Params(TasRoutesParams):
     sunday_tours: bool = False          # master switch; False = exact BaseDesk noop
@@ -51,7 +100,8 @@ class Params(TasRoutesParams):
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Params":
-        base = dict(champion().get("params", {}))
+        base = dict(V6_BASE_PARAMS)
+        base.update(champion().get("params", {}))
         base.update(raw)
         return super().from_dict(base)
 

@@ -218,10 +218,11 @@ class Params:
     lim_cong_pos_w: float = 0.0       # weight on positive lane_eff (outbound) when fleet is congested
     lim_lane_comp_slope: float = 2.2  # target-win slope compensation in learn() so lane_mult induces zero mult drift
     lim_inb_fee_mult: float = 1.08    # expected_fee_mult for non-hub -> hub (supply>=200) floor when fleet has surplus
-    lim_inb_max_unstaffed: int = 16   # max active unstaffed orders to allow inbound lane/floor discounting
-    lim_inb_max_daily_pace: float = 62.0  # max Tue-Fri won-orders/day pace (+20 Mon offset, cur_day>=2) for inbound discounting
+    lim_inb_max_unstaffed: int = 16   # max active unstaffed orders (excl held/staged tours) for inbound discounting
+    lim_inb_max_daily_pace: float = 0.0   # optional max won-orders/day pace for solo-desk inbound discounting (0 = off)
     lim_inb_min_ot: float = 0.945     # min projected_on_time to allow inbound lane/floor discounting
     lim_floored_sd_prem: float = 0.10 # min (same_day / next_day - 1) spread when quote hits margin floor
+    lim_closer_disc: float = 0.0      # gate-safe discount (e.g. 0.07) when 1-leg request closes a held/staged cycle car
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -917,18 +918,25 @@ class Desk:
         lane_mult = 1.0
         inb_surplus_ok = False
         is_inb_to_hub = False
+        closes_held_cycle = False
         if p.lim_corridor or (p.lim_world_lane and self.level >= 6):
             dest_place = legs[-1]["delivery"]["placeId"]
-            unstaffed_now = sum(1 for o in self.orders.values() if undelivered(o) and not self.staffed(o))
+            held_pool = getattr(self, "cyc_held", ())
+            staged_pool = getattr(self, "staged_orders", ())
+            unstaffed_now = sum(
+                1
+                for o in self.orders.values()
+                if undelivered(o) and not self.staffed(o) and o["id"] not in held_pool and o["id"] not in staged_pool
+            )
             eff_max_u = (
                 min(p.lim_inb_max_unstaffed, max(3, p.sup_fri_max_backlog - 1))
                 if (p.supervisor and cur_day == 3 and cur_tod >= 12 * HOUR)
                 else p.lim_inb_max_unstaffed
             )
             pace_ok = True
-            if p.lim_inb_max_daily_pace > 0 and cur_day >= 2:
+            if p.lim_inb_max_daily_pace > 0 and cur_day >= 1:
                 day_frac = clamp((cur_tod - 8 * HOUR) / (10.0 * HOUR), 0.0, 1.0)
-                pace_ok = len(self.orders) <= 20.0 + p.lim_inb_max_daily_pace * (cur_day + day_frac)
+                pace_ok = len(self.orders) <= p.lim_inb_max_daily_pace * (cur_day + day_frac)
             inb_surplus_ok = (
                 tight == 0.0
                 and pace_ok
@@ -942,6 +950,16 @@ class Desk:
                     lane_mult *= clamp(math.exp(p.lim_lane_neg_w * eff), 0.86, 1.0)
                 elif eff > 0.0 and not inb_surplus_ok and p.lim_cong_pos_w > 0:
                     lane_mult *= clamp(math.exp(p.lim_cong_pos_w * eff), 1.0, 1.10)
+                if p.lim_closer_disc > 0 and inb_surplus_ok and len(legs) == 1 and (held_pool or staged_pool):
+                    cyc_km = getattr(p, "cyc_km", 30.0)
+                    for h_id in list(held_pool) + [x for x in staged_pool if x not in held_pool]:
+                        h_ord = self.orders.get(h_id)
+                        if h_ord and len(h_ord["legs"]) == 1 and undelivered(h_ord) == [0]:
+                            hp = h_ord["legs"][0]["pickup"]["placeId"]
+                            hd = h_ord["legs"][0]["delivery"]["placeId"]
+                            if self.geo.line_km(hd, pickup) <= cyc_km and self.geo.line_km(dest_place, hp) <= cyc_km:
+                                closes_held_cycle = True
+                                break
             if p.lim_world_lane and self.level >= 6:
                 raw_w = self.lim_pick_adj[pickup] * self.lim_deliv_adj[dest_place] * self.lim_pair_adj[(pickup, dest_place)]
                 w_lane = clamp(raw_w, p.lim_place_min, p.lim_place_max)
@@ -975,6 +993,7 @@ class Desk:
         floored = False
         nd_floored = False
         inb_floor_saved = False
+        closer_slow_used = False
         for option in request["options"]:
             ring_hub_sd = False
             if (pass_ext_ring or pass_return_hub or fri_thin_only) and option["kind"] == "same_day":
@@ -1031,17 +1050,26 @@ class Desk:
                 option_mult *= (1 - p.trust_invest)
             if p.return_hub_discount > 0 and pass_return_hub and not pass_ext_ring:
                 option_mult *= (1.0 - p.return_hub_discount)
+            opt_floor = eff_floor
+            if closes_held_cycle and option["kind"] != "same_day":
+                option_mult *= (1.0 - p.lim_closer_disc)
+                opt_floor = min(opt_floor, (request["referenceFeeCents"] * 0.98) / (1 - p.min_margin_frac))
+                closer_slow_used = True
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            if eff_floor < std_floor and price < std_floor:
+            if opt_floor < std_floor and price < std_floor:
                 inb_floor_saved = True
-            if price < eff_floor:
-                price, floored = eff_floor, True
+            if price < opt_floor:
+                price, floored = opt_floor, True
                 if option["kind"] == "next_day":
                     nd_floored = True
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if closer_slow_used:
+            self.stats["lim_closer_quoted"] += 1
+            if "same_day" not in prices:
+                lane_mult *= (1.0 - p.lim_closer_disc)
         if p.lim_corridor and p.lim_floored_sd_prem > 0 and nd_floored and "same_day" in prices and "next_day" in prices:
             min_sd = int(prices["next_day"] * (1.0 + p.lim_floored_sd_prem) + 0.5)
             if prices["same_day"] < min_sd:
