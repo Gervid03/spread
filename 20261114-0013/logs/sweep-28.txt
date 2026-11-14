@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-slack140-ptw -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s steep_open=1.5 -s steep_step=0.35 -g price_target_win=0.35,0.38,0.40 -g min_supply=20,30
+# started 2026-11-14T02:49:27Z
+
+=== price_target_win=0.35,min_supply=20
+  mean margin €9,337.12  (median €8,624.44, min €7,157.35)  ranked 16/16  on time min 94.3% mean 96.5%  won 246  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+346.82 ± 257.55 (SE) t=1.35  better on 13, worse on 3  Δon-time -0.27%
+
+=== price_target_win=0.35,min_supply=30
+  mean margin €9,209.61  (median €8,494.94, min €6,842.29)  ranked 16/16  on time min 94.4% mean 96.5%  won 233  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+219.30 ± 218.61 (SE) t=1.0  better on 10, worse on 6  Δon-time -0.20%
+
+=== price_target_win=0.38,min_supply=20
+  mean margin €8,938.46  (median €8,341.69, min €5,902.32)  ranked 16/16  on time min 92.1% mean 95.6%  won 262  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-51.85 ± 362.68 (SE) t=-0.14  better on 9, worse on 7  Δon-time -1.12%
+
+=== price_target_win=0.38,min_supply=30
+  mean margin €8,814.43  (median €8,033.42, min €6,135.33)  ranked 16/16  on time min 92.1% mean 96.2%  won 248  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-175.87 ± 304.72 (SE) t=-0.58  better on 6, worse on 10  Δon-time -0.59%
+
+=== price_target_win=0.40,min_supply=20
+  mean margin €9,477.01  (median €8,909.06, min €5,429.34)  ranked 16/16  on time min 92.4% mean 96.0%  won 274  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+486.70 ± 271.49 (SE) t=1.79  better on 13, worse on 3  Δon-time -0.79%
+
+=== price_target_win=0.40,min_supply=30
+  mean margin €9,261.69  (median €8,457.70, min €5,779.51)  ranked 16/16  on time min 92.4% mean 96.2%  won 262  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+271.39 ± 216.74 (SE) t=1.25  better on 13, worse on 3  Δon-time -0.54%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  price_target_win=0.40,min_supply=20                €     9,477  on-time min 92.4%  SAFE  Δ €+487±271  20261114-025403-n-slack140-ptw-price_target_win0.40-min_supply20
+  price_target_win=0.35,min_supply=20                €     9,337  on-time min 94.3%  SAFE  Δ €+347±258  20261114-024927-n-slack140-ptw-price_target_win0.35-min_supply20
+  price_target_win=0.40,min_supply=30                €     9,262  on-time min 92.4%  SAFE  Δ €+271±217  20261114-025445-n-slack140-ptw-price_target_win0.40-min_supply30
+  price_target_win=0.35,min_supply=30                €     9,210  on-time min 94.4%  SAFE  Δ €+219±219  20261114-025052-n-slack140-ptw-price_target_win0.35-min_supply30
+  price_target_win=0.38,min_supply=20                €     8,938  on-time min 92.1%  SAFE  Δ €-52±363  20261114-025223-n-slack140-ptw-price_target_win0.38-min_supply20
+  price_target_win=0.38,min_supply=30                €     8,814  on-time min 92.1%  SAFE  Δ €-176±305  20261114-025302-n-slack140-ptw-price_target_win0.38-min_supply30
+# exit 0 at 2026-11-14T02:55:29Z
