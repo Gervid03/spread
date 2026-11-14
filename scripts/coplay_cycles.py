@@ -105,7 +105,19 @@ def cycles_text(desk, names, limit: int = 14) -> list[str]:
         out.append(f"- {n}car €{ref / 100:.0f} · {towns} · {how} · {' '.join(x[:6] for x in c)}")
     tours = getattr(desk, "tour_gigs", None)
     if tours:
-        out.append(f"Tour gigs so far: {len(tours)} posted, {sum(1 for gid in tours if gid in desk.booked)} booked.")
+        booked = [gid for gid in tours if gid in desk.booked]
+        by_n: dict[int, list[float]] = {}
+        for gid in booked:
+            post = desk.posts.get(gid) or {}
+            oids = list(dict.fromkeys(s["orderId"] for s in post.get("stops", [])))
+            ref = sum(desk.requests[o]["referenceFeeCents"] for o in oids if o in desk.requests)
+            fee = desk.last_booked_fee.get(gid)
+            by_n.setdefault(len(oids), []).append(round(fee / ref, 2) if fee and ref else float("nan"))
+        out.append(f"Tour gigs so far: {len(tours)} posted, {len(booked)} booked; booked fee / summed typical fee by cars: "
+                   + "; ".join(f"{n} cars: {v}" for n, v in sorted(by_n.items())))
+    st = {k: v for k, v in desk.stats.items() if k.startswith(("cyc_", "sunday_", "tour_")) and not k.startswith("_")}
+    if st:
+        out.append("Tour stats: " + ", ".join(f"{k} {v}" for k, v in sorted(st.items())))
     return out
 
 
