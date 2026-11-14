@@ -68,7 +68,7 @@ class Desk(TasRoutesDesk):
 
     def _candidate_pool_oids(self) -> list[str]:
         """All clean 1-leg won orders currently either in `staged_orders` or in an open unbooked 1/2-car gig."""
-        if any(a["type"] == "post" for a in self.outbox):
+        if any(a["type"] == "post" for a in self.outbox) and not any(a["type"] == "quote" for a in self.outbox):
             self.send()
         pool: list[str] = []
         for oid in sorted(self.staged_orders):

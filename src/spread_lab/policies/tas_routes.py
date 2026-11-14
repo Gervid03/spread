@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from spread.client import World
-from spread.types import Action, Audience, DeskEvent, DeskSnapshot, DriverProfile, FeeStep, Order, PostAction, StopRef
+from spread.types import Action, ActionResult, Audience, DeskEvent, DeskSnapshot, DriverProfile, FeeStep, Order, PostAction, StopRef
 
 from ..geo import Geo
 from ..notes import note_flags, parse_note_v2
@@ -82,6 +82,7 @@ class Desk(BaseDesk):
         self.posted_tours: set[str] = set()                  # tour_ids already posted
         self.tour_waiting: set[str] = set()                  # won order_ids held waiting for rest of planned tour
         self.tour_gigs: dict[str, dict[str, Any]] = {}       # gig_id -> {"posted_at": int, "last_step_at": int, "mult": float, "closed": bool, "tid": str}
+        self._pending_tour_meta: dict[tuple[str, ...], dict[str, Any]] = {}
         self.gig_est_finish: dict[str, tuple[int, str]] = {} # booked gig_id -> (est_finish_min, last_delivery_place)
         self._load_tour_plan()
         if self.planned_tours:
@@ -291,13 +292,7 @@ class Desk(BaseDesk):
             self.tour_waiting.discard(oid)
         self.outbox.append(action)
         self.stats["posts"] += 1
-        self.send()
-        gigs = self.gigs_of(oids[0])
-        if not gigs:
-            self.stats["tour_post_refused"] += 1
-            return False
-        gid = gigs[0]
-        self.tour_gigs[gid] = {
+        self._pending_tour_meta[tuple(oids)] = {
             "posted_at": self.now,
             "last_step_at": self.now,
             "mult": mult,
@@ -308,9 +303,6 @@ class Desk(BaseDesk):
             "tid": tid,
             "n_cars": len(oids),
         }
-        self.stats["tour_posted"] += 1
-        self.stats[f"tour_posted_c{len(oids)}"] += 1
-        self.stats["tour_cars_posted"] += len(oids)
         if tid:
             self.posted_tours.add(tid)
         return True
@@ -356,8 +348,8 @@ class Desk(BaseDesk):
         if req is None or (req.get("note") and parse_note_v2(req["note"], req["arrivedAt"]).unsure):
             return False
 
-        # Flush any pending solo posts in outbox so their gigIds exist in self.posts
-        if any(a["type"] == "post" for a in self.outbox):
+        # Flush any pending solo posts in outbox only when no quotes are waiting in outbox
+        if any(a["type"] == "post" for a in self.outbox) and not any(a["type"] == "quote" for a in self.outbox):
             self.send()
 
         best: Optional[tuple[float, str, list[str]]] = None
@@ -702,6 +694,27 @@ class Desk(BaseDesk):
                         self.stats["offers"] += 1
                         self.stats["relay_offers_sent"] += 1
                         break
+
+    def read_results(self, actions: list[Action], results: list[ActionResult]) -> None:
+        super().read_results(actions, results)
+        for action, result in zip(actions, results):
+            if action["type"] != "post":
+                continue
+            key = tuple(order_ids_of(action))
+            meta = self._pending_tour_meta.pop(key, None)
+            if meta is None:
+                continue
+            if result["ok"] is True:
+                gid = result["id"]
+                self.tour_gigs[gid] = meta
+                self.stats["tour_posted"] += 1
+                self.stats[f"tour_posted_c{meta['n_cars']}"] += 1
+                self.stats["tour_cars_posted"] += meta["n_cars"]
+            else:
+                self.stats["tour_post_refused"] += 1
+                for oid in key:
+                    if oid in self.orders and undelivered(self.orders[oid]) and not self.gigs_of(oid):
+                        super().post(self.orders[oid], undelivered(self.orders[oid]), Retry(), allow_pair=False)
 
     def tick(self) -> None:
         self.tick_tours()
