@@ -2,3 +2,34 @@
 # started 2026-11-14T03:58:48Z
 
 === fee_warn=1.48,fee_step_min=18
+  mean margin €9,015.67  (median €8,153.22, min €6,996.18)  ranked 16/16  on time min 90.6% mean 96.2%  won 232  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €+25.37 ± 288.36 (SE) t=0.09  better on 10, worse on 6  Δon-time -0.55%
+
+=== fee_warn=1.48,fee_step_min=20
+  mean margin €9,449.42  (median €9,147.24, min €6,553.67)  ranked 16/16  on time min 93.2% mean 96.6%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+459.11 ± 212.91 (SE) t=2.16  better on 11, worse on 5  Δon-time -0.15%
+
+=== fee_warn=1.50,fee_step_min=18
+  mean margin €9,198.58  (median €8,577.40, min €6,458.12)  ranked 16/16  on time min 93.5% mean 96.6%  won 234  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+208.28 ± 263.29 (SE) t=0.79  better on 10, worse on 6  Δon-time -0.18%
+
+=== fee_warn=1.50,fee_step_min=20
+  mean margin €9,356.04  (median €8,856.21, min €6,459.01)  ranked 16/16  on time min 93.2% mean 96.5%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+365.74 ± 210.48 (SE) t=1.74  better on 9, worse on 7  Δon-time -0.24%
+
+=== fee_warn=1.54,fee_step_min=18
+  mean margin €9,069.71  (median €8,297.90, min €6,047.60)  ranked 16/16  on time min 93.5% mean 96.6%  won 233  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+79.41 ± 202.63 (SE) t=0.39  better on 9, worse on 7  Δon-time -0.12%
+
+=== fee_warn=1.54,fee_step_min=20
+  mean margin €9,153.63  (median €8,692.77, min €6,441.74)  ranked 16/16  on time min 93.1% mean 96.5%  won 234  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+163.33 ± 230.37 (SE) t=0.71  better on 11, worse on 5  Δon-time -0.22%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  fee_warn=1.48,fee_step_min=20                      €     9,449  on-time min 93.2%  SAFE  Δ €+459±213  20261114-040016-n-feewarn150-fine-fee_warn1.48-fee_step_min20
+  fee_warn=1.50,fee_step_min=20                      €     9,356  on-time min 93.2%  SAFE  Δ €+366±210  20261114-040259-n-feewarn150-fine-fee_warn1.50-fee_step_min20
+  fee_warn=1.50,fee_step_min=18                      €     9,199  on-time min 93.5%  SAFE  Δ €+208±263  20261114-040117-n-feewarn150-fine-fee_warn1.50-fee_step_min18
+  fee_warn=1.54,fee_step_min=20                      €     9,154  on-time min 93.1%  SAFE  Δ €+163±230  20261114-040452-n-feewarn150-fine-fee_warn1.54-fee_step_min20
+  fee_warn=1.54,fee_step_min=18                      €     9,070  on-time min 93.5%  SAFE  Δ €+79±203  20261114-040343-n-feewarn150-fine-fee_warn1.54-fee_step_min18
+  fee_warn=1.48,fee_step_min=18                      €     9,016  on-time min 90.6%  unsafe  Δ €+25±288  20261114-035848-n-feewarn150-fine-fee_warn1.48-fee_step_min18
+# exit 0 at 2026-11-14T04:06:21Z

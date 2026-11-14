@@ -1,6 +1,6 @@
 # n14-03502-option-floor-decouple-and-twin-ladder
-tool calls 18; result {}
+tool calls 45; result {}
 
 ## Its last words
 
-I will merge the two upstream branches (`origin/exp/gemini-n14-03111-adaptive-delivery-buffer-and-alarm` and `origin/exp/gemini-n14-02462-deadline-aware-backlog`) into our current branch.
+I will merge the two upstream branches (`origin/exp/gemini-n14-03111-adaptive-delivery-buffer-and-alarm` and `origin/exp/gemini-n14-02462-deadline-aware-backlog`) into our current branch.I will now run the no-op smoke evaluation (`optfloor-ladder-noop`) to verify that all default parameters reproduce the champion's exact behavior (`Δ = +0.00`).I will now run Smoke 2 (`floored_sd_prem=0.12, slow_floor_mult=1.0`) and Smoke 3 (`ladder_spread=0.04, ladder_lr=0.25`) on the 4 smoke seeds.I will now run Smoke 4 (`floored_sd_prem=0.12, slow_floor_mult=1.0, ladder_spread=0.04, ladder_lr=0.25`) and compare the smoke runs against the base stack.I will now run a smoke check for `floored_sd_prem=0.10` with `slow_floor_mult=1.0` (`optfloor-s5-prem10-slow100-smoke`) to isolate `floored_sd_prem=0.10` from `slow_floor_mult=0.93` before running on `dev`.I will now run the 3rd dev evaluation giving the safety headroom back (`floored_sd_prem=0.10, price_target_win=0.45`), and compare our dev runs against the upstream `20261114-032059-gtn-ptw40-buf-alarm-dev` and `20261114-030237-backlog-aware-gtn-ptw40-dev` baselines.I will run the 3rd dev evaluation (`optfloor-prem10-ptw45-dev`) and read `src/spread_lab/cli.py` to check how `lab compare` resolves run folders.

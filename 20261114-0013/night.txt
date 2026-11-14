@@ -135,3 +135,16 @@
 03:52:28 worker n14-03503-stack-buf-alarm-steep-thufri started (pid 37051)
 03:52:48 sweep 36 started: sweep --seeds-from dev --name n-slack130-feewarn20 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g min_slack_min=130,140,150 -g slack_per_drive=0.75,0.80
 03:58:48 sweep 37 started: sweep --seeds-from dev --name n-feewarn150-fine -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g fee_warn=1.48,1.50,1.54 -g fee_step_min=18,20
+03:58:53 published to night/20261114
+04:00:53 worker n14-03324-supply-adaptive-fee-open-and-drop-rescue finished after 26 min
+04:00:53 worker n14-03504-stack-v6-buf-alarm-backlog-lane started (pid 38759)
+04:04:15 lead tick started (pid 39197)
+04:07:15 sweep 38 started: sweep --seeds-from dev --name n-dlr01-feewarn150 -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g dealer_lr=0.008,0.01,0.02 -g price_lr=0.05,0.06
+04:12:15 sweep 39 started: sweep --seeds-from dev --name n-slack130-ptw -s min_slack_min=130 -s slack_per_drive=0.80 -s same_day_min_supply=50 -s dealer_lr=0.01 -g price_target_win=0.35,0.38,0.40 -g min_supply=20,25
+04:13:15 worker n14-03501-extring-full-neutral-and-leadcar finished after 21 min
+04:14:15 worker n14-03503-stack-buf-alarm-steep-thufri finished after 21 min
+04:16:15 worker n14-04151-asymmetric-lane-markup-and-tight-budget started (pid 40411)
+04:16:36 worker n14-04152-drop-repost-and-trust-cap started (pid 40515)
+04:17:56 worker n14-03322-stack-backlog-feewarn-and-v3-note finished after 44 min
+04:17:56 worker n14-04153-stack-tradein-windows-on-v7 started (pid 40774)
+04:18:16 sweep 40 started: sweep --seeds-from dev --name n-slack130-floor -s min_slack_min=130 -s slack_per_drive=0.80 -s same_day_min_supply=50 -g expected_fee_mult=1.00,1.05,1.12 -g same_day_markup=0.05,0.08
