@@ -92,6 +92,7 @@ class Params:
     steep_step: float = 0.25          # added every half hour
     steep_max: float = 3.00
     drop_urgent_margin_min: int = 0   # if > 0, gig_dropped/no_show within this many min of lastPickupAt triggers raise_fees
+    drop_repost_margin_min: int = 0   # if > 0, gig_dropped/no_show within this many min of lastPickupAt withdraws and reposts during daytime
     # --- direct offers after the deadline warning ---------------------------------------------------
     offers_per_warning: int = 0       # at most 3 open offers per gig, 3 per driver per day (rules) (v2: was 3; 3 of 218 offers were accepted)
     offer_mult: float = 2.20          # offer fee, times the typical fee of the cars
@@ -104,6 +105,7 @@ class Params:
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
+    trust_cap_boost: float = 0.0      # extra dealer_adj_max scaled by dealer_trust / 25.0
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -191,16 +193,34 @@ class Desk:
         elif kind in ("gig_dropped", "no_show"):
             self.booked.discard(event["gigId"])
             self.stats[kind] += 1
-            if self.p.drop_urgent_margin_min > 0:
+            if self.p.drop_urgent_margin_min > 0 or self.p.drop_repost_margin_min > 0:
                 post = self.posts.get(event["gigId"])
                 if post:
                     for order_id in dict.fromkeys(s["orderId"] for s in post["stops"]):
-                        if (
-                            order_id in self.orders
-                            and undelivered(self.orders[order_id])
-                            and self.orders[order_id]["lastPickupAt"] - self.now <= self.p.drop_urgent_margin_min
-                        ):
+                        if order_id not in self.orders or not undelivered(self.orders[order_id]):
+                            continue
+                        order = self.orders[order_id]
+                        rem = order["lastPickupAt"] - self.now
+                        is_urgent_drop = self.p.drop_urgent_margin_min > 0 and rem <= self.p.drop_urgent_margin_min
+                        if is_urgent_drop:
                             self.stats["drop_rescued"] += 1
+                            self.urgent.add(order_id)
+                        reposted = False
+                        if (
+                            self.p.drop_repost_margin_min > 0
+                            and len(order["legs"]) == 1
+                            and rem <= self.p.drop_repost_margin_min
+                            and 7 * 60 <= self.now % DAY < 22 * 60
+                        ):
+                            if self.withdraw(order_id):
+                                self.post(order, undelivered(order))
+                                if order_id in self.urgent and self.p.offers_per_warning > 0:
+                                    self.send_post_of(order_id)
+                                    for gig_id in self.gigs_of(order_id):
+                                        self.offer(gig_id, order)
+                                self.stats["drop_reposted"] += 1
+                                reposted = True
+                        if is_urgent_drop and not reposted:
                             self.raise_fees(order_id)
         elif kind == "gig_viewed":
             self.last_view[event["driverId"]] = event["at"]
@@ -406,7 +426,10 @@ class Desk:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
         dealer = self.requests[request_id]["dealerId"]
-        self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, p.dealer_adj_max)
+        adj_max = p.dealer_adj_max + p.trust_cap_boost * (self.dealer_trust[dealer] / 25.0)
+        self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, adj_max)
+        if self.dealer_adj[dealer] > p.dealer_adj_max:
+            self.stats["trust_cap_boosted"] += 1
 
     def backlog_near(self, place: str, include_in_flight: bool = True) -> float:
         """Won orders without a driver for every undelivered car, picked up within the radius of `place`."""
