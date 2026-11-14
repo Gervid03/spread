@@ -163,6 +163,7 @@ class Params:
     sup_stress_warns: int = 6         # deadline_close warnings in prior 24h >= this => stressed day
     sup_stress_sd_supply: int = 70    # min same_day_min_supply on stressed days (0 = keep p.same_day_min_supply)
     sup_stress_slack_add: int = 20    # add to min_slack_min on stressed days
+    sup_stress_min_supply: int = 0    # if > 0, min_supply on stressed days is at least this (lets a low min_supply back off)
     sup_emerg_unstaffed: int = 0      # 0 = off; if > 0 (e.g. 12) and warns >= sup_emerg_warns => emergency day
     sup_emerg_warns: int = 5          # warnings in prior 24h (with unstaffed >= sup_emerg_unstaffed) => emergency day
     sup_emerg_min_supply: int = 45    # min_supply on emergency days (also suspends ext_ring/return_hub)
@@ -637,6 +638,8 @@ class Desk:
             base_min_supply = p.sup_fri_slow_min_supply
         else:
             base_min_supply = p.min_supply
+            if p.supervisor and p.sup_stress_min_supply > 0 and getattr(self, "sup_regime", None) == "stressed":
+                base_min_supply = max(base_min_supply, p.sup_stress_min_supply)
             if p.min_supply_relaxed > 0 and self.projected_on_time() >= p.relax_on_time:
                 base_min_supply = p.min_supply_relaxed
                 self.stats["gate_relaxed"] += 1
