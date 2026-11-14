@@ -132,6 +132,10 @@ class Params:
     future_sameday_pair: bool = False # allow lead_car pairing on future-day same_day orders
     return_hub_major_supply: int = 0  # 0 = off; major-hub destination supply tier for longer return drives
     return_hub_major_max_drive_min: int = 0  # max drive min when delivery supply >= return_hub_major_supply
+    return_hub_1leg_only: bool = False  # restrict expanded return_hub to 1-car requests
+    return_hub_deliv_backlog_ratio: float = 0.0  # 0 = off; pause expanded return_hub when dest hub backlog/supply >= this
+    return_hub_min_on_time: float = 0.0  # 0 = off; pause expanded return_hub when projected_on_time() < this
+    return_hub_max_urgent: int = 0    # 0 = off; pause expanded return_hub when urgent unstaffed orders >= this
     floor_sd_gap: float = 0.0         # min relative price premium of today same_day above next_day after floor
     day_shock_lr: float = 0.0         # 0 = off; 08:00-18:00 80km daily shock kernel learning rate
     day_shock_radius_km: float = 80.0 # straight-line radius of daily shock kernel (matches 80km outage)
@@ -406,6 +410,23 @@ class Desk:
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
+        deliv_place = legs[-1]["delivery"]["placeId"]
+        deliv_supply = self.supply.get(deliv_place, 0)
+        expanded_ret_ok = True
+        if p.return_hub_1leg_only and len(legs) > 1:
+            expanded_ret_ok = False
+        if expanded_ret_ok and p.return_hub_min_on_time > 0 and self.projected_on_time() < p.return_hub_min_on_time:
+            expanded_ret_ok = False
+        if expanded_ret_ok and p.return_hub_max_urgent > 0:
+            urg_open = sum(
+                1 for oid in self.urgent if oid in self.orders and undelivered(self.orders[oid]) and not self.staffed(self.orders[oid])
+            )
+            if urg_open >= p.return_hub_max_urgent:
+                expanded_ret_ok = False
+        if expanded_ret_ok and p.return_hub_deliv_backlog_ratio > 0 and deliv_supply > 0:
+            if self.backlog_near(deliv_place) + 1e-9 >= p.return_hub_deliv_backlog_ratio * deliv_supply:
+                expanded_ret_ok = False
+
         pass_ext_ring = False
         pass_return_hub = False
         if gate_supply < gate_min:
@@ -415,11 +436,16 @@ class Desk:
                 and ext_sup >= p.ext_ring_min_supply
                 and drive <= p.ext_ring_max_drive_min
             )
-            deliv_supply = self.supply.get(legs[-1]["delivery"]["placeId"], 0)
-            pass_return_hub = (
+            want_return_hub = (
                 (p.return_hub_min_supply > 0 and deliv_supply >= p.return_hub_min_supply and drive <= p.return_hub_max_drive_min)
                 or (p.return_hub_major_supply > 0 and deliv_supply >= p.return_hub_major_supply and drive <= p.return_hub_major_max_drive_min)
             )
+            if expanded_ret_ok:
+                pass_return_hub = want_return_hub
+            else:
+                pass_return_hub = p.return_hub_min_supply > 0 and deliv_supply >= 200 and drive <= 180
+                if want_return_hub and not pass_return_hub:
+                    self.stats["return_hub_throttled"] += 1
             if not (pass_ext_ring or pass_return_hub):
                 return {}, "decline"
             if self.backlog_near(pickup) + 1e-9 >= p.backlog_min:
@@ -492,6 +518,7 @@ class Desk:
                 )
             fut_sd = (
                 p.future_sameday_slow
+                and expanded_ret_ok
                 and option["kind"] == "same_day"
                 and len(legs) == 1
                 and not legs[0]["pickup"]["privateAddress"]
@@ -500,7 +527,7 @@ class Desk:
                 and (not p.fut_sd_return_only or pass_return_hub)
                 and (not p.fut_sd_no_thin or not (pass_ext_ring or pass_return_hub))
                 and (p.fut_sd_max_drive_min <= 0 or drive <= p.fut_sd_max_drive_min)
-                and (p.fut_sd_min_deliv_supply <= 0 or self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= p.fut_sd_min_deliv_supply)
+                and (p.fut_sd_min_deliv_supply <= 0 or deliv_supply >= p.fut_sd_min_deliv_supply)
             )
             ring_hub_sd = False
             was_blocked_sd = False
