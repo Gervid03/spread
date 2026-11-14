@@ -38,12 +38,15 @@ SEED = sys.argv[1]
 ARGS = sys.argv[2:]
 SPARE = HOUR * float(ARGS[ARGS.index("--spare") + 1]) if "--spare" in ARGS else HOUR   # spare time in a pair
 BUMP = int(ARGS[ARGS.index("--bump") + 1]) if "--bump" in ARGS else 0    # minutes unbooked, then SOLO x
-for flag in ("--spare", "--bump"):
+MINROAD = int(ARGS[ARGS.index("--minroad") + 1]) if "--minroad" in ARGS else 0   # each car's drive at least this
+for flag in ("--spare", "--bump", "--minroad"):
     if flag in ARGS:
         del ARGS[ARGS.index(flag):ARGS.index(flag) + 2]
 ARMS = ARGS or ["0.45", "0.6", "solo"]
-TAG = f"s{SPARE // HOUR:g}b{BUMP}" if (SPARE != HOUR or BUMP) else ""
+TAG = (f"s{SPARE // HOUR:g}b{BUMP}" if (SPARE != HOUR or BUMP) else "") + (f"r{MINROAD}" if MINROAD else "")
 SOLO, RESCUE = 0.9, 1.4
+OFFER = (0.6, 0.8)          # split: the way back offered to the booked driver, at booking and when they set off
+LO, HI, STEPS = 0.4, 1.4, 3  # bisect: the fee range searched, and how many halvings
 geo = Geo(load_map(None))
 tp = tape(SEED)
 REQ = {r["id"]: r for r in tp["requests"]}
@@ -60,6 +63,8 @@ def fits(a, b):
     la, lb = a["legs"][0], b["legs"][0]
     pa, da, pb, db = la["pickup"]["placeId"], la["delivery"]["placeId"], lb["pickup"]["placeId"], lb["delivery"]["placeId"]
     if geo.line_km(da, pb) > 30 or geo.line_km(db, pa) > 30:      # closed: b goes back to where a started
+        return False
+    if min(geo.minutes(pa, da), geo.minutes(pb, db)) < MINROAD:
         return False
     road = geo.minutes(pa, da) + geo.minutes(da, pb) + geo.minutes(pb, db)
     if road > 700:
@@ -101,8 +106,11 @@ for p in PAIRS:
 class Desk:
     def __init__(self, arm):
         self.arm = arm
-        self.mult = None if arm == "solo" else float(arm)
+        self.mult = None if arm in ("solo", "split", "bisect") else float(arm)
         self.orders, self.lost, self.held = {}, set(), set()
+        self.driver = {}        # gig id -> the driver who booked it
+        self.offered = {}       # split: (gig id, driver id) -> the fee offered
+        self.search = {}        # bisect: order id -> {"lo", "hi", "m", "steps"}, the fee range still open (x typical)
         self.gigs = {}          # gig id -> {"oids", "kind", "fee"}
         self.sent = []          # the post actions of the last step, in order, to read the gig ids back
         self.booked, self.ledger, self.log = {}, [], Counter()
@@ -133,6 +141,31 @@ class Desk:
             return {"type": "quote", "requestId": r["id"], "prices": {o["kind"]: o["listPriceCents"]}}
         return {"type": "quote", "requestId": r["id"], "prices": {x["kind"]: 4 * x["listPriceCents"] for x in r["options"]}}
 
+    def offer_back(self, gig, mult):
+        """split: the booked driver of one car of a pair gets a direct offer for the other car (their way back)."""
+        o = self.gigs.get(gig, {}).get("oids", [None])[0]
+        back = self.gig_of(PARTNER.get(o)) if o else None
+        d = self.driver.get(gig)
+        if not back or not d or back in self.booked or ((back, d) in self.offered and mult == OFFER[0]):
+            return []
+        fee = int(mult * REQ[PARTNER[o]]["referenceFeeCents"])
+        self.offered[(back, d)] = fee
+        self.log[f"offer_sent_{mult}"] += 1
+        return [{"type": "offer", "gigId": back, "driverId": d, "feeCents": fee}]
+
+    def halve_down(self, gig, now):
+        """bisect: a driver took it -> the fee was high enough: release them and post the car again lower."""
+        o = self.gigs[gig]["oids"][0]
+        sr = self.search.get(o)
+        if not sr or sr["steps"] >= STEPS or self.orders.get(o, {}).get("lastPickupAt", 0) - now <= 8 * HOUR:
+            return []
+        sr["hi"], sr["steps"] = sr["m"], sr["steps"] + 1
+        sr["m"] = (sr["lo"] + sr["hi"]) / 2
+        self.booked.pop(gig, None)
+        self.gigs.pop(gig, None)
+        self.log["bisect_release"] += 1
+        return [{"type": "release", "gigId": gig}, self.post([o], sr["m"], "bisect", now)]
+
     def gig_of(self, oid):
         return next((g for g, x in self.gigs.items() if oid in x["oids"]), None)
 
@@ -146,8 +179,11 @@ class Desk:
                 oid = e["order"]["id"]
                 self.orders[oid] = e["order"]
                 mate = PARTNER.get(oid)
-                if self.mult is None:
-                    out.append(self.post([oid], SOLO, "solo", now))
+                if self.arm == "bisect":
+                    self.search[oid] = {"lo": LO, "hi": HI, "m": HI, "steps": 0}
+                    out.append(self.post([oid], HI, "bisect", now))
+                elif self.mult is None:
+                    out.append(self.post([oid], SOLO, self.arm, now))
                 elif mate in self.held:
                     first = PAIRS[frozenset((oid, mate))]
                     out.append(self.post([first, mate if first == oid else oid], self.mult, "pair", now))
@@ -167,6 +203,20 @@ class Desk:
                 self.held.discard(e["orderId"])
             elif k == "gig_booked":
                 self.booked[e["gigId"]] = e["feeCents"]
+                self.driver[e["gigId"]] = e["driverId"]
+                if self.arm == "split":
+                    out += self.offer_back(e["gigId"], OFFER[0])
+                elif self.arm == "bisect":
+                    out += self.halve_down(e["gigId"], now)
+            elif k == "gig_started" and self.arm == "split":
+                out += self.offer_back(e["gigId"], OFFER[1])
+            elif k == "offer_answered":
+                self.log["offer_" + e["answer"]] += 1
+                if e["answer"] == "accepted":
+                    fee = self.offered.get((e["gigId"], e["driverId"]), 0)
+                    self.booked[e["gigId"]] = fee
+                    self.log["offer_fee_cents"] += fee
+                    self.log["offer_ref_cents"] += REQ[self.gigs[e["gigId"]]["oids"][0]]["referenceFeeCents"] if e["gigId"] in self.gigs else 0
             elif k == "deadline_close":
                 g = self.gig_of(e["orderId"])
                 if g and g not in self.booked:
@@ -197,6 +247,16 @@ class Desk:
                 out.append({"type": "reprice", "gigId": g, "schedule": [{"at": now, "feeCents": fee}]})
                 x.update(bumped=True, fee=fee)
                 self.log["bump"] += 1
+        for g, x in list(self.gigs.items()):   # bisect: unbooked for an hour -> the fee was too low: halve up
+            o = x["oids"][0]
+            sr = self.search.get(o)
+            if sr and x["kind"] == "bisect" and g not in self.booked and sr["steps"] < STEPS and now - x["at"] >= 60                     and self.orders.get(o, {}).get("lastPickupAt", 0) - now > 8 * HOUR:
+                sr["lo"], sr["steps"] = sr["m"], sr["steps"] + 1
+                sr["m"] = (sr["lo"] + sr["hi"]) / 2
+                fee = int(sr["m"] * REQ[o]["referenceFeeCents"])
+                out.append({"type": "reprice", "gigId": g, "schedule": [{"at": now, "feeCents": fee}]})
+                x.update(at=now, fee=fee)
+                self.log["bisect_up"] += 1
         for oid in list(self.held):        # a held car whose partner hasn't come in time goes alone
             if self.orders.get(oid, {}).get("lastPickupAt", 0) - now < 6 * HOUR:
                 out.append(self.post([oid], SOLO, "alone", now))
@@ -216,7 +276,7 @@ class Desk:
 
 
 KINDS = ["price_request", "order_won", "order_lost", "order_changed", "order_cancelled", "gig_booked", "deadline_close",
-         "gig_expired", "gig_dropped", "no_show", "visit_failed"]
+         "gig_expired", "gig_dropped", "no_show", "visit_failed", "offer_answered", "gig_started"]
 
 
 def play(arm):
@@ -224,7 +284,7 @@ def play(arm):
     with world(SEED, what=f"pairs1-{arm}") as w:
         pending = []
         while w.now < w.ends_at:
-            nxt = w.ends_at if not BUMP else min(w.ends_at, w.now + 30)   # with BUMP: look every 30 min
+            nxt = w.ends_at if not (BUMP or arm == "bisect") else min(w.ends_at, w.now + 30)   # timers: look every 30 min
             results, events = w.advance(until=KINDS, max=nxt, actions=pending)
             desk.took(pending, results)
             pending = desk.step(events, w.now)
