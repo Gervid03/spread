@@ -2,3 +2,24 @@
 # started 2026-11-14T01:14:28Z
 
 === steep_open=1.5,steep_step=0.15
+  mean margin €8,928.59  (median €8,451.59, min €5,943.33)  ranked 16/16  on time min 94.4% mean 96.6%  won 228  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-61.72 ± 103.13 (SE) t=-0.6  better on 8, worse on 8  Δon-time -0.12%
+
+=== steep_open=1.5,steep_step=0.35
+  mean margin €9,026.61  (median €8,460.03, min €6,130.49)  ranked 16/16  on time min 94.3% mean 96.6%  won 229  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+36.30 ± 73.01 (SE) t=0.5  better on 12, worse on 4  Δon-time -0.16%
+
+=== steep_open=2.2,steep_step=0.15
+  mean margin €8,875.01  (median €8,356.15, min €5,859.72)  ranked 16/16  on time min 93.8% mean 96.8%  won 228  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-115.29 ± 62.63 (SE) t=-1.84  better on 4, worse on 12  Δon-time +0.02%
+
+=== steep_open=2.2,steep_step=0.35
+  mean margin €8,870.29  (median €8,341.55, min €5,902.16)  ranked 16/16  on time min 93.8% mean 96.8%  won 228  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-120.01 ± 64.96 (SE) t=-1.85  better on 4, worse on 12  Δon-time +0.04%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  steep_open=1.5,steep_step=0.35                     €     9,027  on-time min 94.3%  SAFE  Δ €+36±73  20261114-011552-n-steep-steep_open1.5-steep_step0.35
+  steep_open=1.5,steep_step=0.15                     €     8,929  on-time min 94.4%  SAFE  Δ €-62±103  20261114-011428-n-steep-steep_open1.5-steep_step0.15
+  steep_open=2.2,steep_step=0.15                     €     8,875  on-time min 93.8%  SAFE  Δ €-115±63  20261114-011822-n-steep-steep_open2.2-steep_step0.15
+  steep_open=2.2,steep_step=0.35                     €     8,870  on-time min 93.8%  SAFE  Δ €-120±65  20261114-011913-n-steep-steep_open2.2-steep_step0.35
+# exit 0 at 2026-11-14T01:20:20Z

@@ -1,0 +1,8 @@
+# uv run lab sweep --seeds-from dev --name n-slack-ptw -s min_slack_min=150 -s slack_per_drive=0.75 -g price_target_win=0.37,0.40 -g min_supply=20,25
+# started 2026-11-14T01:33:32Z
+
+=== price_target_win=0.37,min_supply=20
+  mean margin €9,021.12  (median €8,455.36, min €5,738.15)  ranked 16/16  on time min 91.5% mean 96.2%  won 252  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €+30.81 ± 284.11 (SE) t=0.11  better on 10, worse on 6  Δon-time -0.58%
+
+=== price_target_win=0.37,min_supply=25

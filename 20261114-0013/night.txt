@@ -36,3 +36,17 @@
 01:09:28 lead tick started (pid 15410)
 01:10:28 sweep 14 started: sweep --seeds-from dev --name n-sdmarkup -g same_day_markup=0.0,0.10,0.15
 01:14:28 sweep 15 started: sweep --seeds-from dev --name n-steep -g steep_open=1.5,2.2 -g steep_step=0.15,0.35
+01:15:32 published to night/20261114
+01:18:32 worker n14-10-flu finished after 30 min
+01:18:32 worker n14-01151-lane-return-pricing started (pid 16591)
+01:20:52 sweep 16 started: sweep --seeds-from dev --name n-prior -g price_mult_min=1.00,1.15
+01:25:52 sweep 17 started: sweep --seeds-from dev --name n-slack-fine -g min_slack_min=140,160 -g slack_per_drive=0.65,0.75,0.85
+01:30:52 worker n14-09-release finished after 55 min
+01:30:52 worker n14-01152-lead-car-pairing started (pid 17675)
+01:33:12 worker n14-12-twoclocks-v2 finished after 24 min
+01:33:12 worker n14-01153-stack-trust-slack-budget started (pid 17957)
+01:33:32 sweep 18 started: sweep --seeds-from dev --name n-slack-ptw -s min_slack_min=150 -s slack_per_drive=0.75 -g price_target_win=0.37,0.40 -g min_supply=20,25
+01:34:32 worker n14-07-notes finished after 66 min
+01:34:32 worker n14-11-class-table finished after 31 min
+01:34:32 worker n14-01154-trust-refined-and-guard started (pid 18180)
+01:34:54 lead tick started (pid 18317)

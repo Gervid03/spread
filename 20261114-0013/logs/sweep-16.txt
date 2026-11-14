@@ -1,0 +1,15 @@
+# uv run lab sweep --seeds-from dev --name n-prior -g price_mult_min=1.00,1.15
+# started 2026-11-14T01:20:52Z
+
+=== price_mult_min=1.00
+  mean margin €8,982.67  (median €8,691.39, min €6,017.30)  ranked 16/16  on time min 94.4% mean 96.7%  won 228  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-7.64 ± 34.20 (SE) t=-0.22  better on 2, worse on 5  Δon-time -0.02%
+
+=== price_mult_min=1.15
+  mean margin €8,921.51  (median €8,303.48, min €6,312.93)  ranked 16/16  on time min 93.5% mean 96.7%  won 223  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-68.79 ± 121.05 (SE) t=-0.57  better on 6, worse on 9  Δon-time -0.03%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  price_mult_min=1.00                                €     8,983  on-time min 94.4%  SAFE  Δ €-8±34  20261114-012052-n-prior-price_mult_min1.00
+  price_mult_min=1.15                                €     8,922  on-time min 93.5%  SAFE  Δ €-69±121  20261114-012236-n-prior-price_mult_min1.15
+# exit 0 at 2026-11-14T01:25:23Z

@@ -1,0 +1,26 @@
+
+## lead tick 01:15
+- `n14-01-margin-xray` (v2 margin leak decomposition by class on 16 revealed dev worlds): no dev eval (worker finished after 47 tool calls without committing its note) — **re-test**
+- `n14-02-trust-v2` (Idea #4 dealer trust investment on v2, `trust_invest=0.05` on `origin/exp/gemini-n14-02-trust-v2`): Δmargin €+303.46 ± 134.52 (t=+2.26, 11/16 better), worst on-time 94.7% (SAFE) — **adopt candidate**
+- `n14-03-ladder` (Idea #5 twin ladder batch bracketing, `ladder_spread=0.05, ladder_lr=0.5` on `origin/exp/gemini-n14-03-ladder`): Δmargin €+45.41 ± 169.07 (t=+0.27, 8/16 better), worst on-time 94.2% (SAFE) — **reject**
+- `n14-04-alarm` (Idea #8 early staffing alarm, `alarm_after_min=45, alarm_fee=1.4` on `origin/exp/gemini-n14-04-alarm`): Δmargin €-313.97 ± 180.23 (t=-1.74, 4/16 better), worst on-time 92.5% (SAFE) — **reject**
+- `n14-05-buffer` (Idea #9 + R3 delivery deadline buffer, `delivery_buffer_min=30, buffer_per_drive=0.0` on `origin/exp/gemini-n14-05-buffer`): Δmargin €-91.41 ± 156.85 (t=-0.58, 8/16 better), worst on-time 93.8% (SAFE) — **reject**
+- `n14-06-budget` (Idea #10 forward class on-time budget + ballast discount, `budget_target=0.95, ballast_discount=0.1` on `exp/gemini-n14-06-budget`): Δmargin €+93.76 ± 64.88 (t=+1.45, 6/5 better/worse), worst on-time 94.38% (SAFE; 94.94% worst on-time with `price_target_win=0.42, min_supply=20`) — **re-test**
+- `n14-08-return` (Idea #12a direct return offers at delivery, `return_offer_mult=1.0` on `origin/exp/gemini-n14-08-return`): Δmargin €-3.61 ± 60.66 (t=-0.06, 5/5 better/worse, 1.03% offer acceptance), worst on-time 94.4% (SAFE) — **reject**
+- `01 n-ptw-minsup` (`price_target_win=0.40, min_supply=20`): Δmargin €+210 ± 265 (t=+0.8, 11/16 better), worst on-time 92.4% (SAFE; `0.45` is unsafe at 91.3%) — **re-test**
+- `02 n-feeopen` (`fee_open=0.75` best SAFE; `0.80` unsafe at 90.7%): Δmargin €-534 ± 214 (t=-2.5, 4/16 better), worst on-time 93.8% (SAFE) — **reject**
+- `03 n-feewarn` (`fee_warn=1.40, fee_step_min=20`): Δmargin €+133 ± 200 (t=+0.7, 9/16 better), worst on-time 92.3% (SAFE; `fee_warn=1.80` loses €411–€493) — **re-test**
+- `04 n-champ-fresh32` (champion v2 on 32 unseen `night-01..32` seeds): unpaired mean €9,193 (min €3,434), worst on-time 90.5% (not SAFE) — **re-test**
+- `05 n-slack` (`min_slack_min=150, slack_per_drive=0.75`): Δmargin €+135 ± 59 (t=+2.3, 11/16 better), worst on-time 93.8% (SAFE) — **adopt candidate**
+- `06 n-ring` (`gate_radius_km=70, far_options=slow`): Δmargin €-328 ± 132 (t=-2.5, 6/16 better), worst on-time 93.5% (SAFE; `45` loses €490 ± 252) — **reject**
+- `07 n-sdsupply` (`same_day_min_supply=50`): Δmargin €+100 ± 128 (t=+0.8, 5/16 better), worst on-time 94.4% (SAFE) — **re-test**
+- `08 n-caps` (`price_mult_max=2.0, dealer_adj_max=1.3`): Δmargin €-300 ± 125 (t=-2.4, 4/16 better), worst on-time 93.3% (SAFE) — **reject**
+- `09 n-lr` (`price_lr=0.03, dealer_lr=0.01`): Δmargin €+104 ± 161 (t=+0.6, 9/16 better), worst on-time 94.0% (SAFE; `dealer_lr=0.04` loses €309–€400) — **re-test**
+- `10 n-margin` (`expected_fee_mult=1.40, min_margin_frac=0.04`): Δmargin €-106 ± 282 (t=-0.4, 9/16 better), worst on-time 92.7% (SAFE) — **reject**
+- `11 n-backlog` (`backlog_ratio=0.04`): Δmargin €-103 ± 107 (t=-1.0, 4/16 better), worst on-time 94.3% (SAFE) — **reject**
+- `12 n-longdrive` (`long_drive_min=360`): Δmargin €-15 ± 89 (t=-0.2, 3/16 better), worst on-time 94.4% (SAFE) — **reject**
+
+### What the night has learned so far
+1. **Two statistically significant (`t >= 2.2`) dev winners are ready to stack:** gentle Mon–Wed trust investment on top-3 dealers (`trust_invest=0.05` on `origin/exp/gemini-n14-02-trust-v2`, **+€303 ± 135, t=+2.26, 94.7% min on-time**) and tilting slack from a flat floor toward drive-proportional slack (`min_slack_min=150, slack_per_drive=0.75`, **+€135 ± 59, t=+2.3, 93.8% min on-time**), while forward class on-time budgeting (`budget_target=0.95` on `exp/gemini-n14-06-budget`, **+€94 ± 65, t=+1.45**) repairs the worst dev seeds (`dev-10` +1.45% on-time and +€497; worst world 94.94% even under looser intake).
+2. **Driver-side interventions that raise fees early, narrow stop windows, or send post-delivery offers fail on v2:** with `fee_open=0.85`, a third of `same_day` gigs are still climbing at 45 min so `alarm_after_min=45` overpays 1.46× typical and teaches drivers to wait (**-€314**); narrowing delivery windows (`delivery_buffer_min=30`) targets only ~1.25 variance-late orders/week while pushing +1.0 order/week into `deadline_close` (**-€91**); and direct return offers (`return_offer_mult=1.0`) achieve only 1.03% acceptance (11/1,065) because natural gig chaining happens before the prior delivery completes.
+3. **Champion v2's parameter interior is tight, and its unseen-world tail needs the safety from our winners:** across 12 dev sweeps, global `fee_open < 0.85`, higher price/dealer caps (`>= 2.0 / 1.6`), faster `dealer_lr=0.04`, and `gate_radius_km != 55` all lose €300–€994, while `n-champ-fresh32` hit **90.5% worst on-time** on 32 unseen seeds—making the combination of `trust_invest=0.05` (94.7% min on-time), `min_slack_min=150, slack_per_drive=0.75`, and `budget_target=0.95` our highest-leverage path to both higher margin and a safer tail.

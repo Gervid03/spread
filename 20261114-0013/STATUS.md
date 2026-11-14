@@ -1,4 +1,4 @@
-# Night status, 2026-11-14 01:15 UTC (ends 2026-11-14T10:13:17Z)
+# Night status, 2026-11-14 01:35 UTC (ends 2026-11-14T10:13:17Z)
 
 ## Workers
 
@@ -10,12 +10,16 @@
 | n14-04-alarm | 00:14 | done 00:33 (19 min) | 54 | yes | Δmargin €-313.97 ± 180.23 (SE) t=-1.74, worst on-time share 92.5% (SAFE; 5.3% late among 415 alarmed orders vs 71% after deadline_close, €1,505.65/world alarm f |
 | n14-05-buffer | 00:14 | done 00:35 (20 min) | 64 | yes | Δmargin €-91.41 ± 156.85 (SE) t=-0.58, Δon-time +0.19%, worst on-time 93.8% (SAFE) |
 | n14-06-budget | 00:27 | done 01:02 (34 min) | 71 | no | dev paired Δmargin €+93.76 ± 64.88 (t=1.45), worst on-time share 94.38% on dev-07 (combined loose: Δmargin €-51.26 ± 305.17, worst on-time share 94.94% on dev-0 |
-| n14-07-notes | 00:28 | running | 116 | no |  |
+| n14-07-notes | 00:28 | done 01:34 (66 min) | 140 | yes | Δmargin €+83.07 ± 205.80 (t=0.40, 10/16 better, Δon-time +0.44%, worst on-time 94.06%, SAFE); with price_target_win=0.45: Δmargin €+209.94 ± 356.66 (t=0.59, 10/ |
 | n14-08-return | 00:33 | done 01:09 (35 min) | 80 | yes | dev Δmargin €-3.61 ± 60.66 (SE) (t=-0.06, better 5 / worse 5), worst on-time share 94.4% (SAFE) |
-| n14-09-release | 00:35 | running | 102 | no | I will run `uv run lab reveal` on four finished champion dev worlds (`dev-01`, `dev-07`, `dev-10`, `dev-14`) into the temporary directory `/home/lab/.gemini/tmp |
-| n14-10-flu | 00:48 | running | 57 | no |  |
-| n14-11-class-table | 01:02 | running | 52 | no |  |
-| n14-12-twoclocks-v2 | 01:09 | running | 25 | no | I will merge `origin/exp/gemini-clocks` into the current branch (`exp/gemini-n14-12-twoclocks-v2`) to bring in the two-clocks pricing tracker changes and its ex |
+| n14-09-release | 00:35 | done 01:30 (55 min) | 131 | no | Δmargin €-26.15 ± 40.01 (SE), t=-0.65, Δon-time +0.08%, worst on-time 94.4% (SAFE) |
+| n14-10-flu | 00:48 | done 01:18 (30 min) | 60 | yes | dev paired Δmargin €-0.05 ± 0.71 (flu_target_win=0.25: €-174.36 ± 76.43), worst on-time share 94.4% (SAFE) |
+| n14-11-class-table | 01:02 | done 01:34 (31 min) | 73 | no | dev baseline (champion v2, 16 worlds): €8,974.96 mean margin (Δ +€0.00 ± 0.00), mean on-time 96.75%, worst on-time share 94.36% (SAFE; closing `next_day > 500m` |
+| n14-12-twoclocks-v2 | 01:09 | done 01:33 (24 min) | 41 | yes | Dev paired Δmargin ± SE and worst on-time: clocks alone €-366.98 ± 234.65 (t=-1.56, min on-time 93.0%, SAFE); feefloor alone €-274.14 ± 227.47 (t=-1.21, min on- |
+| n14-01151-lane-return-pricing | 01:18 | running | 31 | no |  |
+| n14-01152-lead-car-pairing | 01:30 | running | 24 | no |  |
+| n14-01153-stack-trust-slack-budget | 01:33 | running | 14 | no |  |
+| n14-01154-trust-refined-and-guard | 01:34 | running | 16 | no |  |
 
 Queued prompts: none
 
@@ -36,6 +40,9 @@ Queued prompts: none
 13. `sweep --seeds-from dev --name n-streak -g loss_streak_freeze=8,20,9999`
 14. `sweep --seeds-from dev --name n-sdmarkup -g same_day_markup=0.0,0.10,0.15`
 15. `sweep --seeds-from dev --name n-steep -g steep_open=1.5,2.2 -g steep_step=0.15,0.35`
+16. `sweep --seeds-from dev --name n-prior -g price_mult_min=1.00,1.15`
+17. `sweep --seeds-from dev --name n-slack-fine -g min_slack_min=140,160 -g slack_per_drive=0.65,0.75,0.85`
+18. `sweep --seeds-from dev --name n-slack-ptw -s min_slack_min=150 -s slack_per_drive=0.75 -g price_target_win=0.37,0.40 -g min_supply=20,25`
 
 ## Every evaluation since the night began
 
@@ -94,4 +101,17 @@ Champion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds 
 | 20261114-011028-n-sdmarkup-same_day_markup0.0 | 16 | 8,901 | 6,360 | 91.8% | no | -89 ± 229 (t -0.4, 8/16 better) |
 | 20261114-011150-n-sdmarkup-same_day_markup0.10 | 16 | 8,798 | 6,100 | 92.8% | SAFE | -192 ± 234 (t -0.8, 5/16 better) |
 | 20261114-011257-n-sdmarkup-same_day_markup0.15 | 16 | 8,467 | 5,774 | 94.0% | SAFE | -523 ± 265 (t -2.0, 3/16 better) |
-| 20261114-011428-n-steep-steep_open1.5-steep_step0.15 (running) | 9 | 9,006 | 7,039 | 94.4% | no | -82 ± 178 (t -0.5, 4/9 better) |
+| 20261114-011428-n-steep-steep_open1.5-steep_step0.15 | 16 | 8,929 | 5,943 | 94.4% | SAFE | -62 ± 103 (t -0.6, 8/16 better) |
+| 20261114-011552-n-steep-steep_open1.5-steep_step0.35 | 16 | 9,027 | 6,130 | 94.3% | SAFE | +36 ± 73 (t +0.5, 12/16 better) |
+| 20261114-011822-n-steep-steep_open2.2-steep_step0.15 | 16 | 8,875 | 5,860 | 93.8% | SAFE | -115 ± 63 (t -1.8, 4/16 better) |
+| 20261114-011913-n-steep-steep_open2.2-steep_step0.35 | 16 | 8,870 | 5,902 | 93.8% | SAFE | -120 ± 65 (t -1.8, 4/16 better) |
+| 20261114-012052-n-prior-price_mult_min1.00 | 16 | 8,983 | 6,017 | 94.4% | SAFE | -8 ± 34 (t -0.2, 2/16 better) |
+| 20261114-012236-n-prior-price_mult_min1.15 | 16 | 8,922 | 6,313 | 93.5% | SAFE | -69 ± 121 (t -0.6, 6/16 better) |
+| 20261114-012552-n-slack-fine-min_slack_min140-slack_per_drive0.65 | 16 | 9,012 | 6,414 | 92.7% | SAFE | +22 ± 240 (t +0.1, 11/16 better) |
+| 20261114-012652-n-slack-fine-min_slack_min140-slack_per_drive0.75 | 16 | 9,226 | 6,437 | 93.8% | SAFE | +235 ± 131 (t +1.8, 10/16 better) |
+| 20261114-012908-n-slack-fine-min_slack_min140-slack_per_drive0.85 | 16 | 9,028 | 6,279 | 93.8% | SAFE | +38 ± 81 (t +0.5, 10/16 better) |
+| 20261114-013015-n-slack-fine-min_slack_min160-slack_per_drive0.65 | 16 | 9,102 | 6,279 | 93.8% | SAFE | +112 ± 56 (t +2.0, 11/16 better) |
+| 20261114-013116-n-slack-fine-min_slack_min160-slack_per_drive0.75 | 16 | 8,927 | 6,017 | 94.4% | SAFE | -64 ± 52 (t -1.2, 6/16 better) |
+| 20261114-013219-n-slack-fine-min_slack_min160-slack_per_drive0.85 | 16 | 8,868 | 6,017 | 93.4% | SAFE | -122 ± 110 (t -1.1, 7/16 better) |
+| 20261114-013332-n-slack-ptw-price_target_win0.37-min_supply20 | 16 | 9,021 | 5,738 | 91.4% | no | +31 ± 284 (t +0.1, 10/16 better) |
+| 20261114-013502-n-slack-ptw-price_target_win0.37-min_supply25 (running) | 11 | 8,938 | 5,738 | 91.4% | no | -317 ± 354 (t -0.9, 5/11 better) |
