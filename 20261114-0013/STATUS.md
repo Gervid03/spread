@@ -1,4 +1,4 @@
-# Night status, 2026-11-14 02:16 UTC (ends 2026-11-14T10:13:17Z)
+# Night status, 2026-11-14 02:36 UTC (ends 2026-11-14T10:13:17Z)
 
 ## Workers
 
@@ -24,12 +24,15 @@
 | n14-01392-margin-xray-v2 | 01:40 | done 02:05 (25 min) | 46 | yes | dev paired delta: +€0.00 ± 0.00 (champion v2 baseline €8,990.31/wk; quantified leaks: +€1.8k–2.5k pricing/trust/clocks/floor, +€1.1k–1.6k rising fees >0.85x, +€ |
 | n14-01393-option-spread-and-d01-cap | 01:45 | done 02:03 (17 min) | 48 | yes | dev paired Δmargin €+263.26 ± 138.74 (t=1.90, 10/6 better/worse), worst on-time share 94.7% (SAFE); stacked with `-s min_slack_min=140 -s slack_per_drive=0.75`: |
 | n14-01394-stack-trust-notes-slack | 01:51 | done 02:09 (17 min) | 33 | yes | Run B (slack140): Δmargin €+488.08 ± 182.33 (t=2.68, 14/16 better), worst on-time 95.3% (mean 97.8%, SAFE); Run C (+taxback): Δmargin €+636.33 ± 269.13 (t=2.36, |
-| n14-02111-overnight-fee-hold | 02:12 | running | 16 | no | I will run `uv run lab eval --seeds-from smoke --name fee-hold-noop` to verify that our default parameters reproduce the champion v2 baseline with zero delta ac |
-| n14-02112-post-war-rebound-and-option-spread | 02:12 | running | 20 | no |  |
-| n14-02113-private-windows-and-tradeins | 02:13 | running | 8 | no |  |
-| n14-02114-stack-gates-trust-notes | 02:13 | running | 22 | no |  |
+| n14-02111-overnight-fee-hold | 02:12 | done 02:29 (16 min) | 33 | yes | standalone dev Δmargin €-101.27 ± 181.59 (SE) (t=-0.56, 6/10, worst on-time 93.2%, SAFE); stacked dev Δmargin €+185.41 ± 202.34 (SE) (t=0.92, 8/8, worst on-time |
+| n14-02112-post-war-rebound-and-option-spread | 02:12 | running | 55 | no | I will merge `origin/exp/gemini-n14-02-trust-v2` into the current branch so `trust_invest` and exact ledger `self.dealer_trust` are available as the base for ou |
+| n14-02113-private-windows-and-tradeins | 02:13 | running | 26 | no | Running `uv run lab eval --seeds-from smoke --name priv-win-noop` to verify that default parameter values reproduce the champion's results with Δ = 0.00 on all  |
+| n14-02114-stack-gates-trust-notes | 02:13 | done 02:33 (20 min) | 37 | yes | Dev paired delta: `Δmargin €+1,039.28 ± 229.22 (SE) t=4.53` (14/16 better, worst on-time 94.3% SAFE, mean on-time 97.3%, mean margin €10,029.58); conservative s |
+| n14-02241-exact-trust-and-floor-v2 | 02:24 | running | 25 | no | - Compare against both Champion v2 and `runs/20261114-020214-stack-trust-notes-slack140-dev` (`+€488.08`). Report `quote_quote`, `quote_floor`, `quote_unblinded |
+| n14-02242-extended-ring-and-return-gate | 02:29 | running | 19 | no |  |
+| n14-02243-lead-car-v2 | 02:33 | running | 11 | no |  |
 
-Queued prompts: none
+Queued prompts: 02244-stack-v3-candidate.md
 
 ## Sweeps started (in order; logs/sweep-NN.txt has each table)
 
@@ -57,6 +60,8 @@ Queued prompts: none
 22. `sweep --seeds-from dev --name n-lr-fine -g price_lr=0.03,0.04,0.05 -g dealer_lr=0.01,0.015`
 23. `sweep --seeds-from dev --name n-slack-ultra -g min_slack_min=130,145 -g slack_per_drive=0.70,0.75,0.80`
 24. `sweep --seeds-from dev --name n-slack140-sdsup -s min_slack_min=140 -s slack_per_drive=0.75 -g same_day_min_supply=50,75,100 -g long_drive_min=200,300`
+25. `sweep --seeds-from dev --name n-slack140-feewarn -s min_slack_min=140 -s slack_per_drive=0.75 -g fee_warn=1.40,1.50,1.60 -g fee_step_min=20,30`
+26. `sweep --seeds-from dev --name n-slack140-steep -s min_slack_min=140 -s slack_per_drive=0.75 -g steep_open=1.5,1.65 -g steep_step=0.30,0.35`
 
 ## Every evaluation since the night began
 
@@ -160,4 +165,18 @@ Champion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds 
 | 20261114-021342-n-slack-ultra-min_slack_min145-slack_per_drive0.75 | 16 | 9,125 | 6,279 | 93.8% | SAFE | +135 ± 59 (t +2.3, 10/16 better) |
 | 20261114-021434-n-slack-ultra-min_slack_min145-slack_per_drive0.80 | 16 | 9,098 | 6,279 | 93.8% | SAFE | +108 ± 70 (t +1.6, 11/16 better) |
 | 20261114-021546-n-slack140-sdsup-same_day_min_supply50-long_drive_min200 | 16 | 9,011 | 5,563 | 93.9% | SAFE | +21 ± 200 (t +0.1, 5/16 better) |
-| 20261114-021643-n-slack140-sdsup-same_day_min_supply50-long_drive_min300 | 0 failed | | | | | |
+| 20261114-021643-n-slack140-sdsup-same_day_min_supply50-long_drive_min300 | 16 | 9,311 | 6,679 | 94.4% | SAFE | +321 ± 180 (t +1.8, 11/16 better) |
+| 20261114-021805-n-slack140-sdsup-same_day_min_supply75-long_drive_min200 | 16 | 8,952 | 5,714 | 93.9% | SAFE | -39 ± 192 (t -0.2, 5/16 better) |
+| 20261114-021917-n-slack140-sdsup-same_day_min_supply75-long_drive_min300 | 16 | 9,135 | 6,351 | 94.4% | SAFE | +145 ± 139 (t +1.0, 10/16 better) |
+| 20261114-022037-n-slack140-sdsup-same_day_min_supply100-long_drive_min200 | 16 | 8,952 | 5,714 | 93.9% | SAFE | -38 ± 190 (t -0.2, 6/16 better) |
+| 20261114-022132-n-slack140-sdsup-same_day_min_supply100-long_drive_min300 | 16 | 9,226 | 6,437 | 93.8% | SAFE | +235 ± 131 (t +1.8, 10/16 better) |
+| 20261114-022510-n-slack140-feewarn-fee_warn1.40-fee_step_min20 | 16 | 9,194 | 6,589 | 91.7% | no | +203 ± 230 (t +0.9, 9/16 better) |
+| 20261114-022630-n-slack140-feewarn-fee_warn1.40-fee_step_min30 | 16 | 9,077 | 6,695 | 92.6% | SAFE | +87 ± 224 (t +0.4, 10/16 better) |
+| 20261114-022740-n-slack140-feewarn-fee_warn1.50-fee_step_min20 | 16 | 9,420 | 6,622 | 93.3% | SAFE | +430 ± 170 (t +2.5, 14/16 better) |
+| 20261114-022828-n-slack140-feewarn-fee_warn1.50-fee_step_min30 | 16 | 9,037 | 6,465 | 93.4% | SAFE | +47 ± 146 (t +0.3, 11/16 better) |
+| 20261114-022913-n-slack140-feewarn-fee_warn1.60-fee_step_min20 | 16 | 8,966 | 6,138 | 93.3% | SAFE | -25 ± 197 (t -0.1, 6/16 better) |
+| 20261114-022958-n-slack140-feewarn-fee_warn1.60-fee_step_min30 | 16 | 9,226 | 6,437 | 93.8% | SAFE | +235 ± 131 (t +1.8, 10/16 better) |
+| 20261114-023130-n-slack140-steep-steep_open1.5-steep_step0.30 | 16 | 9,190 | 6,460 | 94.4% | SAFE | +199 ± 138 (t +1.4, 13/16 better) |
+| 20261114-023304-n-slack140-steep-steep_open1.5-steep_step0.35 | 16 | 9,198 | 6,448 | 94.3% | SAFE | +208 ± 138 (t +1.5, 13/16 better) |
+| 20261114-023434-n-slack140-steep-steep_open1.65-steep_step0.30 | 16 | 9,182 | 6,417 | 94.4% | SAFE | +192 ± 130 (t +1.5, 11/16 better) |
+| 20261114-023525-n-slack140-steep-steep_open1.65-steep_step0.35 (running) | 12 | 8,648 | 6,406 | 94.4% | no | +273 ± 173 (t +1.6, 9/12 better) |

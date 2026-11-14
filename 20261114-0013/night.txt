@@ -76,3 +76,11 @@
 02:13:24 worker n14-02114-stack-gates-trust-notes started (pid 22702)
 02:15:46 lead tick started (pid 22990)
 02:15:46 sweep 24 started: sweep --seeds-from dev --name n-slack140-sdsup -s min_slack_min=140 -s slack_per_drive=0.75 -g same_day_min_supply=50,75,100 -g long_drive_min=200,300
+02:16:50 published to night/20261114
+02:24:50 worker n14-02241-exact-trust-and-floor-v2 started (pid 24304)
+02:25:10 sweep 25 started: sweep --seeds-from dev --name n-slack140-feewarn -s min_slack_min=140 -s slack_per_drive=0.75 -g fee_warn=1.40,1.50,1.60 -g fee_step_min=20,30
+02:29:10 worker n14-02111-overnight-fee-hold finished after 16 min
+02:29:10 worker n14-02242-extended-ring-and-return-gate started (pid 24786)
+02:31:30 sweep 26 started: sweep --seeds-from dev --name n-slack140-steep -s min_slack_min=140 -s slack_per_drive=0.75 -g steep_open=1.5,1.65 -g steep_step=0.30,0.35
+02:33:30 worker n14-02114-stack-gates-trust-notes finished after 20 min
+02:33:30 worker n14-02243-lead-car-v2 started (pid 25266)
