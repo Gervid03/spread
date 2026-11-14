@@ -116,7 +116,7 @@ with world(SEED, what="tours2") as w:
         for r in range(len(seq)):
             rot = seq[r:] + seq[:r]
             cs = [cars[x] for x in rot]
-            for start in (day0 + 420, day0 + 480, day0 + 540, day0 + 600, day0 + 660):
+            for start in [day0 + 60 * h for h in range(7, 19)] + [day0 + DAY + 60 * h for h in range(7, 12)]:
                 if start < T + 60:
                     continue
                 sim = simulate(cs, start)
