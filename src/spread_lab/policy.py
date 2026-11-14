@@ -54,6 +54,8 @@ class Params:
     dealer_adj_max: float = 1.30
     loss_streak_freeze: int = 12      # this many losses in a row stop downward moves until the next day
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
+    lane_dest_tilt: float = 0.0       # zero-mean destination supply tilt (+1.0x on deliv_supply < 30, -1.5x on >= 100)
+    cost_ratio_slope: float = 0.0     # centered cost-ratio slope on referenceFeeCents / listPriceCents - 0.91
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
     gate_radius_km: float = 55.0      # radius of the supply count the decline gate uses (v1; 0 = supply_radius_km, as v0)
@@ -80,6 +82,9 @@ class Params:
     guard_min_orders: int = 30        # denominator floor, so the first late car doesn't shut the desk
     guard_risk_weight: float = 0.5    # an unstaffed order past its deadline warning counts this much as late
     guard_supply_mult: float = 3.0    # at full tightening min_supply is this many times higher, backlog limit 0
+    budget_target: float = 0.0        # 0 = off; else projected on-time share to defend with class budget + ballast
+    budget_start_day: int = 3         # only activate budget_pressure when now // DAY >= budget_start_day (Thu-Fri)
+    ballast_discount: float = 0.06    # max discount on safest classes (capital/ring, next_day or slower, drive <= 260)
     # --- fees ---------------------------------------------------------------------------------------
     fee_open: float = 0.85            # opening fee, times the typical fee (v2: was 1.00)
     fee_warn: float = 1.60            # fee reached at the deadline warning (lastPickupAt - 3 h)
@@ -141,6 +146,7 @@ class Desk:
         self.urgent: set[str] = set()                # orders whose deadline warning has come
         self.decided: dict[str, str] = {}            # request id -> "quote" | "floor" | "decline"
         self.lost_requests: set[str] = set()         # request ids where order_lost was received
+        self.ballast_disc: dict[str, float] = {}     # request id -> ballast discount applied
         self.mult = {8: params.price_mult_l8, 7: params.price_mult_l7}.get(level, params.price_mult_low)
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
         self.dealer_trust: dict[str, int] = defaultdict(int)
@@ -270,6 +276,7 @@ class Desk:
                 )
         pickup = legs[0]["pickup"]["placeId"]
         supply = self.supply.get(pickup, 0)
+        deliv_supply = self.supply.get(legs[-1]["delivery"]["placeId"], 0)
         gate_supply = self.gate_supply.get(pickup, 0)
         tight = self.tightening()
         gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
@@ -282,9 +289,7 @@ class Desk:
                 self.stats["in_flight_blocked"] += 1
             return {}, "decline"
         is_ring = supply < gate_min
-        drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
-        if len(legs) == 2:
-            drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
+        drive = self.drive_minutes(legs)
 
         if p.trust_guard and self.dealer_trust[request["dealerId"]] >= 13:
             has_same_day = any(o["kind"] == "same_day" for o in request["options"])
@@ -317,6 +322,8 @@ class Desk:
             top3 = sorted(self.dealer_request_count.keys(), key=lambda d: self.dealer_request_count[d], reverse=True)[:3]
             is_invest = request["dealerId"] in top3
 
+        pressure = self.budget_pressure()
+        cap_or_ring = gate_supply >= 200
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
@@ -362,6 +369,17 @@ class Desk:
             if slack < p.min_slack_min + p.slack_per_drive * drive:
                 self.stats["dropped_slack"] += 1
                 continue
+            disc = 0.0
+            if pressure > 0:
+                rate = self.class_late_rate(pickup, option["kind"], drive)
+                if (option["kind"] == "same_day" and supply < 200) or (option["kind"] == "next_day" and drive > 300) or rate > 0.15 - 0.08 * pressure:
+                    self.stats["budget_declined"] += 1
+                    continue
+                if cap_or_ring and option["kind"] != "same_day" and drive <= 260:
+                    fri_boost = 1.25 if (self.now // DAY) == 4 else 1.0
+                    disc = fri_boost * p.ballast_discount * pressure
+                    self.ballast_disc[request["id"]] = disc
+                    self.stats["budget_ballast"] += 1
             if ring_hub_sd:
                 self.stats["quoted_ring_hub_same_day"] += 1
                 self.ring_hub_same_day.add(request["id"])
@@ -369,9 +387,23 @@ class Desk:
             option_mult = mult
             if is_invest and slack >= 360:
                 option_mult *= (1 - p.trust_invest)
+            if p.lane_dest_tilt != 0.0:
+                if deliv_supply < 30:
+                    option_mult *= 1.0 + p.lane_dest_tilt
+                    self.stats["lane_thin_dest"] += 1
+                elif deliv_supply >= 100:
+                    option_mult *= 1.0 - 1.5 * p.lane_dest_tilt
+                    self.stats["lane_hub_dest"] += 1
+            if p.cost_ratio_slope != 0.0:
+                cost_ratio = request["referenceFeeCents"] / option["listPriceCents"]
+                option_mult *= clamp(1.0 + p.cost_ratio_slope * (cost_ratio - 0.91), 0.93, 1.07)
+            if disc > 0:
+                option_mult *= (1.0 - disc)
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
             floor = fee / (1 - p.min_margin_frac)
+            if disc > 0:
+                floor *= (1.0 - disc)
             if price < floor:
                 price, floored = floor, True
             prices[option["kind"]] = int(price + 0.5)
@@ -387,7 +419,8 @@ class Desk:
         if day != self.streak_day:
             self.loss_streak, self.streak_day = 0, day
         self.loss_streak = 0 if won else self.loss_streak + 1
-        step = (1 - p.price_target_win) if won else -p.price_target_win
+        target = min(0.65, p.price_target_win + self.ballast_disc.get(request_id, 0.0))
+        step = (1 - target) if won else -target
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
@@ -415,17 +448,53 @@ class Desk:
                     n += p.backlog_in_flight_weight
         return n
 
+    def drive_minutes(self, legs: list[Any]) -> int:
+        drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
+        if len(legs) == 2:
+            drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
+        return drive
+
+    def class_late_rate(self, pickup: str, option: str, drive: int) -> float:
+        """Measured late rate of (pickup region, option, drive length) from champion dev reveals."""
+        cap_or_ring = self.gate_supply.get(pickup, 0) >= 200
+        if drive > 300:
+            if option == "within_3_days":
+                return 0.06 if cap_or_ring else 0.10
+            return 0.11 if cap_or_ring else 0.165
+        if option == "within_3_days":
+            return 0.015 if cap_or_ring else 0.03
+        if option == "next_day":
+            return 0.025 if cap_or_ring else (0.09 if self.gate_supply.get(pickup, 0) >= 30 else 0.14)
+        if cap_or_ring:
+            return (0.065 if drive > 150 else 0.035) if self.supply.get(pickup, 0) >= 100 else 0.075
+        return 0.16 if self.supply.get(pickup, 0) >= 100 else 0.24
+
     def projected_on_time(self) -> float:
-        """On-time share if every order known late stays late and each unstaffed order past its deadline
-        warning is late with probability `guard_risk_weight`."""
-        p, late, risk = self.p, 0, 0
+        """On-time share if every order known late stays late, each unstaffed order past its deadline
+        warning is late with probability `guard_risk_weight` (0.7 for budget), and open orders at their class rate."""
+        p, late, risk, open_risk = self.p, 0, 0, 0.0
+        use_budget = p.budget_target > 0
+        warn_weight = 0.7 if use_budget else p.guard_risk_weight
         for order_id, order in self.orders.items():
             open_legs = undelivered(order)
-            if order_id in self.late or (open_legs and self.now > order["deadline"]):
+            staffed = self.staffed(order) if open_legs else True
+            drive = self.drive_minutes(order["legs"]) if (use_budget and open_legs) else 0
+            if order_id in self.late or (open_legs and (self.now > order["deadline"] or (use_budget and not staffed and self.now + drive > order["deadline"]))):
                 late += 1
-            elif open_legs and order_id in self.urgent and not self.staffed(order):
+            elif open_legs and order_id in self.urgent and not staffed:
                 risk += 1
-        return 1 - (late + p.guard_risk_weight * risk) / max(len(self.orders), p.guard_min_orders)
+            elif use_budget and open_legs:
+                open_risk += 0.5 if order_id in self.urgent else self.class_late_rate(order["legs"][0]["pickup"]["placeId"], order["option"], drive)
+        min_orders = max(p.guard_min_orders, 60) if use_budget else p.guard_min_orders
+        return 1 - (late + warn_weight * risk + open_risk) / max(len(self.orders), min_orders)
+
+    def budget_pressure(self) -> float:
+        """0 (at or above `budget_target` or before `budget_start_day`) to 1 (full ballast discount and strictest class gate)."""
+        p = self.p
+        if p.budget_target <= 0 or (self.now // DAY) < p.budget_start_day:
+            return 0.0
+        band = 0.015 if self.now // DAY == 4 else 0.025
+        return clamp((p.budget_target - self.projected_on_time()) / band, 0.0, 1.0)
 
     def tightening(self) -> float:
         """0 (normal intake) to 1 (only the safest requests), from how far the projection is under target."""
@@ -446,6 +515,11 @@ class Desk:
             self.stats["won"] += 1
             if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
+            deliv_supply = self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0)
+            if deliv_supply < 30:
+                self.stats["won_lane_thin_dest"] += 1
+            elif deliv_supply >= 100:
+                self.stats["won_lane_hub_dest"] += 1
             if order["option"] == "same_day" and order["id"] in self.ring_hub_same_day:
                 self.stats["won_ring_hub_same_day"] += 1
             self.stats[f"won_{order['option']}"] += 1
@@ -650,6 +724,8 @@ class Desk:
                 self.last_view[e["driverId"]] = e["at"]
             elif e["kind"] == "offer_answered":
                 self.offers_sent[(e["driverId"], e["at"] // DAY)] += 1
+            elif e["kind"] == "ledger" and e["line"]["kind"] in ("late_refund", "undelivered_penalty") and e["line"]["orderId"]:
+                self.late.add(e["line"]["orderId"])
         self.orders = {o["id"]: o for o in snapshot["orders"] if o["id"] in self.requests and o["status"] != "cancelled"}
         ratios = []  # the price level of the latest wins, so a restarted desk does not relearn from the prior
         for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"])[-30:]:
