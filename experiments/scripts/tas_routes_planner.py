@@ -280,6 +280,7 @@ def solve_lagrangian_and_local_search(
     max_cars: int,
     use_bound_weights: bool = False,
     steered_state: bool = False,
+    max_solos: int = 999,
     iters: int = 75,
 ) -> tuple[float, list[Column]]:
     """Computes:
@@ -314,12 +315,15 @@ def solve_lagrangian_and_local_search(
         dd_u: Counter = Counter()
         picked: list[Column] = []
         tot_cars = 0
+        tot_solos = 0
         val = 0.0
         for c in order_cols:
             w = c.bound_net if use_bound_weights else c.net
             if w <= 0:
                 continue
             n_c = len(c.rids)
+            if n_c == 1 and not use_bound_weights and tot_solos + 1 > max_solos:
+                continue
             if tot_cars + n_c > max_cars:
                 continue
             if any(r in used_r for r in c.rids):
@@ -342,6 +346,8 @@ def solve_lagrangian_and_local_search(
             if c.needs_exp:
                 zed_u[c.zone_day] += 1
             tot_cars += n_c
+            if n_c == 1:
+                tot_solos += 1
             picked.append(c)
             val += w
         return val, picked
@@ -452,7 +458,7 @@ def solve_lagrangian_and_local_search(
 
     # Local search (1-for-1 and 1-for-2 / 2-for-1 swaps) on best_primal!
     if not use_bound_weights and best_primal:
-        best_primal = local_search_refine(best_primal, cols, z_cap, ze_cap, dealer_day_tot, max_dealer_share, max_cars, steered_state)
+        best_primal = local_search_refine(best_primal, cols, z_cap, ze_cap, dealer_day_tot, max_dealer_share, max_cars, steered_state, max_solos)
 
     return best_dual_ub, best_primal
 
@@ -466,6 +472,7 @@ def local_search_refine(
     max_dealer_share: float,
     max_cars: int,
     steered_state: bool = False,
+    max_solos: int = 999,
 ) -> list[Column]:
     """1-for-1 and 1-for-2 neighborhood local search over selected tours."""
     selected: dict[int, Column] = {c.idx: c for c in initial}
@@ -477,6 +484,7 @@ def local_search_refine(
         for a in c.arcs:
             dd_u[(a.dealer, a.arrived_at // DAY)] += 1
     tot_cars = sum(len(c.rids) for c in initial)
+    tot_solos = sum(1 for c in initial if len(c.rids) == 1)
 
     top_cands = sorted(all_cols, key=lambda c: c.net + c.trust_bonus, reverse=True)[:4500]
     for _pass in range(2):
@@ -493,6 +501,9 @@ def local_search_refine(
                 continue
             new_cars = tot_cars - sum(len(x.rids) for x in removed) + len(cand.rids)
             if new_cars > max_cars:
+                continue
+            new_solos = tot_solos - sum(1 for x in removed if len(x.rids) == 1) + (1 if len(cand.rids) == 1 else 0)
+            if new_solos > max_solos:
                 continue
             zd_delta = 1 - sum(1 for x in removed if x.zone_day == cand.zone_day)
             if zd_u[cand.zone_day] + zd_delta > z_cap.get(cand.zone_day, 0):
@@ -531,6 +542,7 @@ def local_search_refine(
             for k, inc in dd_delta.items():
                 dd_u[k] += inc
             tot_cars = new_cars
+            tot_solos = new_solos
             improved += 1
         if improved == 0:
             break
@@ -781,6 +793,7 @@ def run_full_planner(
     include_solos: bool,
     compute_bound: bool,
     steered_state: bool = False,
+    max_solos: int = 999,
 ) -> None:
     cols, all_opts_by_rid, dealer_day_tot, z_cap_bound, ze_cap_bound, flu_days = generate_candidate_columns(
         seed, geo, tape, include_solos=True
@@ -813,7 +826,7 @@ def run_full_planner(
     z_cap, ze_cap = build_zone_day_caps(tape["roster"], geo, active_fraction=active_fraction, flu_days=flu_days)
     dual_prac, picked = solve_lagrangian_and_local_search(
         work_cols, all_rids, z_cap, ze_cap, dealer_day_tot,
-        max_dealer_share=max_dealer_share, max_cars=max_cars, use_bound_weights=False, steered_state=steered_state, iters=65,
+        max_dealer_share=max_dealer_share, max_cars=max_cars, use_bound_weights=False, steered_state=steered_state, max_solos=max_solos, iters=65,
     )
 
     # Sort chosen tours chronologically by post_at
@@ -882,6 +895,7 @@ def main() -> None:
     ap.add_argument("--active-fraction", type=float, default=0.32)
     ap.add_argument("--max-dealer-share", type=float, default=0.68)
     ap.add_argument("--no-solos", action="store_true")
+    ap.add_argument("--max-solos", type=int, default=999)
     ap.add_argument("--bound", action="store_true")
     ap.add_argument("--steered-state", action="store_true", help="keep busy dealers <30%% on Monday to trigger +4%% competitor price hike on Tue-Fri")
     args = ap.parse_args()
@@ -899,6 +913,7 @@ def main() -> None:
             include_solos=not args.no_solos,
             compute_bound=args.bound,
             steered_state=args.steered_state,
+            max_solos=args.max_solos,
         )
 
 
