@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-slack-floor-fine -s min_slack_min=150 -s slack_per_drive=0.75 -g expected_fee_mult=0.95,1.02,1.10 -g min_margin_frac=0.06,0.08
+# started 2026-11-14T03:20:18Z
+
+=== expected_fee_mult=0.95,min_margin_frac=0.06
+  mean margin €8,230.96  (median €7,812.48, min €5,312.87)  ranked 16/16  on time min 92.2% mean 96.6%  won 239  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-759.35 ± 223.79 (SE) t=-3.39  better on 3, worse on 13  Δon-time -0.19%
+
+=== expected_fee_mult=0.95,min_margin_frac=0.08
+  mean margin €8,246.24  (median €7,755.32, min €5,302.28)  ranked 16/16  on time min 92.2% mean 96.5%  won 238  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-744.06 ± 297.57 (SE) t=-2.5  better on 3, worse on 13  Δon-time -0.20%
+
+=== expected_fee_mult=1.02,min_margin_frac=0.06
+  mean margin €8,608.28  (median €7,668.49, min €5,967.12)  ranked 16/16  on time min 92.6% mean 96.6%  won 240  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-382.02 ± 191.28 (SE) t=-2.0  better on 4, worse on 12  Δon-time -0.13%
+
+=== expected_fee_mult=1.02,min_margin_frac=0.08
+  mean margin €8,681.01  (median €7,771.84, min €5,729.39)  ranked 16/16  on time min 94.0% mean 96.6%  won 240  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-309.29 ± 187.50 (SE) t=-1.65  better on 5, worse on 11  Δon-time -0.19%
+
+=== expected_fee_mult=1.10,min_margin_frac=0.06
+  mean margin €8,671.75  (median €8,239.44, min €5,948.52)  ranked 16/16  on time min 94.1% mean 97.0%  won 237  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-318.56 ± 179.65 (SE) t=-1.77  better on 6, worse on 10  Δon-time +0.21%
+
+=== expected_fee_mult=1.10,min_margin_frac=0.08
+  mean margin €8,505.60  (median €7,979.75, min €6,114.31)  ranked 16/16  on time min 94.2% mean 96.6%  won 236  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-484.70 ± 135.31 (SE) t=-3.58  better on 3, worse on 13  Δon-time -0.18%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  expected_fee_mult=1.02,min_margin_frac=0.08        €     8,681  on-time min 94.0%  SAFE  Δ €-309±188  20261114-032332-n-slack-floor-fine-expected_fee_mult1.02-min_margin_frac0.08
+  expected_fee_mult=1.10,min_margin_frac=0.06        €     8,672  on-time min 94.1%  SAFE  Δ €-319±180  20261114-032554-n-slack-floor-fine-expected_fee_mult1.10-min_margin_frac0.06
+  expected_fee_mult=1.02,min_margin_frac=0.06        €     8,608  on-time min 92.6%  SAFE  Δ €-382±191  20261114-032249-n-slack-floor-fine-expected_fee_mult1.02-min_margin_frac0.06
+  expected_fee_mult=1.10,min_margin_frac=0.08        €     8,506  on-time min 94.2%  SAFE  Δ €-485±135  20261114-032643-n-slack-floor-fine-expected_fee_mult1.10-min_margin_frac0.08
+  expected_fee_mult=0.95,min_margin_frac=0.08        €     8,246  on-time min 92.2%  SAFE  Δ €-744±298  20261114-032109-n-slack-floor-fine-expected_fee_mult0.95-min_margin_frac0.08
+  expected_fee_mult=0.95,min_margin_frac=0.06        €     8,231  on-time min 92.2%  SAFE  Δ €-759±224  20261114-032019-n-slack-floor-fine-expected_fee_mult0.95-min_margin_frac0.06
+# exit 0 at 2026-11-14T03:27:28Z

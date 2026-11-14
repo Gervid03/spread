@@ -109,3 +109,18 @@
 03:12:14 worker n14-03112-same-corridor-lead-car-v2 started (pid 30645)
 03:12:34 worker n14-03113-stack-gtn-extring-dlr01 started (pid 30745)
 03:12:54 sweep 31 started: sweep --seeds-from dev --name n-slack140-ptw-sdsup -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g price_target_win=0.38,0.40 -g min_supply=20,25,30
+03:17:58 published to night/20261114
+03:19:58 worker n14-02463-stack-gtn-feewarn-v4 finished after 23 min
+03:19:58 worker n14-03114-surgical-tradein-and-window-gates started (pid 32228)
+03:20:18 sweep 32 started: sweep --seeds-from dev --name n-slack-floor-fine -s min_slack_min=150 -s slack_per_drive=0.75 -g expected_fee_mult=0.95,1.02,1.10 -g min_margin_frac=0.06,0.08
+03:21:18 worker n14-02464-thursday-friday-safety-budget finished after 18 min
+03:23:20 lead tick started (pid 32774)
+03:28:20 worker n14-03111-adaptive-delivery-buffer-and-alarm finished after 16 min
+03:28:21 sweep 33 started: sweep --seeds-from dev --name n-slack-sdsup-lr -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g price_lr=0.03,0.04,0.05 -g dealer_lr=0.015,0.02
+03:30:21 worker n14-03113-stack-gtn-extring-dlr01 finished after 17 min
+03:31:21 worker n14-03112-same-corridor-lead-car-v2 finished after 19 min
+03:33:21 worker n14-03321-stack-grand-v5-backlog-lane-budget started (pid 33737)
+03:33:41 worker n14-03322-stack-backlog-feewarn-and-v3-note started (pid 33828)
+03:34:01 worker n14-03323-option-weighted-tracker-and-surge started (pid 34030)
+03:34:21 worker n14-03324-supply-adaptive-fee-open-and-drop-rescue started (pid 34141)
+03:34:41 sweep 34 started: sweep --seeds-from dev --name n-slack-sdsup-steep -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=25 -g fee_warn=1.40,1.45,1.60 -g steep_open=1.5,1.8

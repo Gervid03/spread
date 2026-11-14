@@ -1,6 +1,8 @@
 # n14-03113-stack-gtn-extring-dlr01
-tool calls 18; result {}
+tool calls 35; result {"total_tokens": 1848774, "input_tokens": 1821915, "output_tokens": 18956, "cached": 1684515, "input": 137400, "duration_ms": 1032312, "tool_calls": 35, "models": {"gemini-4-argon": {"total_tokens": 1848774, "input_tokens": 1821915, "output_tokens": 18956, "cached": 1684515, "input": 137400}}}
 
 ## Its last words
 
-I will fetch the latest remote branches and merge `origin/exp/gemini-n14-02114-stack-gates-trust-notes` and `origin/exp/gemini-n14-02242-extended-ring-and-return-gate` into the current working branch.
+I will fetch the latest remote branches and merge `origin/exp/gemini-n14-02114-stack-gates-trust-notes` and `origin/exp/gemini-n14-02242-extended-ring-and-return-gate` into the current working branch.I will now stage `src/spread_lab/policy.py` and `experiments/20261114-0328-gemini-stack-gtn-extring-dlr01.md`, commit the merged stack and experiment report, and push the branch to `origin`.trust_invest=0.05 notes_v2=True note_unsure=decline max_next_day_drive_min=480 fri_same_day_max_drive=100 thin_long_next_day_supply=50 ring_to_hub_same_day_min=60 same_day_min_supply=50 min_slack_min=150 slack_per_drive=0.75 price_target_win=0.38 min_supply=25 dealer_lr=0.01 (and conservative/extring: ext_ring_min_supply=30 ext_ring_max_drive_min=220 return_hub_min_supply=200 return_hub_max_drive_min=180 ext_ring_no_learn=True)
+Dev 1 (dlr01-ptw38): Δmargin €+1,275.23 ± 225.86 (t=5.65, 14/16 better, mean €10,265.54, worst on-time 92.2% SAFE); Dev 3 (full stack ptw38): Δmargin €+1,172.51 ± 244.32 (t=4.80, 14/16 better, mean €10,162.82, worst on-time 92.2% SAFE); Dev 2 (conservative extring-dlr01): Δmargin €+962.21 ± 219.56 (t=4.38, 15/16 better, mean €9,952.51, worst on-time 94.8% SAFE)
+20261114-032146-stack-gtn-dlr01-ptw38-dev, 20261114-032329-stack-gtn-extring-dlr01-dev, 20261114-032429-stack-gtn-extring-ptw38-dlr01-dev

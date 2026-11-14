@@ -18,3 +18,18 @@
   vs champion on 16 paired seeds: Δmargin €+357.62 ± 272.74 (SE) t=1.31  better on 11, worse on 5  Δon-time -0.54%
 
 === price_target_win=0.40,min_supply=25
+  mean margin €9,430.78  (median €8,761.65, min €5,969.71)  ranked 16/16  on time min 92.7% mean 96.5%  won 267  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+440.47 ± 270.32 (SE) t=1.63  better on 12, worse on 4  Δon-time -0.25%
+
+=== price_target_win=0.40,min_supply=30
+  mean margin €9,235.92  (median €8,665.63, min €5,809.83)  ranked 16/16  on time min 92.7% mean 96.3%  won 262  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+245.61 ± 228.02 (SE) t=1.08  better on 13, worse on 3  Δon-time -0.41%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  price_target_win=0.40,min_supply=25                €     9,431  on-time min 92.7%  SAFE  Δ €+440±270  20261114-031748-n-slack140-ptw-sdsup-price_target_win0.40-min_supply25
+  price_target_win=0.40,min_supply=20                €     9,348  on-time min 92.7%  SAFE  Δ €+358±273  20261114-031646-n-slack140-ptw-sdsup-price_target_win0.40-min_supply20
+  price_target_win=0.40,min_supply=30                €     9,236  on-time min 92.7%  SAFE  Δ €+246±228  20261114-031836-n-slack140-ptw-sdsup-price_target_win0.40-min_supply30
+  price_target_win=0.38,min_supply=20                €     8,976  on-time min 92.1%  SAFE  Δ €-14±316  20261114-031254-n-slack140-ptw-sdsup-price_target_win0.38-min_supply20
+  price_target_win=0.38,min_supply=30                €     8,867  on-time min 92.1%  SAFE  Δ €-123±267  20261114-031523-n-slack140-ptw-sdsup-price_target_win0.38-min_supply30
+  price_target_win=0.38,min_supply=25                €     8,807  on-time min 92.1%  SAFE  Δ €-183±300  20261114-031404-n-slack140-ptw-sdsup-price_target_win0.38-min_supply25
+# exit 0 at 2026-11-14T03:19:37Z
