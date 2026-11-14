@@ -48,11 +48,15 @@ HOUR = 60
 SEED = sys.argv[1]
 ARMS = sys.argv[2:]
 SPARE, BUMP, QUOTE, TEACH = 4 * HOUR, 120, 0.92, 0.7
-OPEN = {2: 0.6, 3: 0.5, 4: 0.45}
+OPEN = {1: 0.5, 2: 0.6, 3: 0.5, 4: 0.45}   # 1 = a homeward single: in the app at 0.5x while offers go out
 SOLO, RESCUE = 0.9, 1.4
 LO, HI, STEPS = 0.4, 1.4, 3
+HOME_OFFER, POOL = 0.75, 40   # ride home: offered at 0.75x to drivers living near the delivery; a pool = 40+ drivers
 geo = Geo(load_map(None))
-REQ = {r["id"]: r for r in tape(SEED)["requests"]}
+TAPE = tape(SEED)
+REQ = {r["id"]: r for r in TAPE["requests"]}
+ROSTER = {d["id"]: d for d in TAPE["roster"]}
+NEAR = {p: sum(1 for d in ROSTER.values() if geo.line_km(d["homePlaceId"], p) <= 30) for p in geo.places}
 LIMIT = {}
 for line in open(lab_home() / "tas" / SEED / "limits-all.jsonl", encoding="utf-8"):
     x = json.loads(line)
@@ -129,6 +133,22 @@ def find_loops(max_size):
     return chosen, len(ok), len(found)
 
 
+def homeward(exclude):
+    """One-car slow-option dealer requests that end in a pool (40+ drivers within 30 km of the delivery) and start
+    outside it: for a driver living there, the car is a ride home."""
+    out = []
+    for r in REQ.values():
+        if r["id"] in exclude or len(r["legs"]) != 1 or not slow_option(r):
+            continue
+        leg = r["legs"][0]
+        if leg["pickup"]["privateAddress"] or leg["delivery"]["privateAddress"]:
+            continue
+        p, d = ends(r)
+        if NEAR[d] >= POOL and geo.line_km(p, d) > 30:
+            out.append([r["id"]])
+    return out
+
+
 # ── the desk ──────────────────────────────────────────────────────────────────────────────────────────────
 class Desk:
     def __init__(self, arm, loops):
@@ -138,6 +158,11 @@ class Desk:
         self.gigs, self.sent, self.booked, self.driver = {}, [], {}, {}
         self.search = {}
         self.ledger, self.log = [], Counter()
+        self.last_view = {}                       # driver -> minute of their last view of any of our gigs
+        self.offers = defaultdict(set)            # gig -> drivers offered
+        self.open_offers = defaultdict(int)       # gig -> offers still open
+        self.offers_today = Counter()             # (driver, day) -> offers sent
+        self.offer_fee = {}
 
     def fee_mult(self, now):
         if self.arm in ("teach", "flat") and now >= DAY:
@@ -178,7 +203,7 @@ class Desk:
         return next((g for g, x in self.gigs.items() if oid in x["oids"]), None)
 
     def won(self, oid, now):
-        if self.arm in ("solo", "solo2", "teach", "flat"):
+        if self.arm.startswith("solo") or self.arm in ("teach", "flat"):
             if self.arm == "teach" and now < DAY:
                 self.search[oid] = {"lo": LO, "hi": HI, "m": HI, "steps": 0}
                 return [self.post([oid], HI, "search", now)]
@@ -188,7 +213,7 @@ class Desk:
         if any(i in self.lost for i in loop):
             return [self.post([oid], SOLO, "broken", now)]
         if all(i in self.held for i in loop):
-            return [self.post(list(loop), OPEN[len(loop)], f"loop{len(loop)}", now)]
+            return [self.post(list(loop), OPEN[len(loop)], "home" if len(loop) == 1 else f"loop{len(loop)}", now)]
         return []
 
     def step(self, events, now):
@@ -239,11 +264,23 @@ class Desk:
                     out.append(self.post([e["orderId"]], RESCUE, "rescue", now, retry))
             elif k == "ledger":
                 self.ledger.append(e["line"])
+            elif k == "gig_viewed":
+                self.last_view[e["driverId"]] = now
+            elif k == "offer_answered":
+                g = e["gigId"]
+                self.open_offers[g] = max(0, self.open_offers[g] - 1)
+                self.log["offer_" + e["answer"]] += 1
+                if e["answer"] == "accepted" and g in self.gigs:
+                    fee = self.offer_fee.get((g, e["driverId"]), 0)
+                    self.booked[g] = fee
+                    self.gigs[g]["steps"].append([now, fee, "booked"])
+                    self.gigs[g]["by_offer"] = True
+        out += self.offer_rounds(now)
         for g, x in list(self.gigs.items()):
             if g in self.booked:
                 continue
             last = x["steps"][-1][0]
-            if x["kind"].startswith("loop") and not x.get("bumped") and now - x["at"] >= BUMP:
+            if (x["kind"].startswith("loop") or x["kind"] == "home") and not x.get("bumped") and now - x["at"] >= BUMP:
                 x["bumped"] = True
                 out.append(self.reprice(g, int(SOLO * sum(REQ[o]["referenceFeeCents"] for o in x["oids"])), now, "bump"))
             elif x["kind"] == "search" and now - last >= HOUR:
@@ -256,6 +293,35 @@ class Desk:
         for oid in list(self.held):
             if self.orders.get(oid, {}).get("lastPickupAt", 0) - now < 6 * HOUR:
                 out.append(self.post([oid], SOLO, "broken", now))
+        return out
+
+    def offer_rounds(self, now):
+        """Ride home: while a homeward gig is unbooked and not yet raised, keep 3 offers open to drivers who live within
+        30 km of its delivery, recent viewers first; each driver at most 3 offers a day, never twice for one gig."""
+        out = []
+        if now % DAY < 7 * HOUR or now % DAY >= 23 * HOUR:       # nobody reads an offer at night
+            return out
+        for g, x in self.gigs.items():
+            if x["kind"] != "home" or g in self.booked or x.get("bumped"):
+                continue
+            o = x["oids"][0]
+            car = self.orders[o]["legs"][0]
+            d = car["delivery"]["placeId"]
+            manual = note_flags(REQ[o]["note"], v2=True).manual
+            cands = [v for v in ROSTER.values() if geo.line_km(v["homePlaceId"], d) <= 30 and v["id"] not in self.offers[g]
+                     and self.offers_today[(v["id"], now // DAY)] < 3
+                     and (not car["car"]["premium"] or (v["rating"] >= 4.8 and v["completedGigs"] >= 50))
+                     and (not manual or v["licence"] == "manual")]
+            cands.sort(key=lambda v: (-self.last_view.get(v["id"], -10 ** 6), v["id"]))
+            fee = int(HOME_OFFER * REQ[o]["referenceFeeCents"])
+            for v in cands[:max(0, 3 - self.open_offers[g])]:
+                out.append({"type": "offer", "gigId": g, "driverId": v["id"], "feeCents": fee})
+                self.offers[g].add(v["id"])
+                self.open_offers[g] += 1
+                self.offers_today[(v["id"], now // DAY)] += 1
+                self.offer_fee[(g, v["id"])] = fee
+                self.log["offer_sent"] += 1
+                self.log["offer_to_recent_viewer"] += int(now - self.last_view.get(v["id"], -10 ** 6) <= 3 * HOUR)
         return out
 
     def halve_down(self, g, now):
@@ -286,15 +352,25 @@ class Desk:
 
 
 KINDS = ["price_request", "order_won", "order_lost", "order_changed", "order_cancelled", "gig_booked", "deadline_close",
-         "gig_expired", "gig_dropped", "no_show", "visit_failed"]
+         "gig_expired", "gig_dropped", "no_show", "visit_failed", "offer_answered"]
 SELECT = {}
+GROUP = {"loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
+         "home": "2h", "solo4": "2h", "homeonly": "h", "solo5": "h"}
 
 
 def selection(arm):
-    size = 2 if arm in ("pairs", "solo2") else 4
-    if size not in SELECT:
-        SELECT[size] = find_loops(size)
-    return SELECT[size]
+    """The loops an arm aims at: '4', '3', '2' = closed loops up to that size; '2h' = pairs, then the homeward
+    singles not in a pair; 'h' = homeward singles only."""
+    key = GROUP[arm]
+    if key not in SELECT:
+        if key in ("2", "3", "4"):
+            SELECT[key] = find_loops(int(key))
+        elif key == "2h":
+            pairs, cands, n = selection("pairs")
+            SELECT[key] = (pairs + homeward({i for c in pairs for i in c}), cands, n)
+        else:
+            SELECT[key] = (homeward(set()), 0, 0)
+    return SELECT[key]
 
 
 def play(arm):
@@ -304,7 +380,8 @@ def play(arm):
     with world(SEED, what=f"loops1-{arm}") as w:
         pending = []
         while w.now < w.ends_at:
-            results, events = w.advance(until=KINDS, max=min(w.ends_at, w.now + 30), actions=pending)
+            tick = 10 if GROUP[arm] in ("2h", "h") else 30          # offers last 10 minutes
+            results, events = w.advance(until=KINDS, max=min(w.ends_at, w.now + tick), actions=pending)
             desk.took(pending, results)
             pending = desk.step(events, w.now)
         score = w.score()
@@ -323,6 +400,9 @@ def report(o):
     rel = -sum(l["cents"] for l in o["ledger"] if l["kind"] == "release_fee") / 100
     say(f"{o['arm']:>6}: margin €{s['marginCents'] / 100:9,.0f}  revenue €{s['revenueCents'] / 100:7,.0f}  costs €{costs:7,.0f}"
         f"  won {s['wonOrders']:3d}  on time {100 * s['onTimeShare']:5.1f}%  release fees €{rel:,.0f}")
+    off = {k: v for k, v in o["log"].items() if k.startswith("offer")}
+    if off:
+        say(f"        offers: {off}; gigs booked by an offer: {sum(1 for x in o['gigs'] if x.get('by_offer'))}")
     by = defaultdict(list)
     for x in o["gigs"]:
         by[x["kind"]].append(x)
@@ -347,10 +427,10 @@ if __name__ == "__main__":
         for arm in ARMS[1:]:
             report(json.loads((home(SEED) / f"loops1-{arm}.json").read_text(encoding="utf-8")))
         sys.exit()
-    for size in sorted({2 if a in ("pairs", "solo2") else 4 for a in ARMS}):
-        loops, cands, nfound = selection("pairs" if size == 2 else "loops")
-        say(f"{SEED}, loops up to {size} cars: {nfound} closed loops among {cands} requests; chosen {len(loops)} "
-            f"disjoint: {dict(Counter(len(c) for c in loops))} = {sum(len(c) for c in loops)} cars")
+    for key in sorted({GROUP[a] for a in ARMS}):
+        loops, cands, nfound = selection(next(a for a in ARMS if GROUP[a] == key))
+        say(f"{SEED}, selection {key}: {nfound} closed loops among {cands} requests; chosen {len(loops)}: "
+            f"{dict(Counter(len(c) for c in loops))} = {sum(len(c) for c in loops)} cars")
     with ThreadPoolExecutor(len(ARMS)) as ex:
         for o in ex.map(play, ARMS):
             report(o)
