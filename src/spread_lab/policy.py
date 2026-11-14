@@ -89,6 +89,8 @@ class Params:
     offer_recent_view_min: int = 240  # drivers who viewed one of our gigs this recently go first
     # --- handling rules -----------------------------------------------------------------------------
     charge_min_km: float = 200.0      # rule 3: an EV under 30% charge needs a charging stop on a route over this
+    delivery_buffer_min: int = 0      # delivery stop window ends this many minutes + buffer_per_drive * drive before deadline
+    buffer_per_drive: float = 0.0     # extra delivery buffer per road minute of drive
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -180,6 +182,7 @@ class Desk:
                 self.stats["margin_ring_cents"] += line["cents"]
             if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
                 if line["orderId"] not in self.late:
+                    self.stats["late"] += 1
                     if is_ring:
                         self.stats["late_ring"] += 1
                 self.late.add(line["orderId"])
@@ -417,7 +420,13 @@ class Desk:
             "manualLicence": retry.manual_licence or flags.manual,
         }
         retry = retry._replace(plates=retry.plates or flags.plates)
-        stops = without_windows(stops_for(order, legs, note, retry, self.geo, self.p.charge_min_km), self.now)
+        raw_stops, buffered = stops_for(
+            order, legs, note, retry, self.geo, self.p.charge_min_km,
+            self.p.delivery_buffer_min, self.p.buffer_per_drive, self.now,
+        )
+        stops = without_windows(raw_stops, self.now)
+        if buffered and any(s["kind"] == "delivery" and "window" in s for s in stops):
+            self.stats["posts_buffered"] += 1
         self.outbox.append({"type": "post", "stops": stops, "audience": audience, "schedule": self.fees_for(order, len(legs))})
         self.stats["posts"] += 1
         if len(legs) == 1:
@@ -524,10 +533,15 @@ def without_windows(stops: list[StopRef], before: float) -> list[StopRef]:
     return [{k: v for k, v in stop.items() if k != "window"} if "window" in stop and stop["window"]["to"] < before else stop for stop in stops]
 
 
-def stops_for(order: Order, legs: list[int], note, retry: Retry, geo: Optional[Geo] = None, charge_min_km: float = 0.0) -> list[StopRef]:
-    """A pickup and a delivery for each leg. A stop has its own window only when the note or the retry
-    makes it narrower. Rule 3: an electric car under 30% on a route over 200 km needs a charging stop."""
+def stops_for(
+    order: Order, legs: list[int], note, retry: Retry, geo: Optional[Geo] = None, charge_min_km: float = 0.0,
+    delivery_buffer_min: int = 0, buffer_per_drive: float = 0.0, now: int = 0,
+) -> tuple[list[StopRef], bool]:
+    """A pickup and a delivery for each leg. A stop has its own window only when the note, the retry,
+    or the delivery buffer makes it narrower. Rule 3: an electric car under 30% on a route over 200 km
+    needs a charging stop."""
     stops: list[StopRef] = []
+    buffered = False
     for leg in legs:
         car, pickup, delivery = order["legs"][leg]["car"], order["legs"][leg]["pickup"], order["legs"][leg]["delivery"]
         noted = window_from_note(note, pickup["window"], "pickup")
@@ -538,10 +552,18 @@ def stops_for(order: Order, legs: list[int], note, retry: Retry, geo: Optional[G
         low_battery = car["electric"] and car["chargePercent"] is not None and car["chargePercent"] < 30
         if low_battery and geo is not None:
             low_battery = geo.road_km(pickup["placeId"], delivery["placeId"]) > charge_min_km
+        if (delivery_buffer_min > 0 or buffer_per_drive > 0) and not delivery["privateAddress"]:
+            drive = geo.minutes(pickup["placeId"], delivery["placeId"]) if geo is not None else 0
+            buf = int(delivery_buffer_min + buffer_per_drive * drive + 0.5)
+            earliest = max(now, start) + drive + (30 if retry.plates else 0) + (40 if low_battery else 0)
+            buffered_to = max(delivery_window["from"], earliest, delivery_window["to"] - buf)
+            if buffered_to < delivery_window["to"]:
+                delivery_window = {"from": delivery_window["from"], "to": buffered_to}
+                buffered = True
         first: StopRef = {"orderId": order["id"], "leg": leg, "kind": "pickup", "withPlates": retry.plates, "withCharging": low_battery}
         second: StopRef = {"orderId": order["id"], "leg": leg, "kind": "delivery"}
         stops += [narrower(first, pickup_window, pickup["window"]), narrower(second, delivery_window, delivery_base)]
-    return stops
+    return stops, buffered
 
 
 def narrower(stop: StopRef, window: TimeWindow, base: TimeWindow) -> StopRef:
