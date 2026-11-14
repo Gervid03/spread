@@ -81,6 +81,7 @@ class Params:
     # --- fees ---------------------------------------------------------------------------------------
     fee_open: float = 0.85            # opening fee, times the typical fee (v2: was 1.00)
     fee_warn: float = 1.60            # fee reached at the deadline warning (lastPickupAt - 3 h)
+    multiday_fee_warn: float = 0.0    # if > 0 and until is on a later day than now, use this in place of fee_warn
     fee_step_min: int = 30            # minutes between steps of the rising schedule
     day_start: int = 7 * 60           # raises only between these minutes of the day
     day_end: int = 22 * 60
@@ -181,6 +182,18 @@ class Desk:
         elif kind == "gig_booked":
             self.booked.add(event["gigId"])
             self.stats["booked"] += 1
+            post = self.posts.get(event["gigId"])
+            if post:
+                at = event.get("at", self.now)
+                active_steps = [s["feeCents"] for s in post["schedule"] if s["at"] <= at]
+                fee_cents = active_steps[-1] if active_steps else post["schedule"][0]["feeCents"]
+                order_id = post["stops"][0]["orderId"]
+                order = self.orders.get(order_id)
+                req = self.requests.get(order_id)
+                if order and req:
+                    ref_cents = int(req["referenceFeeCents"] * pickups(post) / len(order["legs"]) + 0.5)
+                    self.stats["booked_fee_cents_sum"] += fee_cents
+                    self.stats["booked_ref_fee_cents_sum"] += ref_cents
         elif kind in ("gig_dropped", "no_show"):
             self.booked.discard(event["gigId"])
             self.stats[kind] += 1
@@ -496,6 +509,7 @@ class Desk:
     def rising(self, base: float, until: int) -> list[FeeStep]:
         """From `fee_open` now to `fee_warn` at `until`, in daytime steps only, at most 48 steps."""
         p = self.p
+        warn = p.multiday_fee_warn if (p.multiday_fee_warn > 0 and until // DAY > self.now // DAY) else p.fee_warn
         times = [self.now]
         t = (self.now // p.fee_step_min + 1) * p.fee_step_min
         while t <= until:
@@ -506,7 +520,7 @@ class Desk:
             k = len(times) - 1
             times = [times[round(i * k / 47)] for i in range(48)]
         n = len(times)
-        return [{"at": at, "feeCents": max(1, int(base * (p.fee_open + (p.fee_warn - p.fee_open) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
+        return [{"at": at, "feeCents": max(1, int(base * (p.fee_open + (warn - p.fee_open) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
                 for i, at in enumerate(times)]
 
     def steep(self, base: float) -> list[FeeStep]:
@@ -588,6 +602,8 @@ class Desk:
             if result["ok"] is True:
                 if action["type"] == "post":
                     self.carry(action, result["id"])
+                elif action["type"] == "reprice" and action["gigId"] in self.posts:
+                    self.posts[action["gigId"]] = {**self.posts[action["gigId"]], "schedule": action["schedule"]}
             else:
                 self.stats[f"refused_{action['type']}"] += 1
 
