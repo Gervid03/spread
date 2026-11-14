@@ -116,6 +116,8 @@ class Params:
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
+    busy_start_min: int = 420         # weekday start minute for fixed step_min stepping (default 07:00)
+    busy_end_min: int = 1320          # weekday end minute for fixed step_min stepping (default 22:00)
 
     @classmethod
     def from_dict(cls, values: dict[str, Any]) -> "Params":

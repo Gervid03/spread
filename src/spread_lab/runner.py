@@ -21,10 +21,10 @@ URGENT: list[DeskEventKind] = [
 ]
 
 
-def busy(now: int) -> bool:
-    """Weekdays 07:00-22:00 of the first week: requests can arrive, so steps stay under 15 minutes."""
+def busy(now: int, start_min: int = 7 * HOUR, end_min: int = 22 * HOUR) -> bool:
+    """Weekdays of the first week within [start_min, end_min): requests can arrive, so steps stay under 15 minutes."""
     day = now // DAY
-    return day < 5 and 7 * HOUR <= now % DAY < 22 * HOUR
+    return day < 5 and start_min <= now % DAY < end_min
 
 
 def play_practice(world: World, desk, ends_at: int, on_day: Optional[Callable[[int], None]] = None,
@@ -37,10 +37,12 @@ def play_practice(world: World, desk, ends_at: int, on_day: Optional[Callable[[i
     Returns the account by ledger kind, in cents."""
     ledger: Counter = Counter()
     step_min = min(14, max(1, int(desk.p.step_min)))
+    busy_start_min = int(getattr(desk.p, "busy_start_min", 7 * HOUR))
+    busy_end_min = int(getattr(desk.p, "busy_end_min", 22 * HOUR))
     while desk.now < min(ends_at, stop_at if stop_at is not None else ends_at):
         actions = desk.take_outbox()
         day = desk.now // DAY
-        if busy(desk.now):
+        if busy(desk.now, busy_start_min, busy_end_min):
             step = world.advance(to=min(ends_at, desk.now + step_min), actions=actions)
         else:
             step = world.advance(until=URGENT, max=min(ends_at, desk.now + HOUR), actions=actions)
