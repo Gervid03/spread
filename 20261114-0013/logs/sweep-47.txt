@@ -1,0 +1,4 @@
+# uv run lab sweep --seeds-from dev --name n-slack140-fw-fine -s min_slack_min=140 -s slack_per_drive=0.75 -g fee_warn=1.48,1.52,1.55 -g fee_step_min=18,22
+# started 2026-11-14T04:59:11Z
+
+=== fee_warn=1.48,fee_step_min=18

@@ -1,6 +1,8 @@
 # n14-04151-asymmetric-lane-markup-and-tight-budget
-tool calls 46; result {}
+tool calls 46; result {"total_tokens": 2665461, "input_tokens": 2629447, "output_tokens": 20398, "cached": 2464340, "input": 165107, "duration_ms": 1442795, "tool_calls": 46, "models": {"gemini-4-argon": {"total_tokens": 2642811, "input_tokens": 2607227, "output_tokens": 20295, "cached": 2464340, "input": 142887}, "gemini-3-flash-preview": {"total_tokens": 22650, "input_tokens": 22220, "output_tokens": 103, "cached": 0, "input": 22220}}}
 
 ## Its last words
 
-
+Best flags: `-s trust_invest=0.05 -s notes_v2=True -s note_unsure=decline -s max_next_day_drive_min=480 -s fri_same_day_max_drive=100 -s thin_long_next_day_supply=50 -s ring_to_hub_same_day_min=60 -s same_day_min_supply=50 -s min_slack_min=150 -s slack_per_drive=0.75 -s price_target_win=0.40 -s min_supply=22 -s backlog_multiday_weight=0.25 -s backlog_in_flight_weight=0.35 -s hub_multiday_fee_open=0.80 -s thin_sameday_fee_open=0.90 -s drop_urgent_margin_min=180 -s lane_dest_tilt=0.035 -s lane_hub_disc_mult=0.8` (or `-s price_target_win=0.41 -s lane_dest_tilt=0.025 -s lane_hub_disc_mult=0.4 -s budget_target=0.932 -s budget_start_day=3 -s ballast_discount=0.04`)
+Dev paired delta ± SE and worst on-time share: `Δmargin €+1,372.58 ± 254.91` (`t = 5.38`, 15/16 better, mean `€10,362.89`, worst-seed `€7,699.91`, worst on-time `93.0%`, 10/16 better vs `grand-v5-s150-dev`, SAFE); with `budget_target=0.932, ptw=0.41`: `Δmargin €+1,299.34 ± 214.68` (`t = 6.05`, 16/16 better, mean `€10,289.64`, worst on-time `95.1%`, SAFE)
+Run folders: `runs/20261114-042855-asym-lane-feedrop-dev`, `runs/20261114-043316-asym-lane-feedrop-budget-dev`

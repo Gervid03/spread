@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-slack140-fw150-open-steep -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g fee_open=0.82,0.85,0.88 -g steep_step=0.25,0.35
+# started 2026-11-14T04:50:11Z
+
+=== fee_open=0.82,steep_step=0.25
+  mean margin €9,156.12  (median €8,211.80, min €6,533.51)  ranked 16/16  on time min 91.1% mean 96.3%  won 228  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €+165.82 ± 223.49 (SE) t=0.74  better on 11, worse on 5  Δon-time -0.45%
+
+=== fee_open=0.82,steep_step=0.35
+  mean margin €9,234.19  (median €8,423.42, min €6,509.67)  ranked 16/16  on time min 91.7% mean 96.5%  won 228  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €+243.88 ± 183.20 (SE) t=1.33  better on 11, worse on 5  Δon-time -0.21%
+
+=== fee_open=0.85,steep_step=0.25
+  mean margin €9,420.18  (median €8,770.00, min €6,621.60)  ranked 16/16  on time min 93.3% mean 97.0%  won 228  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+429.87 ± 170.22 (SE) t=2.53  better on 14, worse on 2  Δon-time +0.22%
+
+=== fee_open=0.85,steep_step=0.35
+  mean margin €9,382.02  (median €8,627.44, min €6,584.96)  ranked 16/16  on time min 92.9% mean 96.9%  won 228  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+391.71 ± 183.21 (SE) t=2.14  better on 14, worse on 2  Δon-time +0.15%
+
+=== fee_open=0.88,steep_step=0.25
+  mean margin €8,971.66  (median €8,166.31, min €6,315.80)  ranked 16/16  on time min 91.8% mean 96.7%  won 229  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €-18.64 ± 238.92 (SE) t=-0.08  better on 9, worse on 7  Δon-time -0.08%
+
+=== fee_open=0.88,steep_step=0.35
+  mean margin €8,946.14  (median €8,156.74, min €6,263.11)  ranked 16/16  on time min 92.2% mean 96.7%  won 229  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-44.17 ± 236.81 (SE) t=-0.19  better on 9, worse on 7  Δon-time -0.04%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  fee_open=0.85,steep_step=0.25                      €     9,420  on-time min 93.3%  SAFE  Δ €+430±170  20261114-045211-n-slack140-fw150-open-steep-fee_open0.85-steep_step0.25
+  fee_open=0.85,steep_step=0.35                      €     9,382  on-time min 92.9%  SAFE  Δ €+392±183  20261114-045324-n-slack140-fw150-open-steep-fee_open0.85-steep_step0.35
+  fee_open=0.82,steep_step=0.35                      €     9,234  on-time min 91.7%  unsafe  Δ €+244±183  20261114-045103-n-slack140-fw150-open-steep-fee_open0.82-steep_step0.35
+  fee_open=0.82,steep_step=0.25                      €     9,156  on-time min 91.1%  unsafe  Δ €+166±223  20261114-045011-n-slack140-fw150-open-steep-fee_open0.82-steep_step0.25
+  fee_open=0.88,steep_step=0.25                      €     8,972  on-time min 91.8%  unsafe  Δ €-19±239  20261114-045538-n-slack140-fw150-open-steep-fee_open0.88-steep_step0.25
+  fee_open=0.88,steep_step=0.35                      €     8,946  on-time min 92.2%  SAFE  Δ €-44±237  20261114-045625-n-slack140-fw150-open-steep-fee_open0.88-steep_step0.35
+# exit 0 at 2026-11-14T04:58:27Z
