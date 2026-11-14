@@ -140,6 +140,12 @@ class Params:
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
+    # --- oracle-fitted relative prices (claude-price-oracle, Sat 14 Nov; fit on tas-price's limits-all, dev-12) ---
+    nd_sdmenu_disc: float = 0.0       # slow options x (1 - this) when same_day is on the menu but we don't quote it
+                                      # (fit: the dealer's limit on such a quote is ~16% lower, log -0.17)
+    dest_supply_exp: float = 0.0      # price x (dest_supply_ref / drivers within 30 km of the delivery) ** this
+                                      # (fit: log limit -0.036 per log of delivery supply; Helsinki 359, Kemi 0)
+    dest_supply_ref: float = 40.0
     # --- morning day supervisor (08:00 Mon-Fri) -----------------------------------------------------
     supervisor: bool = False          # master enable for 08:00 morning state supervisor
     sup_recover_frac: float = 0.0     # 0..1: at 08:00 Tue-Fri, recover mult toward yesterday's 08:00 mult after freeze
@@ -709,6 +715,10 @@ class Desk:
             else p.fri_same_day_max_drive
         )
 
+        if p.dest_supply_exp > 0:
+            dest_sup = max(self.supply.get(legs[-1]["delivery"]["placeId"], 0), 5)
+            mult *= clamp((p.dest_supply_ref / dest_sup) ** p.dest_supply_exp, 0.8, 1.25)
+
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
@@ -775,6 +785,11 @@ class Desk:
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if p.nd_sdmenu_disc > 0 and "same_day" not in prices and any(o["kind"] == "same_day" for o in request["options"]):
+            floor = fee / (1 - p.min_margin_frac)
+            for kind in prices:
+                prices[kind] = int(max(prices[kind] * (1 - p.nd_sdmenu_disc), floor) + 0.5)
+            self.stats["nd_sdmenu_disc"] += 1
         if fri_thin_only:
             self.sup_fri_thin_reqs.add(request["id"])
             self.stats["sup_fri_thin_quoted"] += 1
