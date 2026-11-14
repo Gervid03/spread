@@ -57,3 +57,14 @@ Saturday, shared by all our machines) is not the bottleneck.
 2. Merge it into `main`, bake its flags into the `Params` defaults (or keep them in `champion.json`), and
    `uv run lab promote <dev run folder>` then `uv run lab promote <holdout run folder>`; commit `champion/`.
 3. Push `main`. The final runner picks it up at its next start.
+
+## The night run (`scripts/night.sh`, on the swarm host)
+One detached process for HOURS (default 8). It runs Gemini workers from a queue (`experiments/prompts/night/*.md`,
+3 at a time, 150 turns each), refills the queue with a Gemini lead tick (`experiments/prompts/_night-lead.md`) when
+it runs dry, runs the sweep track (`experiments/night/sweeps.txt` on dev, then the lead's additions), plays the
+ranking rounds with the champion (`NIGHT_BOARD=1`), and every 20 minutes force-pushes run summaries, sweep tables,
+worker reports and `STATUS.md` to the branch `night/<date>`, which a cloud session can read in the morning.
+- Start: `cd ~/spread && HOURS=8 setsid nohup bash scripts/night.sh > runs/night.out 2>&1 < /dev/null &`
+- Watch: `tail -f runs/night/night.txt`, `python3 scripts/night_status.py`. Stop: `touch runs/night/stop`.
+- Add work live: a prompt file in `runs/night/queue/`, a line in `runs/night/sweeps-extra.txt`.
+- If workers die within 3 minutes three times in a row, it switches to `FALLBACK_MODEL` (gemini-3.1-pro-preview).
