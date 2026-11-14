@@ -760,7 +760,7 @@ class Desk:
 
         day = self.now // DAY
         dd_counts = self._driver_gigs_on_day()
-        busy_drivers: set[str] = set(self.booked_driver.values())
+        busy_drivers: set[str] = {did for _, did in self.open_offers}
         for gid, omap in self.net_open_offers.items():
             if gid not in self.booked:
                 for did, (sent_at, _, _, _) in omap.items():
