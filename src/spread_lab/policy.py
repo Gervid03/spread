@@ -89,6 +89,10 @@ class Params:
     offer_recent_view_min: int = 240  # drivers who viewed one of our gigs this recently go first
     # --- handling rules -----------------------------------------------------------------------------
     charge_min_km: float = 200.0      # rule 3: an EV under 30% charge needs a charging stop on a route over this
+    # --- trust --------------------------------------------------------------------------------------
+    trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
+    trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
+    trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -130,6 +134,8 @@ class Desk:
         self.decided: dict[str, str] = {}            # request id -> "quote" | "floor" | "decline"
         self.mult = {8: params.price_mult_l8, 7: params.price_mult_l7}.get(level, params.price_mult_low)
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
+        self.dealer_trust: dict[str, int] = defaultdict(int)
+        self.dealer_request_count: dict[str, int] = defaultdict(int)
         self.loss_streak, self.streak_day = 0, -1
         self.drivers = {d["id"]: d for d in roster}
         self.supply = geo.supply(roster, params.supply_radius_km)
@@ -175,6 +181,7 @@ class Desk:
         elif kind == "ledger":
             line = event["line"]
             order = self.orders.get(line.get("orderId", "")) if line.get("orderId") else None
+            dealer = self.requests[line["orderId"]]["dealerId"] if line.get("orderId") and line["orderId"] in self.requests else None
             is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
             if is_ring:
                 self.stats["margin_ring_cents"] += line["cents"]
@@ -183,6 +190,12 @@ class Desk:
                     if is_ring:
                         self.stats["late_ring"] += 1
                 self.late.add(line["orderId"])
+                if dealer:
+                    self.dealer_trust[dealer] //= 2
+            elif line["kind"] == "revenue" and line["orderId"]:
+                if dealer and line["orderId"] not in self.late:
+                    if order and self.now <= order["deadline"]:
+                        self.dealer_trust[dealer] = min(25, self.dealer_trust[dealer] + 1)
         elif kind == "offer_answered":
             self.stats[f"offer_{event['answer']}"] += 1
         elif kind == "delivered":
@@ -191,11 +204,19 @@ class Desk:
                 self.orders[event["orderId"]]["deliveredAt"][event["leg"]] = event["at"]
 
     def tick(self) -> None:
-        """Called after every step (practice) or event (live). The baseline needs no timers."""
+        """Called after every step (practice) or event (live)."""
+        day = self.now // DAY
+        if not hasattr(self, "_last_day"):
+            self._last_day = day
+        elif day > self._last_day:
+            if self.dealer_trust:
+                self.stats[f"top_dealer_trust_d{self._last_day}"] = max(self.dealer_trust.values())
+            self._last_day = day
 
     # --- quoting --------------------------------------------------------------------------------------
     def quote(self, request: PriceRequest) -> None:
         self.requests[request["id"]] = request
+        self.dealer_request_count[request["dealerId"]] += 1
         prices, decision = self.price(request)
         self.stats[f"quote_{decision}"] += 1
         if self.level <= 3:  # every quote wins at its list price: send one only for what we take
@@ -204,6 +225,13 @@ class Desk:
                 self.outbox.append({"type": "quote", "requestId": request["id"], "prices": {first["kind"]: first["listPriceCents"]}})
             return
         self.decided[request["id"]] = decision
+        if prices:
+            quoted_kind = next(iter(prices))
+            quoted_option = next(o for o in request["options"] if o["kind"] == quoted_kind)
+            ratio = prices[quoted_kind] / quoted_option["listPriceCents"]
+            day = self.now // DAY
+            self.stats[f"price_list_sum_d{day}"] += ratio
+            self.stats[f"price_list_count_d{day}"] += 1
         if not prices:  # decline: a quote that loses costs nothing, a missing one costs goodwill
             first = request["options"][0]
             prices = {first["kind"]: int(first["listPriceCents"] * self.p.decline_mult)}
@@ -225,9 +253,25 @@ class Desk:
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
+
+        if p.trust_guard and self.dealer_trust[request["dealerId"]] >= 13:
+            has_same_day = any(o["kind"] == "same_day" for o in request["options"])
+            if (has_same_day and supply < p.min_supply) or drive > 300:
+                self.stats["dropped_trust_guard"] += 1
+                return {}, "decline"
+
         ready = max([self.now] + [window_from_note(request["note"], leg["pickup"]["window"], "pickup")["from"] for leg in legs])
         fee = request["referenceFeeCents"] * p.expected_fee_mult
         mult = self.mult * self.dealer_adj[request["dealerId"]]
+        if p.trust_gain > 0:
+            count = self.dealer_trust[request["dealerId"]]
+            mult *= (1 + p.trust_gain * count / 100.0)
+
+        is_invest = False
+        if p.trust_invest > 0 and (self.now // DAY) <= 2 and self.dealer_trust[request["dealerId"]] < 25 and supply >= 100 and not request.get("note"):
+            top3 = sorted(self.dealer_request_count.keys(), key=lambda d: self.dealer_request_count[d], reverse=True)[:3]
+            is_invest = request["dealerId"] in top3
+
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
@@ -240,10 +284,16 @@ class Desk:
             if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply:
                 self.stats["dropped_same_day_supply"] += 1
                 continue
-            if option["deadline"] - ready - drive < p.min_slack_min + p.slack_per_drive * drive:
+            slack = option["deadline"] - ready - drive
+            if slack < p.min_slack_min + p.slack_per_drive * drive:
                 self.stats["dropped_slack"] += 1
                 continue
-            price = option["listPriceCents"] * mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
+            
+            option_mult = mult
+            if is_invest and slack >= 360:
+                option_mult *= (1 - p.trust_invest)
+                
+            price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
             floor = fee / (1 - p.min_margin_frac)
             if price < floor:
                 price, floored = floor, True
@@ -476,7 +526,28 @@ class Desk:
             if gig["status"] in ("open", "booked", "working"):
                 self.carry({"type": "post", "stops": gig["stops"], "audience": gig["audience"], "schedule": gig["schedule"]}, gig["id"])
         self.requests = {e["request"]["id"]: e["request"] for e in history if e["kind"] == "price_request"}
+        for req in self.requests.values():
+            self.dealer_request_count[req["dealerId"]] += 1
         self.urgent = {e["orderId"] for e in history if e["kind"] == "deadline_close"}
+        
+        # replay ledger to build trust exactly as handle() does
+        _late_replay = set()
+        for e in history:
+            if e["kind"] == "ledger":
+                line = e["line"]
+                dealer = self.requests[line["orderId"]]["dealerId"] if line.get("orderId") and line["orderId"] in self.requests else None
+                if line["kind"] in ("late_refund", "undelivered_penalty") and line.get("orderId"):
+                    _late_replay.add(line["orderId"])
+                    if dealer:
+                        self.dealer_trust[dealer] //= 2
+                elif line["kind"] == "revenue" and line.get("orderId"):
+                    if dealer and line["orderId"] not in _late_replay:
+                        order = next((o for o in snapshot["orders"] if o["id"] == line["orderId"]), None)
+                        if order:
+                            delivered = [d for d in order["deliveredAt"] if d is not None]
+                            if len(delivered) == len(order["legs"]) and max(delivered) <= order["deadline"]:
+                                self.dealer_trust[dealer] = min(25, self.dealer_trust[dealer] + 1)
+                            
         for e in history:
             if e["kind"] == "gig_viewed":
                 self.last_view[e["driverId"]] = e["at"]
