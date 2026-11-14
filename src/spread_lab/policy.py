@@ -89,6 +89,11 @@ class Params:
     offer_recent_view_min: int = 240  # drivers who viewed one of our gigs this recently go first
     # --- handling rules -----------------------------------------------------------------------------
     charge_min_km: float = 200.0      # rule 3: an EV under 30% charge needs a charging stop on a route over this
+    # --- flu day detection and mitigation -----------------------------------------------------------
+    flu_drop: float = 0.0             # 0 = off; fall in distinct viewers per town by 10:00 vs earlier days (e.g. 0.25)
+    flu_supply_mult: float = 2.0      # multiply same_day_min_supply by this on a detected flu day
+    flu_target_win: float = 0.25      # win rate target on a detected flu day (raises the price target)
+    flu_price_markup: float = 0.0     # direct extra markup on prices on a detected flu day
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -136,6 +141,9 @@ class Desk:
         r = params.gate_radius_km if params.gate_radius_km > 0 else params.supply_radius_km
         self.gate_supply = geo.supply(roster, r)
         self.last_view: dict[str, int] = {}          # driver id -> minute of their last view of our gigs
+        self.morning_viewers: dict[int, dict[str, set[str]]] = defaultdict(lambda: defaultdict(set))
+        self.flu_checked: set[int] = set()
+        self.flu_days: set[int] = set()
         self.offers_sent: Counter = Counter()        # (driver id, day) -> direct offers sent
         self.stats: Counter = Counter()
         self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
@@ -172,6 +180,7 @@ class Desk:
             self.stats[kind] += 1
         elif kind == "gig_viewed":
             self.last_view[event["driverId"]] = event["at"]
+            self.record_view(event["driverId"], event["at"])
         elif kind == "ledger":
             line = event["line"]
             order = self.orders.get(line.get("orderId", "")) if line.get("orderId") else None
@@ -182,6 +191,11 @@ class Desk:
                 if line["orderId"] not in self.late:
                     if is_ring:
                         self.stats["late_ring"] += 1
+                    req = self.requests.get(line["orderId"])
+                    if req is not None and (req["arrivedAt"] // DAY) in self.flu_days:
+                        self.stats["late_flu"] += 1
+                    if order is not None and (order["deadline"] // DAY) in self.flu_days:
+                        self.stats["late_flu_deadline"] += 1
                 self.late.add(line["orderId"])
         elif kind == "offer_answered":
             self.stats[f"offer_{event['answer']}"] += 1
@@ -190,8 +204,39 @@ class Desk:
             if event["orderId"] in self.orders:
                 self.orders[event["orderId"]]["deliveredAt"][event["leg"]] = event["at"]
 
+    def record_view(self, driver_id: str, at: int) -> None:
+        day = at // DAY
+        if day < 5 and at % DAY <= 10 * HOUR:
+            driver = self.drivers.get(driver_id)
+            if driver is not None:
+                self.morning_viewers[day][driver["homePlaceId"]].add(driver_id)
+
+    def check_flu(self, at: int) -> bool:
+        """At or after 10:00 on a working day, checks whether distinct morning viewers per town fell
+        by at least `flu_drop` against the same hour on earlier days."""
+        if self.p.flu_drop <= 0:
+            return False
+        day = at // DAY
+        if 1 <= day < 5 and at % DAY >= 10 * HOUR and day not in self.flu_checked:
+            self.flu_checked.add(day)
+            prev_days = [d for d in range(day) if sum(len(s) for s in self.morning_viewers[d].values()) >= 20]
+            if not prev_days:
+                prev_days = [d for d in range(day) if sum(len(s) for s in self.morning_viewers[d].values()) > 0]
+            num, den = 0.0, 0.0
+            for town in sorted({t for d in prev_days for t, s in self.morning_viewers[d].items() if s}):
+                prev_counts = [len(self.morning_viewers[d][town]) for d in prev_days if self.morning_viewers[d][town]]
+                if prev_counts:
+                    num += len(self.morning_viewers[day][town])
+                    den += sum(prev_counts) / len(prev_counts)
+            if den >= 10.0 and (1.0 - num / den) >= self.p.flu_drop:
+                self.flu_days.add(day)
+                self.stats["flu_days"] += 1
+                self.stats[f"flu_day_{day}"] += 1
+        return day in self.flu_days and at % DAY >= 10 * HOUR
+
     def tick(self) -> None:
         """Called after every step (practice) or event (live). The baseline needs no timers."""
+        self.check_flu(self.now)
 
     # --- quoting --------------------------------------------------------------------------------------
     def quote(self, request: PriceRequest) -> None:
@@ -227,7 +272,9 @@ class Desk:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
         ready = max([self.now] + [window_from_note(request["note"], leg["pickup"]["window"], "pickup")["from"] for leg in legs])
         fee = request["referenceFeeCents"] * p.expected_fee_mult
-        mult = self.mult * self.dealer_adj[request["dealerId"]]
+        is_flu = self.check_flu(self.now)
+        mult = self.mult * self.dealer_adj[request["dealerId"]] * (1 + p.flu_price_markup if is_flu else 1)
+        sd_min_supply = p.same_day_min_supply * (p.flu_supply_mult if is_flu else 1)
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
@@ -237,8 +284,10 @@ class Desk:
                 if option["deadline"] // DAY <= ready // DAY:
                     self.stats["dropped_long_drive"] += 1
                     continue
-            if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply:
+            if option["kind"] == "same_day" and sd_min_supply > 0 and supply < sd_min_supply:
                 self.stats["dropped_same_day_supply"] += 1
+                if is_flu and supply >= p.same_day_min_supply:
+                    self.stats["dropped_flu_supply"] += 1
                 continue
             if option["deadline"] - ready - drive < p.min_slack_min + p.slack_per_drive * drive:
                 self.stats["dropped_slack"] += 1
@@ -260,7 +309,8 @@ class Desk:
         if day != self.streak_day:
             self.loss_streak, self.streak_day = 0, day
         self.loss_streak = 0 if won else self.loss_streak + 1
-        step = (1 - p.price_target_win) if won else -p.price_target_win
+        target_win = p.flu_target_win if self.check_flu(self.now) else p.price_target_win
+        step = (1 - target_win) if won else -target_win
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
@@ -304,6 +354,8 @@ class Desk:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
             self.stats["won"] += 1
+            if (self.requests[order["id"]]["arrivedAt"] // DAY) in self.flu_days:
+                self.stats["won_flu"] += 1
             if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
             self.stats[f"won_{order['option']}"] += 1
@@ -480,8 +532,12 @@ class Desk:
         for e in history:
             if e["kind"] == "gig_viewed":
                 self.last_view[e["driverId"]] = e["at"]
+                self.record_view(e["driverId"], e["at"])
             elif e["kind"] == "offer_answered":
                 self.offers_sent[(e["driverId"], e["at"] // DAY)] += 1
+        for d in range(1, min(5, self.now // DAY + 1)):
+            if d * DAY + 10 * HOUR <= self.now:
+                self.check_flu(d * DAY + 10 * HOUR)
         self.orders = {o["id"]: o for o in snapshot["orders"] if o["id"] in self.requests and o["status"] != "cancelled"}
         ratios = []  # the price level of the latest wins, so a restarted desk does not relearn from the prior
         for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"])[-30:]:
