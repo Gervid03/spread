@@ -138,6 +138,7 @@ class Params:
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
+    fri_endgame: bool = False         # Friday endgame (0 future competitor cut + Sat-Mon buffer): target_win=0.52, no freeze, 1.60x slow backlog
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -449,6 +450,7 @@ class Desk:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
         pass_ext_ring = False
         pass_return_hub = False
+        fri_slow_only = False
         if gate_supply < gate_min:
             pass_ext_ring = (
                 p.ext_ring_min_supply > 0
@@ -469,7 +471,11 @@ class Desk:
                 return {}, "decline"
         else:
             backlog_cap = max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight)
-            if self.backlog_near(pickup) + 1e-9 >= backlog_cap:
+            cur_backlog = self.backlog_near(pickup)
+            if p.fri_endgame and (request["arrivedAt"] // DAY) == 4 and cur_backlog + 1e-9 < backlog_cap * 1.60:
+                if cur_backlog + 1e-9 >= backlog_cap:
+                    fri_slow_only = True
+            elif cur_backlog + 1e-9 >= backlog_cap:
                 self.stats["declined_backlog"] += 1
                 if p.backlog_in_flight_weight > 0 and self.backlog_near(pickup, include_in_flight=False) + 1e-9 < backlog_cap:
                     self.stats["in_flight_blocked"] += 1
@@ -511,6 +517,8 @@ class Desk:
         floored = False
         for option in request["options"]:
             ring_hub_sd = False
+            if fri_slow_only and option["kind"] == "same_day":
+                continue
             if (pass_ext_ring or pass_return_hub) and option["kind"] == "same_day":
                 continue
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
@@ -571,6 +579,8 @@ class Desk:
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if fri_slow_only:
+            self.stats["fri_endgame_admitted"] += 1
         if pass_ext_ring or pass_return_hub:
             self.ext_ring_reqs.add(request["id"])
             self.stats["quoted_ext_ring"] += 1
@@ -590,8 +600,9 @@ class Desk:
         p, day = self.p, self.now // DAY
         if day != self.streak_day:
             self.loss_streak, self.streak_day = 0, day
-        self.loss_streak = 0 if won else self.loss_streak + 1
-        step = (1 - p.price_target_win) if won else -p.price_target_win
+        self.loss_streak = 0 if (won or (p.fri_endgame and day >= 4)) else self.loss_streak + 1
+        eff_tw = max(p.price_target_win, 0.52) if (p.fri_endgame and day >= 4) else p.price_target_win
+        step = (1 - eff_tw) if won else -eff_tw
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
