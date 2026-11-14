@@ -162,6 +162,7 @@ class Params:
     net_relay_after_min: int = 20     # daytime minutes open before re-scanning single gigs for relay pairing
     net_relay_patience_min: int = 30  # daytime minutes unbooked before splitting a relay pair back to solo
     net_relay_homeward: bool = True   # require B.delivery closer to A.pickup (<= max(60, line(da,pa)+25))
+    net_relay_max_home_km: float = 0.0  # > 0: require B.delivery within this many km of A.pickup (true round-trip)
     net_relay_max_splits: int = 2     # max failed relay splits per order (0 = unlimited)
     net_relay_preserve_age: bool = True  # preserve car's first-posting age on rising schedule after split
     # --- handling rules -----------------------------------------------------------------------------
@@ -1976,6 +1977,8 @@ class Desk:
         if a.supply_p < b.supply_p:
             return None
         if self.geo.line_km(a.place_d, b.place_p) > self.p.net_relay_km:
+            return None
+        if self.p.net_relay_max_home_km > 0 and self.geo.line_km(b.place_d, a.place_p) > self.p.net_relay_max_home_km:
             return None
         if self.p.net_relay_homeward and self.geo.line_km(b.place_d, a.place_p) > max(60.0, self.geo.line_km(a.place_d, a.place_p) + 25.0):
             return None
