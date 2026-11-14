@@ -60,6 +60,7 @@ Best stacked flags (on current Champion `9aa3f13`):
 | smoke noop (4) | `20261114-105225-cp-supervisor-v5-noop` | €11,951.98 | €+0.00 ± 0.00 | 0.00 | 0 / 0 | 96.33% (+0.00%) | 93.70% | 0 / 4 | yes |
 | dev w/ stress choke (16) | `20261114-105539-cp-supervisor-v5-dev2` | €11,824.45 | €+145.34 ± 100.10 | 1.45 | 10 / 4 (2 tied) | 96.89% (-0.31%) | 93.28% | 0 / 16 | yes |
 | **dev best (16)** | `20261114-105817-cp-supervisor-v5-nostress-dev` | **€11,874.36** | **€+195.25 ± 92.65** | **2.11** | **10 / 4 (2 tied)** | **96.98% (-0.21%)** | **93.36%** | **0 / 16** | **yes** |
+| **holdout gate (16)** | `20261114-111233-holdout` (`promote.sh`) | **€12,457.86** | **€+187 ± 110** | **1.70** | — | **97.02% (-0.29%)** | **94.81%** | **0 / 16** | **yes** |
 | **night32 fresh (32)** | `20261114-110023-cp-supervisor-v5-nostress-night32` | **€12,272.90** | **€+236.15** vs `cp-fees` | — | — | **97.16%** | **92.49%** | **0 / 32** | **yes** |
 
 ### B. Standalone on starting Champion v3T `d93271e` (dev mean `€10,884.88`, night32 mean `€11,341.67` / min OT `90.57%`)
@@ -79,4 +80,4 @@ Best stacked flags (on current Champion `9aa3f13`):
 - **Why emergency Thursday/Friday intake shutdown (`sup_emerg_unstaffed=12`, `20261114-104653-cp-sup-emerg-check4`) failed:** Shutting slow hub/return intake when 12–24 orders were unstaffed shrank the `won` denominator (`349 → 329` on `night-15`, `243 → 240` on `night-11`) while already-won backlog orders still went late, lowering `night-11` on-time from `93.0%` to `90.8%` and losing `−€958` on `night-15`.
 
 ## Verdict
-**adopt / promote** — SAFE on both 16 dev worlds (`93.36%` min OT, `0` under 92%) and all 32 fresh `night` worlds (`32/32 SAFE`, `92.49%` min OT, `0` under 92%), adding **`€+195.25 ± 92.65` (`t = 2.11`)** on dev and **`€+236.15`** (`€12,272.90` mean margin) on 32 unseen `night` worlds on top of `cp-fees` (`€+343.71 ± 100.49`, `t = 3.42` standalone on v3T).
+**adopted & promoted (`f817abe` on `main`)** — Passed `scripts/promote.sh` across all gates: SAFE on 16 dev worlds (`€+195.25 ± 92.65`, `t = 2.11`, `93.36%` min OT, `0` under 92%), SAFE on 16 holdout worlds (`€+187 ± 110`, `€12,457.86` mean margin, `94.81%` min OT vs `93.67%` prior champion, `0` under 92%), ranked on the Wednesday 12:00 restart check (`dev-01`), and `32/32 SAFE` on 32 fresh `night` worlds (`€+236.15`, `€12,272.90` mean margin, `92.49%` min OT) on top of `cp-fees` (`€+343.71 ± 100.49`, `t = 3.42` standalone on v3T).
