@@ -123,8 +123,8 @@ class Params:
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
     # --- evening supervisor (Mon-Thu 20:00) ---------------------------------------------------------
     supervisor: str = ""              # "" = off, "llm", or "rule"
-    sup_low_backlog: int = 5          # "rule": unbooked active orders <= this counts as low backlog
-    sup_high_backlog: int = 12        # "rule": unbooked active orders >= this counts as high backlog
+    sup_low_backlog: int = 8          # "rule": unbooked active orders <= this counts as low backlog
+    sup_high_backlog: int = 18        # "rule": unbooked active orders >= this counts as high backlog
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 

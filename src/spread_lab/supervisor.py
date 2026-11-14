@@ -30,10 +30,10 @@ Goal: maximize gross margin while strictly keeping week on-time share >= 90% (sa
 At 20:00 Mon-Thu you set tomorrow's three dials from today's operational JSON:
 1. price_target_win (0.35-0.45, base 0.40): target quote win rate; higher cuts price for volume, lower raises price and slows intake.
 2. min_supply (18-30, base 22): min drivers within 55 km of pickup; lower opens thinner ring towns, higher closes risky thin towns.
-3. fee_open (0.75-1.00, base 0.85): opening driver gig fee x typical fee; higher speeds booking and cuts drops, <0.82 raises drops.
-World shocks: one weekday has a competitor price war (low win rate: sit it out, do not raise win target); one day has a regional outage.
-Flu or snow spikes gig_dropped and leaves unbooked orders at 20:00; dealer trust (max 25, +1% price each) halves on any late order.
-Loosen modestly if projected_on_time >= 0.96, warnings/drops are low, and unbooked_orders_now <= 5; tighten if projected_on_time <= 0.935 or unbooked_orders_now >= 12 or drops/warnings spike; else hold near today's dials.
+3. fee_open (0.75-1.00, base 0.85): opening driver gig fee x typical fee; keep ~0.85 normally (<0.83 raises drops, >0.88 hurts margin unless clearing drop spikes).
+World shocks: one weekday has a competitor price war (win_rate <0.25: sit it out, do NOT raise price_target_win); one day has a regional outage.
+Flu or snow spikes drops_today (>=15) and warnings; dealer trust (max 25, +1% price each) halves on any late order.
+At 20:00, unbooked_orders_now of 7-14 is normal for freshly won next-day cars: loosen modestly if projected_on_time >= 0.965, unbooked_orders_now <= 8, and drops_today <= 6; tighten if projected_on_time <= 0.935 or unbooked_orders_now >= 18 or warnings_today >= 8; else hold near (0.40, 22, 0.85).
 Answer ONLY JSON: {"price_target_win": float, "min_supply": int, "fee_open": float, "why": "short reason"}."""
 
 
@@ -140,8 +140,8 @@ def call_gemini_argon(summary: dict[str, Any], timeout: float = 20.0) -> dict[st
 def rule_decide(
     summary: dict[str, Any],
     base_fee_open: float,
-    low_backlog: int = 5,
-    high_backlog: int = 12,
+    low_backlog: int = 8,
+    high_backlog: int = 18,
 ) -> dict[str, Any]:
     """Formula arm: loosen one step when projected share >= 0.96 and backlog is low;
     tighten one step when projected share <= 0.93 or backlog is high; else keep."""
@@ -156,14 +156,14 @@ def rule_decide(
         raw = {
             "price_target_win": win - 0.02,
             "min_supply": sup + 2,
-            "fee_open": fee + 0.05,
+            "fee_open": fee,
         }
         why = f"tighten: proj={proj:.3f}, unbooked={unbooked}"
     elif proj >= 0.96 and unbooked <= low_backlog:
         raw = {
             "price_target_win": win + 0.02,
             "min_supply": sup - 2,
-            "fee_open": max(base_fee_open, fee - 0.05),
+            "fee_open": fee,
         }
         why = f"loosen: proj={proj:.3f}, unbooked={unbooked}"
     else:
@@ -322,16 +322,16 @@ class Supervisor:
                         self.seen_late_ids.add(oid)
                         self.late_today[day] += 1
             else:
-                if not is_staffed and oid not in desk.lost and desk.now <= order["deadline"]:
+                if not is_staffed and desk.now <= order["lastPickupAt"] and desk.now < order["deadline"]:
                     unbooked_active += 1
                     if order["deadline"] // DAY <= day + 1:
                         unbooked_due_tomorrow += 1
-                if oid in desk.late or desk.now > order["deadline"]:
+                if oid in desk.late or desk.now >= order["deadline"]:
                     late_confirmed += 1
                     if oid not in self.seen_late_ids:
                         self.seen_late_ids.add(oid)
                         self.late_today[day] += 1
-                elif oid in desk.lost or (not is_staffed and desk.now > order["lastPickupAt"]):
+                elif not is_staffed and desk.now > order["lastPickupAt"]:
                     lost_unstaffed += 1
                     if oid not in self.seen_late_ids:
                         self.seen_late_ids.add(oid)
