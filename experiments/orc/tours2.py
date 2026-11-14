@@ -21,12 +21,14 @@ from spread_lab.env import lab_home  # noqa: E402
 
 SEED = sys.argv[1] if len(sys.argv) > 1 else "dev-12"
 T = int(sys.argv[2]) if len(sys.argv) > 2 else 1100
-MULTS = [float(x) for x in sys.argv[3].split(",")] if len(sys.argv) > 3 else [0.35, 0.45, 0.55, 0.7]
+MULTS = [x for x in sys.argv[3].split(",")] if len(sys.argv) > 3 else ["0.35", "0.45", "0.55", "0.7"]
 PACK = sys.argv[4] if len(sys.argv) > 4 else "big"      # big: 4-car tours first; small: 2-car tours first (more tours, for depth)
 KM = float(sys.argv[5]) if len(sys.argv) > 5 else 30.0    # the gap allowed between a delivery and the next pickup, and to close
 EVENING = T % DAY >= 720                    # posted in the evening for the next day, or in the morning for today
 DAY0 = (T // DAY + 1) * DAY if EVENING else T // DAY * DAY
 UNTIL = DAY0 + 570 if EVENING else T + 180  # the next morning 09:30, or three hours after a morning post
+if PACK == "combo":
+    UNTIL = DAY0 + DAY + 60                 # the whole next day: what is delivered, and on time
 MAXROAD = 690
 
 mp = json.loads((lab_home() / "map.json").read_text(encoding="utf-8"))
@@ -161,7 +163,7 @@ with world(SEED, what="tours2") as w:
             br = best_rotation([a])
             if br:
                 scored.append((1, 0, near[cars[a]["P"]], br))
-    scored.sort(key=lambda s: ((-s[0] if PACK == "big" else s[0]), -s[1], -s[2]))
+    scored.sort(key=lambda s: ((s[0] if PACK == "small" else -s[0]), -s[1], -s[2]))
     used, tours = set(), []
     for size, negdead, sup, br in scored:
         rot = br[1]
@@ -170,6 +172,14 @@ with world(SEED, what="tours2") as w:
         used.update(rot)
         tours.append({"cars": rot, "start": br[2], "end": br[3][0], "road": br[3][1], "supply": sup,
                       "ref": sum(cars[x]["ref"] for x in rot), "towns": [cars[x]["P"] for x in rot]})
+    if PACK == "combo":
+        for a in ids:
+            if a not in used:
+                br = best_rotation([a])
+                if br:
+                    used.add(a)
+                    tours.append({"cars": [a], "start": br[2], "end": br[3][0], "road": br[3][1], "supply": near[cars[a]["P"]],
+                                  "ref": cars[a]["ref"], "towns": [cars[a]["P"]]})
     say(f"{len(scored)} drivable cycles; packed {len(tours)} tours with {len(used)} of {len(cars)} cars:",
         dict(Counter(len(t["cars"]) for t in tours)), "start towns", Counter(t["towns"][0] for t in tours).most_common(8))
     out = {"seed": SEED, "T": T, "until": UNTIL, "cars": len(cars), "tours": tours, "runs": {}}
@@ -181,9 +191,13 @@ with world(SEED, what="tours2") as w:
         return {"type": "post", "stops": stops, "audience": {"experienced": False, "manualLicence": False},
                 "schedule": [{"at": w.now, "feeCents": max(1, int(mult * t["ref"]))}]}
 
+    def mult_of(t, spec):
+        a, _, b = str(spec).partition(":")
+        return float(b) if (b and len(t["cars"]) == 1) else float(a)
+
     for mult in MULTS:
         with w.fork() as f:
-            res = f.act([post(t, mult) for t in tours])
+            res = f.act([post(t, mult_of(t, mult)) for t in tours])
             gid = {r["id"]: i for i, r in enumerate(res) if r.get("ok")}
             bad = [r.get("reason") for r in res if not r.get("ok")]
             _, events = f.advance(to=UNTIL)
@@ -204,12 +218,31 @@ with world(SEED, what="tours2") as w:
                 elif e["kind"] == "gig_expired":
                     state[gid[g]] = "expired"
             held = [i for i, s in state.items() if s in ("booked", "started")]
+            if PACK == "combo":
+                kinds = Counter(e["kind"] for e in events)
+                samples = {}
+                for e in events:
+                    samples.setdefault(e["kind"], e)
+                dl = {}
+                for e in events:
+                    if e["kind"] == "delivered":
+                        dl[e.get("orderId")] = e["at"]
+                ontime = sum(1 for o, at in dl.items() if o in cars and at <= cars[o]["deadline"])
+                due = [o for t in tours for o in t["cars"] if cars[o]["deadline"] <= UNTIL]
+                fees = sum(-e["amountCents"] for e in events if e["kind"] == "ledger" and e.get("type", e.get("line", "")) == "driver_fee") if False else None
+                led = Counter()
+                for e in events:
+                    if e["kind"] == "ledger":
+                        led[str(e.get("type") or e.get("line") or e.get("entry") or "?")] += e.get("amountCents", e.get("cents", 0)) or 0
+                say(f"  combo x{mult}: delivered {len(dl)} of {sum(len(t['cars']) for t in tours)} posted cars; on time {ontime}; due by then {len(due)}; "
+                    f"events {dict(kinds)}; ledger {dict(led)}; score {f.score()}")
+                out.setdefault("samples", {}).update({k: v for k, v in samples.items() if k != "price_request"})
             by = defaultdict(lambda: [0, 0])
             for i, t in enumerate(tours):
                 by[len(t["cars"])][1] += 1
                 by[len(t["cars"])][0] += i in held
-            hours = Counter((when[i] - T) // 60 for i in held)
-            out["runs"][str(mult)] = {"refused": bad[:5], "posted": len(gid), "held": held, "when": {str(i): when[i] for i in held},
+            hours = Counter((when[i] - T) // 60 for i in held if i in when)
+            out["runs"][str(mult)] = {"refused": bad[:5], "posted": len(gid), "held": held, "when": {str(i): when[i] for i in held if i in when},
                                       "views": dict(views), "states": {str(i): s for i, s in state.items()}}
             say(f"x{mult}: posted {len(gid)} (refused {len(bad)}), held at {clock(UNTIL)}: {len(held)} tours = "
                 f"{sum(len(tours[i]['cars']) for i in held)} cars; by size {dict((k, tuple(v)) for k, v in sorted(by.items()))}; "
