@@ -49,6 +49,8 @@ with network enabled (Codex: a sandbox with network access).
    `spread-starter`. If a world leaked (killed process), `uv run lab reap` frees it.
 2. **Never run `lab board`, `lab final`, `lab promote` or `lab reap --force`.** Ranking runs are public and
    limited (5 per round), the final is live, promotion is the lead's decision.
+   A new champion reaches `main` only through `scripts/promote.sh <branch> <flags>` (gated against the champion
+   on dev, holdout and a restart), and only when your task tells you to run it.
 3. **Don't touch the instrument** without the lead: `src/spread_lab/lab.py`, `runner.py`, `env.py`,
    `seeds/`. A change there can make every comparison meaningless. Propose it in your experiment note.
 4. **One idea per branch**, named `exp/<agent>-<slug>`, in your own git worktree

@@ -53,6 +53,11 @@ Saturday, shared by all our machines) is not the bottleneck.
   agent; keep waves to 3–4 agents.
 
 ## Promoting a champion
+**Since Sat 07:15: `scripts/promote.sh <branch> [-s key=value ...]` on the swarm host** does all of it with gates: it
+merges the branch onto origin/main in a fresh worktree, refuses files outside the policy, runs dev, holdout and a
+restart, checks them with `scripts/promote_gate.py` against the champion, promotes, logs to
+`experiments/PROMOTIONS.md` and pushes main fast-forward. `DRY=1` checks without pushing; it refuses after Sun 06:00
+Helsinki. The steps below are what it does by hand.
 1. The candidate's branch must be SAFE on dev with a clear gain (t ≥ 2), and SAFE on holdout.
 2. Merge it into `main`, bake its flags into the `Params` defaults (or keep them in `champion.json`), and
    `uv run lab promote <dev run folder>` then `uv run lab promote <holdout run folder>`; commit `champion/`.
