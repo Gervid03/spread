@@ -56,7 +56,8 @@ RET = {"ret6": 0.6, "ret9": 0.9}   # way back offered to the driver the minute t
 THIN = {"thin10": 1.0, "thin12": 1.2}   # his "driver first": thin-town cars (< 22 drivers near), paid up front
 THIN_MAX = 22
 SD = {"sd75": 0.75, "sd100": 1.0}    # same_day into a pool from a town v7 won't quote same_day in; posted at once at this x
-SD_BUMP = 60                         # same_day: raise to 1.4x after an hour unbooked
+SD_BUMP = 60
+WEEK_MIN_MARGIN = 1500               # week arms: a single car is quoted when QUOTE x limit - SOLO x typical >= this (cents)                         # same_day: raise to 1.4x after an hour unbooked
 OFF_OPEN = 0.75                    # offers arms: every car alone at 0.75x, raised to 0.9x after BUMP; offa/offu add offers
 geo = Geo(load_map(None))
 TAPE = tape(SEED)
@@ -220,7 +221,7 @@ class Desk:
 
     def quote(self, r):
         o = slow_option(r) if r["id"] in self.loop_of else None
-        if self.arm in SD and r["id"] in self.loop_of:
+        if (self.arm in SD or (self.arm in WEEK and r["id"] in SAME_DAY)) and r["id"] in self.loop_of:
             o = next(x for x in r["options"] if x["kind"] == "same_day")
         if o:
             lim = LIMIT.get((r["id"], o["kind"]))
@@ -234,8 +235,10 @@ class Desk:
     def won(self, oid, now):
         if self.arm in THIN:
             return [self.post([oid], THIN[self.arm], "thin", now)]
-        if self.arm in SD:
-            return [self.post([oid], SD[self.arm], "sd", now)]
+        if self.arm in SD or (self.arm in WEEK and oid in SAME_DAY):
+            return [self.post([oid], SD.get(self.arm, 0.75), "sd", now)]
+        if self.arm in WEEK and len(self.loop_of[oid]) == 1:
+            return [self.post([oid], SOLO, "solo", now)]
         if self.arm in ("off0", "offa", "offu"):
             return [self.post([oid], OFF_OPEN, "offsolo", now)]
         if self.arm in RET:
@@ -334,6 +337,13 @@ class Desk:
             if g in self.booked:
                 continue
             last = x["steps"][-1][0]
+            if self.arm in ("week1", "week10") and x["kind"] in LADDER:
+                rung = x.get("rung", 0)
+                if rung < len(LADDER[x["kind"]]) and now - x["at"] >= LADDER[x["kind"]][rung][0]:
+                    x["rung"] = rung + 1
+                    m = LADDER[x["kind"]][rung][1]
+                    out.append(self.reprice(g, int(m * sum(REQ[o]["referenceFeeCents"] for o in x["oids"])), now, "bump"))
+                continue
             wait = SD_BUMP if x["kind"] == "sd" else BUMP
             if (x["kind"].startswith("loop") or x["kind"] in ("home", "chain", "offsolo", "thin", "sd")) and not x.get("bumped") and now - x["at"] >= wait:
                 x["bumped"] = True
@@ -460,7 +470,7 @@ class Desk:
 KINDS = ["price_request", "order_won", "order_lost", "order_changed", "order_cancelled", "gig_booked", "deadline_close",
          "gig_expired", "gig_dropped", "no_show", "visit_failed", "offer_answered"]
 SELECT = {}
-GROUP = {"sd75": "s", "sd100": "s", "rest": "r", "solo7": "r", "thin10": "t", "thin12": "t", "ret6": "2", "ret9": "2", "off0": "4", "offa": "4", "offu": "4", "loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
+GROUP = {"week": "w", "week0": "w0", "week1": "w", "week10": "w0", "sd75": "s", "sd100": "s", "rest": "r", "solo7": "r", "thin10": "t", "thin12": "t", "ret6": "2", "ret9": "2", "off0": "4", "offa": "4", "offu": "4", "loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
          "home": "2h", "solo4": "2h", "homeonly": "h", "solo5": "h", "chain": "c", "solo6": "c"}
 
 
@@ -505,6 +515,32 @@ def thin_singles():
             and not r["legs"][0]["pickup"]["privateAddress"] and NEAR[ends(r)[0]] < THIN_MAX]
 
 
+SAME_DAY = set()
+WEEK = ("week", "week0", "week1", "week10")
+LADDER = {"solo": [(120, 1.15), (240, 1.4)], "sd": [(60, 1.0), (120, 1.4)],
+          "loop2": [(120, 0.9), (240, 1.15)], "loop3": [(120, 0.9), (240, 1.15)]}   # week1/week10: raise as time passes
+
+
+def week():
+    """The oracle week: closed pairs and triangles first (week0: none), then same_day into pools, then every other
+    one-car request whose slow option clears WEEK_MIN_MARGIN at QUOTE x its limit and a driver at SOLO x typical, from a
+    pickup v7 would serve (22+ drivers near)."""
+    loops = selection("tri")[0]
+    taken = {i for c in loops for i in c}
+    sd = [c for c in same_day_in() if c[0] not in taken]
+    SAME_DAY.update(c[0] for c in sd)
+    taken |= SAME_DAY
+    singles = []
+    for r in REQ.values():
+        o = slow_option(r)
+        if r["id"] in taken or len(r["legs"]) != 1 or not o or NEAR[ends(r)[0]] < THIN_MAX:
+            continue
+        lim = LIMIT.get((r["id"], o["kind"]))
+        if lim and QUOTE * lim - SOLO * r["referenceFeeCents"] >= WEEK_MIN_MARGIN:
+            singles.append([r["id"]])
+    return loops + sd + singles
+
+
 def selection(arm):
     """The loops an arm aims at: '4', '3', '2' = closed loops up to that size; '2h' = pairs, then the homeward
     singles not in a pair; 'h' = homeward singles only."""
@@ -515,6 +551,10 @@ def selection(arm):
         elif key == "2h":
             pairs, cands, n = selection("pairs")
             SELECT[key] = (pairs + homeward({i for c in pairs for i in c}), cands, n)
+        elif key == "w":
+            SELECT[key] = (week(), 0, 0)
+        elif key == "w0":
+            SELECT[key] = ([[i] for c in selection("week")[0] for i in c], 0, 0)
         elif key == "s":
             SELECT[key] = (same_day_in(), 0, 0)
         elif key == "r":
