@@ -57,10 +57,9 @@ is still on v2's code (INPUT.md's champion line says v2, €8,990 on dev), its s
 no sweep lines, and the slots go to the workers. Once a new champion is promoted and the root checkout is reset to
 main (`01-validate-top` does both), sweeps of the champion's own flags are useful again: up to 6 lines a tick.
 
-**6. The cloud lead's prompts sit in `night-queue/`** (`01-validate-top`, `02-thin-volume`, `03-triage`,
-`04-thermostat`, `05-research-volume`). Main brings them back at every tick, so: leave a file in place unless INPUT.md
-already lists a worker or a queued prompt with its name, and in that case `rm` it from `night-queue/`. Write at most
-one prompt of your own while those five are still unstarted. A brief for idea 16 already adapted to A is waiting in
+**6. The cloud lead's five prompts were queued at the 05:11 UTC tick** (`n14-05161-validate-top`, then thin-volume,
+triage, thermostat and research-volume), and they now sit in `experiments/prompts/night2/` as a record. Don't queue
+them again. Write your own prompts as usual. A brief for idea 16, already adapted to A, is in
 `experiments/prompts/night2/feeclock-on-a.md`: copy it into `night-queue/` when a slot frees.
 
 **7. Promotion.** `01-validate-top` runs A, 03111, 03501 and the best v7 stack on holdout plus 32 fresh worlds,
