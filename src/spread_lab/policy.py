@@ -72,6 +72,7 @@ class Params:
     dealer_adj_min: float = 0.85
     dealer_adj_max: float = 1.30
     loss_streak_freeze: int = 12      # this many losses in a row stop downward moves until the next day
+    war_morning_reset: float = 0.0    # fraction (0..1) of war-day mult drop restored at the next morning boundary (0 = off)
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
     lane_prior_weight: float = 0.0    # 0 = off; tilt list price by clamp(exp(w * (pk_eff + dl_eff)), 0.85, 1.15)
     lane_pos_weight: float = -1.0     # if >= 0, weight used when pk_eff + dl_eff > 0 (asymmetric positive tilt)
@@ -82,6 +83,10 @@ class Params:
     floored_sd_prem: float = 0.0      # if > 0, keep same_day >= next_day * (1 + prem) when next_day hits floor
     trust_center_slope: float = 0.0   # if > 0, zero-drift centered trust multiplier exp(slope * (trust - trust_ema))
     trust_ema_alpha: float = 0.05     # EMA step for mean quoted dealer trust when trust_center_slope > 0
+    floored_sd_prem: float = 0.0      # minimum relative premium of same_day over slower options on multi-option quotes
+    inbound_hub_disc: float = 0.0     # price discount on non-hub (<200) -> hub (>=200) return legs matching competitor cost
+    inbound_hub_fee_mult: float = 0.0 # if > 0, expected_fee_mult for the floor on non-private non-hub (<200) -> hub (>=200)
+    outbound_markup: float = 0.0      # price markup on hub->nonhub and long (>=180m) ->nonhub (1.5x when both)
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
     gate_radius_km: float = 55.0      # radius of the supply count the decline gate uses (v1; 0 = supply_radius_km, as v0)
@@ -89,6 +94,7 @@ class Params:
     min_supply: int = 30              # decline below this many drivers near the pickup (6 missed 90% on 3/5 worlds; 20 on 1/32)
     expected_fee_mult: float = 1.25   # expected fee as a multiple of the typical fee
     min_margin_frac: float = 0.08     # price is raised to keep (price - expected fee) / price at least this
+    min_margin_cents: int = 0         # if > 0, price is raised to keep (price - expected fee) at least this many cents
     min_slack_min: int = 180          # an option needs deadline - max(now, ready) - drive minutes >= this (v2: was 120)
     slack_per_drive: float = 0.5      # an option needs slack of at least min_slack_min + slack_per_drive * drive (v1; v0 = 0)
     long_drive_min: int = 300         # if drive > this (and > 0), quote only options with deadline on a later day than ready (v1; v0 = 0)
@@ -97,6 +103,8 @@ class Params:
     max_next_day_drive_min: int = 0   # if > 0 and drive > this, drop options with deadline <= ready day + 1
     thin_long_next_day_supply: int = 0  # if > 0, non-ring pickup with supply < this and drive > long_drive_min drops next_day
     fri_same_day_max_drive: int = 0   # if > 0, on Friday (ready // DAY >= 4), drop same_day with drive >= this
+    priv_pickup_min_slot_min: int = 0 # if > 0, decline/drop private pickups whose slot ends < this min after respondBy
+    priv_pickup_sameday_only: bool = False  # if True, priv_pickup_min_slot_min drops only options due on/before the slot day
     ring_to_hub_same_day_min: int = 0  # if > 0, allow ring same_day into dense hub (supply >= 200) when drive <= this
     same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
@@ -122,6 +130,8 @@ class Params:
     fee_open: float = 0.85            # opening fee, times the typical fee (v2: was 1.00)
     hub_multiday_fee_open: float = 0.0  # if > 0, opening fee for non-same_day in supply >= 150 with >= 6h to warning
     thin_sameday_fee_open: float = 0.0  # if > 0, opening fee for same_day in supply < 65
+    return_hub_fee_open: float = 0.0  # if > 0, opening fee for non-hub (<200) -> hub (>=200) return legs with >= 2h to warning
+    fix_slot_state: bool = False      # clear stale urgent/lost flags when order_changed/gig_expired still leaves order on-time
     fee_warn: float = 1.60            # fee reached at the deadline warning (lastPickupAt - 3 h)
     fee_step_min: int = 30            # minutes between steps of the rising schedule
     day_start: int = 7 * 60           # raises only between these minutes of the day
@@ -365,6 +375,10 @@ class Desk:
         self.inb_floor_saved_reqs: set[str] = set()
         self.congested_reqs: set[str] = set()
         self.loss_streak, self.streak_day = 0, -1
+        self.war_open_mult: float = self.mult
+        self.day_norm_quotes: int = 0
+        self.day_norm_wins: int = 0
+        self.war_reset_done: bool = False
         self.drivers = {d["id"]: d for d in roster}
         self.supply = geo.supply(roster, params.supply_radius_km)
         r = params.gate_radius_km if params.gate_radius_km > 0 else params.supply_radius_km
@@ -1251,10 +1265,26 @@ class Desk:
         day = self.now // DAY
         if not hasattr(self, "_last_day"):
             self._last_day = day
+            self.war_open_mult = self.mult
         elif day > self._last_day:
             if self.dealer_trust:
                 self.stats[f"top_dealer_trust_d{self._last_day}"] = max(self.dealer_trust.values())
+            if (
+                self.p.war_morning_reset > 0
+                and self.level >= 8
+                and not self.war_reset_done
+                and self.day_norm_quotes >= 15
+                and (self.day_norm_wins / self.day_norm_quotes < 0.30 or self.mult < 0.88 * self.war_open_mult)
+                and self.mult < self.war_open_mult
+            ):
+                target = self.mult + self.p.war_morning_reset * (self.war_open_mult - self.mult)
+                self.mult = clamp(target, self.p.price_mult_min, self.p.price_mult_max)
+                self.war_reset_done = True
+                self.stats["war_morning_resets"] += 1
             self._last_day = day
+            self.war_open_mult = self.mult
+            self.day_norm_quotes = 0
+            self.day_norm_wins = 0
         for order_id, order in list(self.orders.items()):
             if undelivered(order) and not self.staffed(order) and self.now > order["lastPickupAt"]:
                 self.lost.add(order_id)
@@ -1386,6 +1416,14 @@ class Desk:
                     (max(0, pn.ready_at // DAY - leg["pickup"]["window"]["from"] // DAY) for leg in legs if not leg["pickup"]["privateAddress"]),
                     default=0,
                 )
+        if p.priv_pickup_min_slot_min > 0 and not p.priv_pickup_sameday_only:
+            if any(
+                leg["pickup"]["privateAddress"]
+                and leg["pickup"]["window"]["to"] - request["respondBy"] < p.priv_pickup_min_slot_min
+                for leg in legs
+            ):
+                self.stats["declined_priv_pickup_slot"] += 1
+                return {}, "decline"
         pickup = legs[0]["pickup"]["placeId"]
         supply = self.supply.get(pickup, 0)
         gate_supply = self.gate_supply.get(pickup, 0)
@@ -1511,8 +1549,20 @@ class Desk:
                 for pl, cnt in self.pickup_req_counts.items()
             )
 
-        fee = request["referenceFeeCents"] * p.expected_fee_mult
+        deliv_supply = self.supply.get(legs[-1]["delivery"]["placeId"], 0)
+        is_inbound_hub = supply < 200 and deliv_supply >= 200
+        eff_fee_mult = p.expected_fee_mult
+        if p.inbound_hub_fee_mult > 0 and is_inbound_hub and not any(leg["pickup"]["privateAddress"] for leg in legs):
+            eff_fee_mult = p.inbound_hub_fee_mult
+        fee = request["referenceFeeCents"] * eff_fee_mult
         mult = self.mult * self.dealer_adj[request["dealerId"]]
+        if p.inbound_hub_disc > 0 and is_inbound_hub:
+            mult *= (1.0 - p.inbound_hub_disc)
+            self.stats["priced_inbound_hub"] += 1
+        elif p.outbound_markup > 0 and deliv_supply < 200 and (supply >= 200 or drive >= 180):
+            w_out = 1.5 if (supply >= 200 and drive >= 180) else 1.0
+            mult *= (1.0 + w_out * p.outbound_markup)
+            self.stats["priced_outbound_markup"] += 1
         if p.trust_gain > 0:
             count = self.dealer_trust[request["dealerId"]]
             mult *= (1 + p.trust_gain * count / 100.0)
@@ -1585,6 +1635,15 @@ class Desk:
             if eff_fri_sd_drive > 0 and ready // DAY >= 4 and option["kind"] == "same_day" and drive >= eff_fri_sd_drive:
                 self.stats["dropped_fri_same_day"] += 1
                 continue
+            if p.priv_pickup_min_slot_min > 0 and p.priv_pickup_sameday_only:
+                if any(
+                    leg["pickup"]["privateAddress"]
+                    and leg["pickup"]["window"]["to"] - request["respondBy"] < p.priv_pickup_min_slot_min
+                    and deadline // DAY <= leg["pickup"]["window"]["to"] // DAY
+                    for leg in legs
+                ):
+                    self.stats["dropped_priv_pickup_slot"] += 1
+                    continue
             if p.long_drive_min > 0 and drive > p.long_drive_min:
                 if deadline // DAY <= ready // DAY:
                     self.stats["dropped_long_drive"] += 1
@@ -1636,6 +1695,12 @@ class Desk:
         if inb_saved:
             self.inb_floor_saved_reqs.add(request["id"])
             self.stats["inb_floor_saved"] += 1
+        if p.floored_sd_prem > 0 and "same_day" in prices and len(prices) > 1:
+            slow_min = min(v for k, v in prices.items() if k != "same_day")
+            min_sd = int(slow_min * (1.0 + p.floored_sd_prem) + 0.5)
+            if prices["same_day"] < min_sd:
+                prices["same_day"] = min_sd
+                self.stats["floored_sd_lifted"] += 1
         if pass_ext_ring or pass_return_hub:
             self.ext_ring_reqs.add(request["id"])
             self.stats["quoted_ext_ring"] += 1
@@ -1671,6 +1736,9 @@ class Desk:
         if self.p.ext_ring_no_learn and not won and request_id in self.ext_ring_reqs:
             return
         p, day = self.p, self.now // DAY
+        self.day_norm_quotes += 1
+        if won:
+            self.day_norm_wins += 1
         if day != self.streak_day:
             self.loss_streak, self.streak_day = 0, day
         self.loss_streak = 0 if won else self.loss_streak + 1
@@ -2109,6 +2177,7 @@ class Desk:
         until = order["lastPickupAt"] - 3 * HOUR
         supply = self.supply.get(order["legs"][0]["pickup"]["placeId"], 0)
         dest_supply = self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0)
+        deliv_supply = self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0)
         fee_open_override: Optional[float] = None
         if p.net_thin_fee_open > 0 and cars == 1 and order["id"] in self.net_thin_reqs:
             fee_open_override = p.net_thin_fee_open
@@ -2116,6 +2185,15 @@ class Desk:
         elif p.inbound_hub_fee_open > 0 and dest_supply >= 150 and until - self.now >= 2 * HOUR:
             fee_open_override = p.inbound_hub_fee_open
             self.stats["inbound_hub_posts"] += 1
+        elif (
+            p.return_hub_fee_open > 0
+            and supply < 200
+            and deliv_supply >= 200
+            and until - self.now >= 2 * HOUR
+            and not any(leg["pickup"]["privateAddress"] for leg in order["legs"])
+        ):
+            fee_open_override = p.return_hub_fee_open
+            self.stats["return_hub_fee_posts"] += 1
         elif p.hub_multiday_fee_open > 0 and order["option"] != "same_day" and supply >= 150 and until - self.now >= 6 * HOUR:
             fee_open_override = p.hub_multiday_fee_open
             self.stats["hub_multiday_posts"] += 1
@@ -3172,6 +3250,17 @@ class Desk:
                         oid = s["orderId"]
                         if not self.p.urgent_hygiene or oid not in self.orders or self.cannot_be_on_time(self.orders[oid]):
                             self.lost.add(oid)
+        if self.p.war_morning_reset > 0:
+            by_d: dict[int, list[bool]] = defaultdict(list)
+            for e in history:
+                if e["kind"] == "order_won":
+                    by_d[e["at"] // DAY].append(True)
+                elif e["kind"] == "order_lost":
+                    by_d[e["at"] // DAY].append(False)
+            cur_d = self.now // DAY
+            for d_idx, outs in by_d.items():
+                if d_idx < cur_d and len(outs) >= 15 and sum(outs) / len(outs) < 0.25:
+                    self.war_reset_done = True
         for order_id, order in self.orders.items():
             if undelivered(order) and not self.staffed(order) and (self.now > order["lastPickupAt"] or (self.p.urgent_hygiene and self.cannot_be_on_time(order))):
                 self.lost.add(order_id)
