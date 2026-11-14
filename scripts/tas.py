@@ -64,7 +64,7 @@ import statistics
 import sys
 import time
 from collections import Counter, defaultdict
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -151,11 +151,15 @@ class Tas(coplay.Game):
         self.forks = 0
         self.lane = Lane()
         self.heavy = forks
+        self.held = {"slot": None, "busy": False}   # the fork slot (see `forked`); copy.copy shares this dict
 
     def __exit__(self, *exc):
         try:
             super().__exit__(*exc)
         finally:
+            if self.held["slot"] is not None:
+                self.held["slot"].__exit__(None, None, None)
+                self.held["slot"] = None
             self.lane.release()
 
     def __enter__(self) -> "Tas":
@@ -234,9 +238,20 @@ def on_fork(g: Tas, actions: list, to: int) -> dict:
 
 @contextmanager
 def forked(g: Tas):
-    """A copy of the game's world at this minute, deleted when the block ends. It holds a practice slot meanwhile."""
+    """A copy of the game's world at this minute, deleted when the block ends. It uses the game's fork slot, which
+    the game takes at its first fork and keeps to its end (shared with its branch copies); a fork inside a fork (a
+    branch copy's own oracle) takes a slot of its own for its lifetime. Taking a slot per fork queued every fork
+    behind the other agents' evals: one order measured in 13 minutes on the swarm host (14 Nov, 11:00)."""
     g.lane.take()   # at once when the game said `forks=True`; else it waits here, holding its world
-    with Slot():
+    wait_while_quiet()   # a held slot does not check the quiet hours by itself: forks stop while a final is on
+    held = g.held
+    if held["slot"] is None:
+        held["slot"] = Slot().__enter__()
+    if held["busy"]:
+        held, slot = None, Slot()
+    else:
+        held["busy"], slot = True, nullcontext()
+    with slot:
         copy = None
         for _ in range(240):
             try:
@@ -261,6 +276,8 @@ def forked(g: Tas):
             except Exception:
                 pass
             entry.unlink(missing_ok=True)
+            if held is not None:
+                held["busy"] = False
 
 
 # --- ideas compared on forks --------------------------------------------------------------------------------------

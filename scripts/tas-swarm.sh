@@ -6,12 +6,12 @@
 #                                           now on $SRC (their worktrees, commits and notes stay)
 # The briefs (experiments/prompts/tas/) and the instrument (scripts/tas.py) live on the branch $SRC. It need not
 # be merged into main: each agent's worktree and branch (exp/gemini-<slug>) start from it.
-# Env: SRC (default ccr-d190704c-pxvoeg), MODEL (gemini-4-carbon), TURNS (300), RESUMES (3).
+# Env: SRC (default main), MODEL (gemini-4-carbon), TURNS (300), RESUMES (3).
 # Slots: fork-heavy TAS runs take turns, two at a time (TAS_LANES in the agents' environment), so the track
 # holds at most 4 of the team's 8 practice slots and the other agents keep the rest.
 set -euo pipefail
 root=$(git rev-parse --show-toplevel)
-SRC=${SRC:-ccr-d190704c-pxvoeg}
+SRC=${SRC:-main}
 MODEL=${MODEL:-gemini-4-carbon}
 restart=0
 if [ "${1:-}" = "--restart" ]; then restart=1; shift; fi
