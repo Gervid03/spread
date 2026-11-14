@@ -54,6 +54,9 @@ class Params:
     dealer_adj_max: float = 1.30
     loss_streak_freeze: int = 12      # this many losses in a row stop downward moves until the next day
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
+    dest_thin_markup: float = 0.0     # markup when delivery supply < min_supply: 1 + markup * (1 - dest_supply / min_supply)
+    dest_hub_discount: float = 0.0    # discount on next_day / within_3_days when pickup supply < 100 and delivery supply >= 200
+    dest_thin_slack_extra: int = 0    # extra required slack (min) when delivery supply < min_supply and drive > 180
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
     gate_radius_km: float = 55.0      # radius of the supply count the decline gate uses (v1; 0 = supply_radius_km, as v0)
@@ -176,12 +179,22 @@ class Desk:
             line = event["line"]
             order = self.orders.get(line.get("orderId", "")) if line.get("orderId") else None
             is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
+            is_dest_thin = order and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) < self.p.min_supply
+            is_dest_hub = (
+                order
+                and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < 100
+                and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= 200
+            )
             if is_ring:
                 self.stats["margin_ring_cents"] += line["cents"]
             if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
                 if line["orderId"] not in self.late:
                     if is_ring:
                         self.stats["late_ring"] += 1
+                    if is_dest_thin:
+                        self.stats["late_dest_thin"] += 1
+                    if is_dest_hub:
+                        self.stats["late_dest_hub"] += 1
                 self.late.add(line["orderId"])
         elif kind == "offer_answered":
             self.stats[f"offer_{event['answer']}"] += 1
@@ -213,7 +226,9 @@ class Desk:
         """The prices to quote, and "quote", "floor" (a price raised to keep the margin) or "decline"."""
         p, legs = self.p, request["legs"]
         pickup = legs[0]["pickup"]["placeId"]
+        delivery = legs[-1]["delivery"]["placeId"]
         supply = self.supply.get(pickup, 0)
+        dest_supply = self.supply.get(delivery, 0)
         gate_supply = self.gate_supply.get(pickup, 0)
         tight = self.tightening()
         gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
@@ -222,12 +237,15 @@ class Desk:
         if self.backlog_near(pickup) >= max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight):
             return {}, "decline"
         is_ring = supply < gate_min
+        is_dest_thin = dest_supply < p.min_supply
+        is_dest_hub = supply < 100 and dest_supply >= 200
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
         ready = max([self.now] + [window_from_note(request["note"], leg["pickup"]["window"], "pickup")["from"] for leg in legs])
         fee = request["referenceFeeCents"] * p.expected_fee_mult
         mult = self.mult * self.dealer_adj[request["dealerId"]]
+        extra_slack = p.dest_thin_slack_extra if (is_dest_thin and drive > 180) else 0
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
@@ -240,16 +258,24 @@ class Desk:
             if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply:
                 self.stats["dropped_same_day_supply"] += 1
                 continue
-            if option["deadline"] - ready - drive < p.min_slack_min + p.slack_per_drive * drive:
+            if option["deadline"] - ready - drive < p.min_slack_min + p.slack_per_drive * drive + extra_slack:
                 self.stats["dropped_slack"] += 1
                 continue
             price = option["listPriceCents"] * mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
+            if is_dest_thin and p.dest_thin_markup != 0.0 and p.min_supply > 0:
+                price *= 1 + p.dest_thin_markup * (1 - dest_supply / p.min_supply)
+            if is_dest_hub and p.dest_hub_discount != 0.0 and option["kind"] in ("next_day", "within_3_days"):
+                price *= 1 - p.dest_hub_discount
             floor = fee / (1 - p.min_margin_frac)
             if price < floor:
                 price, floored = floor, True
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if is_dest_thin:
+            self.stats["quoted_dest_thin"] += 1
+        if is_dest_hub:
+            self.stats["quoted_dest_hub"] += 1
         return prices, "floor" if floored else "quote"
 
     def learn(self, request_id: str, won: bool) -> None:
@@ -304,8 +330,14 @@ class Desk:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
             self.stats["won"] += 1
-            if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
+            pickup = order["legs"][0]["pickup"]["placeId"]
+            delivery = order["legs"][-1]["delivery"]["placeId"]
+            if self.supply.get(pickup, 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
+            if self.supply.get(delivery, 0) < self.p.min_supply:
+                self.stats["won_dest_thin"] += 1
+            if self.supply.get(pickup, 0) < 100 and self.supply.get(delivery, 0) >= 200:
+                self.stats["won_dest_hub"] += 1
             self.stats[f"won_{order['option']}"] += 1
             self.post(order, undelivered(order))
 
