@@ -76,6 +76,12 @@ worlds each. It promotes one arm only if it beats v3 without a worse tail. (`cap
 14-minute steps and event-driven evenings make practice worlds 20–40% cheaper without changing what they measure.
 Practice slots are the lab's bottleneck, so this is the cheapest capacity there is.
 
+**6a–6c superseded at 09:30 Helsinki:** the Argon swarm was replaced by two Gemini 4 Carbon agents
+(`experiments/prompts/carbon/`). Queue nothing from 6a, 6b or 6c. The capacity re-baseline (6b) in particular waits
+for the lead, because it changes the champion's stored results under the Carbon agents' paired comparisons. (The
+final-champion study, `n14-06591`, was stopped with the swarm at 09:22 before it reported, so the mean-against-tail
+question for Sunday is still open.)
+
 **6a. Chains are the day's volume bet. Queue both briefs at your next tick, ahead of your own:**
 `experiments/prompts/night2/hitch-return-offer-on-v3.md` and `experiments/prompts/night2/hitch-pairs-on-v3.md`. R11
 (`n14-06263`) found 94 disjoint chains a week among requests we decline, and thin-town quoting without chains lost
