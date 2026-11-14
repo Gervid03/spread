@@ -70,6 +70,8 @@ class Params:
     thin_long_next_day_supply: int = 0  # if > 0, non-ring pickup with supply < this and drive > long_drive_min drops next_day
     fri_same_day_max_drive: int = 0   # if > 0, on Friday (ready // DAY >= 4), drop same_day with drive >= this
     ring_to_hub_same_day_min: int = 0  # if > 0, allow ring same_day into dense hub (supply >= 200) when drive <= this
+    min_supply_relaxed: int = 0       # > 0: the gate's min_supply while the projected on-time share is >= relax_on_time
+    relax_on_time: float = 0.975
     ring_min_supply: int = -1         # a pickup with fewer drivers within supply_radius_km is a ring (slow options, ring
                                       # rules); -1 = the gate's min_supply, as before
     ring_hub_min_supply: int = 200    # ... the hub: at least this many drivers within supply_radius_km of the delivery
@@ -635,6 +637,9 @@ class Desk:
             base_min_supply = p.sup_fri_slow_min_supply
         else:
             base_min_supply = p.min_supply
+            if p.min_supply_relaxed > 0 and self.projected_on_time() >= p.relax_on_time:
+                base_min_supply = p.min_supply_relaxed
+                self.stats["gate_relaxed"] += 1
         gate_min = base_min_supply * (1 + (p.guard_supply_mult - 1) * tight)
         std_gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
