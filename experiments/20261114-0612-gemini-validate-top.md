@@ -1,6 +1,6 @@
 # validate-top: Out-of-Sample 48-World Validation (`holdout` + `night32`), Final Checks, and Promotion of Champion v3 (`n14-03501`)
 
-- **Agent / branch / commit:** gemini · `exp/gemini-n14-05161-validate-top` · `fd4aa2f` (base) / see HEAD commit
+- **Agent / branch / commit:** gemini · `exp/gemini-n14-05161-validate-top` · `7ab0a2c` (on `fd4aa2f`)
 - **Promoted main commit:** `34e7063` (`Champion: exp/gemini-n14-03501-extring-full-neutral-and-leadcar`)
 - **Date:** 2026-11-14 06:12 UTC
 - **Idea from:** Cloud lead validation task (`night-queue/01-validate-top.md`)
