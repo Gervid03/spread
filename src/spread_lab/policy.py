@@ -216,7 +216,7 @@ class Params:
     lim_corridor: bool = False        # state-gated out-of-sample lane factor + inbound-to-hub floor + floor sd spread
     lim_lane_neg_w: float = 0.55      # weight on negative lane_eff (inbound) when fleet has surplus capacity
     lim_cong_pos_w: float = 0.0       # weight on positive lane_eff (outbound) when fleet is congested
-    lim_lane_comp_slope: float = 2.2  # target-win slope compensation in learn() so lane_mult induces zero mult drift
+    lim_lane_comp_slope: float = 1.40 # exact tail logistic slope b*p*(1-p) at p=0.22 so lane_mult induces zero mult drift
     lim_inb_fee_mult: float = 1.08    # expected_fee_mult for non-hub -> hub (supply>=200) floor when fleet has surplus
     lim_inb_max_unstaffed: int = 16   # max active unstaffed orders (excl held/staged tours) for inbound discounting
     lim_inb_max_daily_pace: float = 0.0   # optional max won-orders/day pace for solo-desk inbound discounting (0 = off)
@@ -1057,8 +1057,11 @@ class Desk:
                 closer_slow_used = True
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            if opt_floor < std_floor and price < std_floor:
-                inb_floor_saved = True
+            unadj_price = price / lane_mult if lane_mult != 1.0 else price
+            if unadj_price < std_floor:
+                floored = True
+                if opt_floor < std_floor:
+                    inb_floor_saved = True
             if price < opt_floor:
                 price, floored = opt_floor, True
                 if option["kind"] == "next_day":
