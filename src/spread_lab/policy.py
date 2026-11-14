@@ -38,6 +38,25 @@ from .notes import note_flags, parse_note_v2, shift_business_days, window_from_n
 
 HOUR, DAY = 60, 24 * 60
 
+# Out-of-sample Level-8 competitor log-price lane effects (fitted on 64 night+final worlds, 49,190 quotes; zero dev/holdout data)
+LANE_PICKUP: dict[str, float] = {
+    "espoo": 0.01801, "hameenlinna": -0.0375, "helsinki": -0.00067, "hyvinkaa": 0.01002, "joensuu": 0.03729,
+    "jyvaskyla": -0.04095, "kajaani": 0.0, "kemi": 0.0, "kokkola": 0.00167, "kotka": -0.03791,
+    "kouvola": -0.06463, "kuopio": -0.04077, "lahti": -0.03409, "lappeenranta": -0.02084, "lempaala": -0.04688,
+    "mikkeli": -0.01258, "oulu": -0.04536, "pori": -0.02751, "porvoo": -0.00202, "raisio": -0.03281,
+    "rauma": -0.01399, "rovaniemi": -0.03244, "salo": -0.05621, "savonlinna": 0.0, "seinajoki": 0.01883,
+    "tampere": -0.03634, "turku": -0.03561, "vaasa": -0.01609, "vantaa": 0.03766, "ylivieska": 0.0,
+}
+LANE_DELIVERY: dict[str, float] = {
+    "espoo": -0.05554, "hameenlinna": 0.02676, "helsinki": -0.06611, "hyvinkaa": -0.05914, "joensuu": 0.09158,
+    "jyvaskyla": 0.05259, "kajaani": 0.13239, "kemi": 0.13471, "kokkola": 0.11852, "kotka": 0.08248,
+    "kouvola": 0.078, "kuopio": 0.06653, "lahti": 0.04447, "lappeenranta": 0.0861, "lempaala": 0.0072,
+    "mikkeli": 0.09635, "oulu": 0.05905, "pori": 0.09169, "porvoo": -0.0445, "raisio": 0.03204,
+    "rauma": 0.06667, "rovaniemi": 0.09226, "salo": 0.04131, "savonlinna": 0.104, "seinajoki": 0.08591,
+    "tampere": 0.02508, "turku": 0.03272, "vaasa": 0.08048, "vantaa": -0.10655, "ylivieska": 0.13922,
+}
+LANE_TERCILES: tuple[float, float] = (-0.0375, 0.0448)
+
 
 @dataclass
 class Params:
@@ -54,6 +73,15 @@ class Params:
     dealer_adj_max: float = 1.30
     loss_streak_freeze: int = 12      # this many losses in a row stop downward moves until the next day
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
+    lane_prior_weight: float = 0.0    # 0 = off; tilt list price by clamp(exp(w * (pk_eff + dl_eff)), 0.85, 1.15)
+    lane_pos_weight: float = -1.0     # if >= 0, weight used when pk_eff + dl_eff > 0 (asymmetric positive tilt)
+    lane_prior_only_neg: bool = False # if True (and lane_pos_weight < 0), apply lane_prior_weight only when eff < 0
+    lane_prior_comp_slope: float = 0.0  # if > 0, shift learn() target win rate by -slope * log(lane_mult) to keep mult neutral
+    hub_inbound_fee_mult: float = 0.0 # if > 0, expected_fee_mult for floor on non-Hub -> Hub (pickup<200, deliv>=200)
+    inbound_max_unstaffed: int = 0    # if > 0, pause inbound lane/floor discounts when total unstaffed active orders > this
+    floored_sd_prem: float = 0.0      # if > 0, keep same_day >= next_day * (1 + prem) when next_day hits floor
+    trust_center_slope: float = 0.0   # if > 0, zero-drift centered trust multiplier exp(slope * (trust - trust_ema))
+    trust_ema_alpha: float = 0.05     # EMA step for mean quoted dealer trust when trust_center_slope > 0
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
     gate_radius_km: float = 55.0      # radius of the supply count the decline gate uses (v1; 0 = supply_radius_km, as v0)
@@ -333,6 +361,9 @@ class Desk:
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
         self.dealer_trust: dict[str, int] = defaultdict(int)
         self.dealer_request_count: dict[str, int] = defaultdict(int)
+        self.trust_ema: float = 0.0
+        self.inb_floor_saved_reqs: set[str] = set()
+        self.congested_reqs: set[str] = set()
         self.loss_streak, self.streak_day = 0, -1
         self.drivers = {d["id"]: d for d in roster}
         self.supply = geo.supply(roster, params.supply_radius_km)
@@ -598,6 +629,10 @@ class Desk:
             oid = line.get("orderId", "")
             order = self.orders.get(oid) if oid else None
             dealer = self.requests[oid]["dealerId"] if oid and oid in self.requests else None
+            req_for_line = self.requests.get(oid) if oid else None
+            lane_b = self.lane_bucket(req_for_line) if req_for_line else None
+            if lane_b is not None:
+                self.stats[f"lane_margin_{lane_b}_cents"] += line["cents"]
             is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
             is_ext_ring = order and self.gate_supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
             if is_ring:
@@ -621,6 +656,8 @@ class Desk:
                 self.stats["margin_seed_cents"] += line["cents"]
             if line["kind"] in ("late_refund", "undelivered_penalty") and oid:
                 if oid not in self.late:
+                    if lane_b is not None:
+                        self.stats[f"lane_late_{lane_b}"] += 1
                     if is_ring:
                         self.stats["late_ring"] += 1
                     if order and order["option"] == "same_day" and oid in self.ring_hub_same_day:
@@ -1266,6 +1303,38 @@ class Desk:
         self.net_offer_tick()
 
     # --- quoting --------------------------------------------------------------------------------------
+    def lane_effect(self, request: PriceRequest) -> float:
+        legs = request["legs"]
+        return LANE_PICKUP.get(legs[0]["pickup"]["placeId"], 0.0) + LANE_DELIVERY.get(legs[-1]["delivery"]["placeId"], 0.0)
+
+    def unstaffed_total(self) -> int:
+        return sum(1 for o in self.orders.values() if undelivered(o) and not self.staffed(o))
+
+    def lane_mult(self, request: PriceRequest, congested: bool = False) -> float:
+        p = self.p
+        if p.lane_prior_weight == 0.0 and p.lane_pos_weight < 0.0:
+            return 1.0
+        eff = self.lane_effect(request)
+        if eff > 0.0:
+            if p.lane_pos_weight >= 0.0:
+                w = p.lane_pos_weight
+            elif p.lane_prior_only_neg:
+                return 1.0
+            else:
+                w = p.lane_prior_weight
+        else:
+            if congested:
+                return 1.0
+            w = p.lane_prior_weight
+        if w == 0.0:
+            return 1.0
+        return clamp(math.exp(w * eff), 0.85, 1.15)
+
+    def lane_bucket(self, request: PriceRequest) -> str:
+        eff = self.lane_effect(request)
+        t_lo, t_hi = LANE_TERCILES
+        return "low" if eff < t_lo else ("mid" if eff < t_hi else "high")
+
     def quote(self, request: PriceRequest) -> None:
         self.maybe_supervise()
         self.requests[request["id"]] = request
@@ -1280,6 +1349,15 @@ class Desk:
             return
         self.decided[request["id"]] = decision
         if prices:
+            self.stats[f"lane_quotes_{self.lane_bucket(request)}"] += 1
+            t_count = self.dealer_trust[request["dealerId"]]
+            t_diff = t_count - self.trust_ema
+            if self.now // DAY >= 1:
+                if t_diff < -5.0:
+                    self.stats["quotes_trust_low"] += 1
+                elif t_diff > 5.0:
+                    self.stats["quotes_trust_high"] += 1
+            self.trust_ema += self.p.trust_ema_alpha * (t_count - self.trust_ema)
             quoted_kind = next(iter(prices))
             quoted_option = next(o for o in request["options"] if o["kind"] == quoted_kind)
             ratio = prices[quoted_kind] / quoted_option["listPriceCents"]
@@ -1438,6 +1516,9 @@ class Desk:
         if p.trust_gain > 0:
             count = self.dealer_trust[request["dealerId"]]
             mult *= (1 + p.trust_gain * count / 100.0)
+        if p.trust_center_slope > 0.0 and self.level >= 8:
+            count = self.dealer_trust[request["dealerId"]]
+            mult *= math.exp(p.trust_center_slope * (count - self.trust_ema))
 
         is_invest = False
         if p.trust_invest > 0 and (self.now // DAY) <= 2 and self.dealer_trust[request["dealerId"]] < 25 and supply >= 100 and not request.get("note"):
@@ -1451,9 +1532,21 @@ class Desk:
             if (p.supervisor and self.sup_fri_surplus_active and p.sup_fri_sd_max_drive > 0 and (self.now // DAY) == 4)
             else p.fri_same_day_max_drive
         )
+        congested = p.inbound_max_unstaffed > 0 and self.unstaffed_total() > p.inbound_max_unstaffed
+        if congested:
+            self.congested_reqs.add(request["id"])
+            self.stats["inbound_paused_congested"] += 1
+        base_floor = fee / (1 - p.min_margin_frac)
+        eff_floor = base_floor
+        deliv_supply = self.supply.get(legs[-1]["delivery"]["placeId"], 0)
+        if p.hub_inbound_fee_mult > 0.0 and supply < 200 and deliv_supply >= 200 and tight == 0.0 and not congested:
+            eff_floor = (request["referenceFeeCents"] * p.hub_inbound_fee_mult) / (1 - p.min_margin_frac)
+        l_mult = self.lane_mult(request, congested=congested)
 
         prices: dict[str, int] = {}
         floored = False
+        nd_floored = False
+        inb_saved = False
         for option in request["options"]:
             ring_hub_sd = False
             if (pass_ext_ring or pass_return_hub or fri_thin_only or pass_relay_quote or pass_net_thin) and option["kind"] == "same_day":
@@ -1461,7 +1554,7 @@ class Desk:
             if pass_relay_quote and option["kind"] not in relay_ok_kinds:
                 continue
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
-                if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
+                if p.ring_to_hub_same_day_min > 0 and deliv_supply >= 200 and drive <= p.ring_to_hub_same_day_min:
                     ring_hub_sd = True
                 else:
                     continue
@@ -1517,10 +1610,16 @@ class Desk:
             elif is_seed and p.net_seed > 0:
                 option_mult *= (1.0 - p.net_seed)
 
-            price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            floor = fee / (1 - p.min_margin_frac)
-            if price < floor:
-                price, floored = floor, True
+            base_list = option["listPriceCents"] * l_mult if l_mult != 1.0 else option["listPriceCents"]
+            price = base_list * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
+            if price < base_floor:
+                floored = True
+                if eff_floor < base_floor:
+                    inb_saved = True
+            if price < eff_floor:
+                price = eff_floor
+                if option["kind"] == "next_day":
+                    nd_floored = True
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
@@ -1529,6 +1628,14 @@ class Desk:
             self.stats["sup_fri_thin_quoted"] += 1
             if p.sup_fri_neutral_learn:
                 self.ext_ring_reqs.add(request["id"])
+        if p.floored_sd_prem > 0.0 and nd_floored and "same_day" in prices and "next_day" in prices:
+            lifted = int(prices["next_day"] * (1.0 + p.floored_sd_prem) + 0.5)
+            if lifted > prices["same_day"]:
+                prices["same_day"] = lifted
+                self.stats["sd_prem_lifted"] += 1
+        if inb_saved:
+            self.inb_floor_saved_reqs.add(request["id"])
+            self.stats["inb_floor_saved"] += 1
         if pass_ext_ring or pass_return_hub:
             self.ext_ring_reqs.add(request["id"])
             self.stats["quoted_ext_ring"] += 1
@@ -1569,7 +1676,12 @@ class Desk:
         self.loss_streak = 0 if won else self.loss_streak + 1
         if self.loss_streak > self.day_max_streak[day]:
             self.day_max_streak[day] = self.loss_streak
-        step = (1 - p.price_target_win) if won else -p.price_target_win
+        target = p.price_target_win
+        if p.lane_prior_comp_slope > 0.0:
+            lm = self.lane_mult(self.requests[request_id], congested=(request_id in self.congested_reqs))
+            if lm != 1.0:
+                target = clamp(target - p.lane_prior_comp_slope * math.log(lm), 0.05, 0.90)
+        step = (1 - target) if won else -target
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
@@ -1669,6 +1781,16 @@ class Desk:
                 self.lost.add(order["id"])
             self.stats["won"] += 1
             oid = order["id"]
+            req = self.requests[order["id"]]
+            self.stats[f"lane_wins_{self.lane_bucket(req)}"] += 1
+            if order["id"] in self.inb_floor_saved_reqs:
+                self.stats["won_inb_floor_saved"] += 1
+            if self.now // DAY >= 1:
+                t_diff = self.dealer_trust[req["dealerId"]] - self.trust_ema
+                if t_diff < -5.0:
+                    self.stats["wins_trust_low"] += 1
+                elif t_diff > 5.0:
+                    self.stats["wins_trust_high"] += 1
             pickup = order["legs"][0]["pickup"]["placeId"]
             if self.supply.get(pickup, 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
@@ -2990,7 +3112,7 @@ class Desk:
             self.urgent = {e["orderId"] for e in history if e["kind"] == "deadline_close"}
         self.lost_requests = {e["requestId"] for e in history if e["kind"] == "order_lost"}
         
-        # replay ledger to build trust exactly as handle() does
+        # replay ledger and requests to build trust and trust_ema deterministically
         _late_replay = set()
         for e in history:
             if e["kind"] == "ledger":
@@ -3007,6 +3129,14 @@ class Desk:
                             delivered = [d for d in order["deliveredAt"] if d is not None]
                             if len(delivered) == len(order["legs"]) and max(delivered) <= order["deadline"]:
                                 self.dealer_trust[dealer] = min(25, self.dealer_trust[dealer] + 1)
+            elif e["kind"] == "price_request":
+                req_e = e["request"]
+                pk_e = req_e["legs"][0]["pickup"]["placeId"]
+                if self.gate_supply.get(pk_e, 0) >= self.p.min_supply or (
+                    self.p.return_hub_min_supply > 0 and self.supply.get(req_e["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply
+                ):
+                    t_c = self.dealer_trust[req_e["dealerId"]]
+                    self.trust_ema += self.p.trust_ema_alpha * (t_c - self.trust_ema)
                             
         self.late = set(_late_replay)
         for req_id, req in self.requests.items():
@@ -3070,9 +3200,13 @@ class Desk:
                                 self.urgent.add(order_id)
         ratios = []  # the price level of the latest wins, so a restarted desk does not relearn from the prior
         for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"])[-30:]:
-            option = next((o for o in self.requests[order["id"]]["options"] if o["kind"] == order["option"]), None)
+            req = self.requests[order["id"]]
+            option = next((o for o in req["options"] if o["kind"] == order["option"]), None)
             if option:
-                ratios.append(order["priceCents"] / option["listPriceCents"])
+                denom = option["listPriceCents"] * self.lane_mult(req)
+                if self.p.trust_center_slope > 0.0 and self.level >= 8:
+                    denom *= math.exp(self.p.trust_center_slope * (self.dealer_trust[req["dealerId"]] - self.trust_ema))
+                ratios.append(order["priceCents"] / denom)
         if ratios:
             self.mult = clamp(median(ratios), self.p.price_mult_min, self.p.price_mult_max)
         if self.p.supervisor:
