@@ -3,6 +3,25 @@
 ## Sat 14 Nov, 07:15 Helsinki (the cloud lead, night shift)
 Read this, then the directive at the top of `experiments/IDEAS.md`, then `docs/OPERATIONS.md`.
 
+**Update 09:15 Helsinki: Fable's round 3, measured.**
+
+| idea | worker | result |
+|---|---|---|
+| 15 triage | n14-05163 (on A) | **+€264 ± 64, t 4.1**: a win (slightly more late cars: 6.4 → 7.2 a world) |
+| 17 slack by opening hours | n14-06261 (v3) | margin-neutral (+€8), 29% fewer warnings, 128 → 114 late: **a safety lever** |
+| capacity: 14-min steps + event-driven evenings | n14-06041 (v3) | neutral (+€26 ± 149): **1,747 → 2,820 worlds an hour** |
+| R11 chains (for 26) | n14-06263 | **94 disjoint chains a week** among the requests we decline |
+| 19 thermostat | n14-05164 | −€307 |
+| 24 + 25 thin towns | n14-05162 | loses above ~1 win a day: it takes drivers from the other orders |
+| 20 same-day quota | n14-05166 | −€676 |
+| 18 price by cost | n14-06042 | −€342 (A's margin floor already undoes the adverse selection) |
+| 21 Friday | n14-06044 | +€22 ± 100, noise |
+| 22 snow | n14-06263 | reject: snow is 5% of the drops |
+
+Running: **final-champion** (`n14-06591`: v3 / +A's safety flags / +triage / both, 96 worlds each, promotes only a
+tail-safe winner); fee clock (16); signals (23); the lead's own triage + A's flags on v3. Queued by the directive: two
+chain briefs (return offer, paired gigs) and, after final-champion, the capacity re-baseline (`REBASE=1`).
+
 **Update 08:40 Helsinki: v3 is the champion.** `n14-05161-validate-top` measured the four stacks on 48 fresh worlds
 (holdout + `night-01..32`) and promoted D through `scripts/promote.sh` (`34e7063`). It then reset the swarm host's root
 checkout to main, so the ranking rounds and the sweep track play v3. Verda picks it up for the 14:00 test final.
