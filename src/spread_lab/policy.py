@@ -61,6 +61,8 @@ class Params:
     min_supply: int = 30              # decline below this many drivers near the pickup (6 missed 90% on 3/5 worlds; 20 on 1/32)
     expected_fee_mult: float = 1.25   # expected fee as a multiple of the typical fee
     min_margin_frac: float = 0.08     # price is raised to keep (price - expected fee) / price at least this
+    floor_loss_scale: bool = False    # scale loss learning step by unfloored option share on partial-floor quotes
+    floor_any_skip_loss: bool = False  # skip loss learning on partial-floor quotes while still learning wins
     min_slack_min: int = 180          # an option needs deadline - max(now, ready) - drive minutes >= this (v2: was 120)
     slack_per_drive: float = 0.5      # an option needs slack of at least min_slack_min + slack_per_drive * drive (v1; v0 = 0)
     long_drive_min: int = 300         # if drive > this (and > 0), quote only options with deadline on a later day than ready (v1; v0 = 0)
@@ -84,7 +86,9 @@ class Params:
     fee_open: float = 0.85            # opening fee, times the typical fee (v2: was 1.00)
     hub_multiday_fee_open: float = 0.0  # if > 0, opening fee for non-same_day in supply >= 150 with >= 6h to warning
     thin_sameday_fee_open: float = 0.0  # if > 0, opening fee for same_day in supply < 65
+    w3d_fee_open: float = 0.0         # if > 0, opening fee cap for within_3_days with >= 12h to warning
     fee_warn: float = 1.60            # fee reached at the deadline warning (lastPickupAt - 3 h)
+    multiday_fee_warn: float = 0.0    # if > 0, fee reached at the deadline warning for non-same_day orders
     fee_step_min: int = 30            # minutes between steps of the rising schedule
     day_start: int = 7 * 60           # raises only between these minutes of the day
     day_end: int = 22 * 60
@@ -143,6 +147,7 @@ class Desk:
         self.posts: dict[str, PostAction] = {}       # gig id -> the post that made it
         self.urgent: set[str] = set()                # orders whose deadline warning has come
         self.decided: dict[str, str] = {}            # request id -> "quote" | "floor" | "decline"
+        self.unfloored_frac: dict[str, float] = {}   # request id -> fraction of quoted options that were unfloored
         self.lost_requests: set[str] = set()         # request ids where order_lost was received
         self.mult = {8: params.price_mult_l8, 7: params.price_mult_l7}.get(level, params.price_mult_low)
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
@@ -333,6 +338,7 @@ class Desk:
 
         prices: dict[str, int] = {}
         floored = False
+        floored_list: list[bool] = []
         for option in request["options"]:
             ring_hub_sd = False
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
@@ -386,11 +392,16 @@ class Desk:
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
             floor = fee / (1 - p.min_margin_frac)
-            if price < floor:
+            is_floored = price < floor
+            if is_floored:
                 price, floored = floor, True
+            floored_list.append(is_floored)
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        self.unfloored_frac[request["id"]] = sum(1 for f in floored_list if not f) / len(floored_list)
+        if p.floor_loss_scale or p.floor_any_skip_loss:
+            return prices, "floor" if all(floored_list) else "quote"
         return prices, "floor" if floored else "quote"
 
     def learn(self, request_id: str, won: bool) -> None:
@@ -400,8 +411,19 @@ class Desk:
         p, day = self.p, self.now // DAY
         if day != self.streak_day:
             self.loss_streak, self.streak_day = 0, day
+        uf = self.unfloored_frac.get(request_id, 1.0)
+        if not won and uf < 1.0:
+            if p.floor_any_skip_loss:
+                self.stats["partial_floor_loss_skipped"] += 1
+                return
+            if p.floor_loss_scale:
+                self.stats["partial_floor_loss_scaled"] += 1
+        elif won and uf < 1.0 and (p.floor_any_skip_loss or p.floor_loss_scale):
+            self.stats["partial_floor_win_learned"] += 1
         self.loss_streak = 0 if won else self.loss_streak + 1
         step = (1 - p.price_target_win) if won else -p.price_target_win
+        if not won and uf < 1.0 and p.floor_loss_scale:
+            step *= uf
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
@@ -528,20 +550,36 @@ class Desk:
         if order["id"] in self.urgent:
             return self.steep(base)
         until = order["lastPickupAt"] - 3 * HOUR
+        span = until - self.now
         supply = self.supply.get(order["legs"][0]["pickup"]["placeId"], 0)
         fee_open_override: Optional[float] = None
-        if p.hub_multiday_fee_open > 0 and order["option"] != "same_day" and supply >= 150 and until - self.now >= 6 * HOUR:
+        if p.hub_multiday_fee_open > 0 and order["option"] != "same_day" and supply >= 150 and span >= 6 * HOUR:
             fee_open_override = p.hub_multiday_fee_open
             self.stats["hub_multiday_posts"] += 1
         elif p.thin_sameday_fee_open > 0 and order["option"] == "same_day" and supply < 65:
             fee_open_override = p.thin_sameday_fee_open
             self.stats["thin_sameday_posts"] += 1
-        return self.rising(base, until, fee_open_override=fee_open_override)
+        if p.w3d_fee_open > 0 and order["option"] == "within_3_days" and span >= 12 * HOUR:
+            f_open_curr = fee_open_override if fee_open_override is not None else p.fee_open
+            fee_open_override = min(f_open_curr, p.w3d_fee_open)
+            self.stats["w3d_low_open_posts"] += 1
+        fee_warn_override: Optional[float] = None
+        if p.multiday_fee_warn > 0 and order["option"] != "same_day":
+            fee_warn_override = p.multiday_fee_warn
+            self.stats["multiday_warn_capped"] += 1
+        return self.rising(base, until, fee_open_override=fee_open_override, fee_warn_override=fee_warn_override)
 
-    def rising(self, base: float, until: int, fee_open_override: Optional[float] = None) -> list[FeeStep]:
+    def rising(
+        self,
+        base: float,
+        until: int,
+        fee_open_override: Optional[float] = None,
+        fee_warn_override: Optional[float] = None,
+    ) -> list[FeeStep]:
         """From `fee_open` now to `fee_warn` at `until`, in daytime steps only, at most 48 steps."""
         p = self.p
         fee_open = fee_open_override if fee_open_override is not None else p.fee_open
+        fee_warn = fee_warn_override if fee_warn_override is not None else p.fee_warn
         times = [self.now]
         t = (self.now // p.fee_step_min + 1) * p.fee_step_min
         while t <= until:
@@ -552,7 +590,7 @@ class Desk:
             k = len(times) - 1
             times = [times[round(i * k / 47)] for i in range(48)]
         n = len(times)
-        return [{"at": at, "feeCents": max(1, int(base * (fee_open + (p.fee_warn - fee_open) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
+        return [{"at": at, "feeCents": max(1, int(base * (fee_open + (fee_warn - fee_open) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
                 for i, at in enumerate(times)]
 
     def steep(self, base: float) -> list[FeeStep]:
