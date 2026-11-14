@@ -54,6 +54,10 @@ class Params:
     dealer_adj_max: float = 1.30
     loss_streak_freeze: int = 12      # this many losses in a row stop downward moves until the next day
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
+    fee_weight: float = 0.0          # exponent on referenceFee / (fee_ratio_mid * max listPrice) tilt (0 = off)
+    fee_ratio_mid: float = 0.9       # median referenceFee / max listPrice ratio
+    fee_tilt_max: float = 0.25       # clips tilt to [1 / (1 + fee_tilt_max), 1 + fee_tilt_max]
+    learn_from_floor: bool = False   # if True, a winning floor quote moves tracker and dealer factor up
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
     gate_radius_km: float = 55.0      # radius of the supply count the decline gate uses (v1; 0 = supply_radius_km, as v0)
@@ -125,6 +129,16 @@ class Retry(NamedTuple):
 
 def clamp(x: float, lo: float, hi: float) -> float:
     return max(lo, min(hi, x))
+
+
+def fee_band(request: PriceRequest) -> str:
+    max_list = max(o["listPriceCents"] for o in request["options"])
+    ratio = request["referenceFeeCents"] / max_list if max_list > 0 else 0.0
+    if ratio < 0.8:
+        return "easy"
+    if ratio < 1.0:
+        return "mid"
+    return "hard"
 
 
 class Desk:
@@ -217,6 +231,8 @@ class Desk:
                         self.stats["late_ring"] += 1
                     if order and order["option"] == "same_day" and line["orderId"] in self.ring_hub_same_day:
                         self.stats["late_ring_hub_same_day"] += 1
+                    if line["orderId"] in self.requests:
+                        self.stats[f"late_{fee_band(self.requests[line['orderId']])}"] += 1
                 self.late.add(line["orderId"])
                 if dealer:
                     self.dealer_trust[dealer] //= 2
@@ -247,6 +263,8 @@ class Desk:
         self.dealer_request_count[request["dealerId"]] += 1
         prices, decision = self.price(request)
         self.stats[f"quote_{decision}"] += 1
+        if decision != "decline":
+            self.stats[f"q_{fee_band(request)}"] += 1
         if self.level <= 3:  # every quote wins at its list price: send one only for what we take
             if prices:
                 first = request["options"][0]
@@ -331,6 +349,10 @@ class Desk:
             top3 = sorted(self.dealer_request_count.keys(), key=lambda d: self.dealer_request_count[d], reverse=True)[:3]
             is_invest = request["dealerId"] in top3
 
+        max_list = max(o["listPriceCents"] for o in request["options"])
+        ratio = request["referenceFeeCents"] / (p.fee_ratio_mid * max_list)
+        tilt = clamp(ratio ** p.fee_weight, 1 / (1 + p.fee_tilt_max), 1 + p.fee_tilt_max)
+
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
@@ -385,6 +407,8 @@ class Desk:
                 option_mult *= (1 - p.trust_invest)
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
+            if p.fee_weight != 0:
+                price *= tilt
             floor = fee / (1 - p.min_margin_frac)
             if price < floor:
                 price, floored = floor, True
@@ -395,7 +419,8 @@ class Desk:
 
     def learn(self, request_id: str, won: bool) -> None:
         """Moves the multiplier towards the price that wins `price_target_win` of the normal quotes."""
-        if self.decided.get(request_id) != "quote":
+        decision = self.decided.get(request_id)
+        if decision != "quote" and not (self.p.learn_from_floor and decision == "floor" and won):
             return
         p, day = self.p, self.now // DAY
         if day != self.streak_day:
@@ -458,6 +483,7 @@ class Desk:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
             self.stats["won"] += 1
+            self.stats[f"w_{fee_band(self.requests[order['id']])}"] += 1
             if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
             if order["option"] == "same_day" and order["id"] in self.ring_hub_same_day:
