@@ -54,6 +54,8 @@ class Params:
     dealer_adj_max: float = 1.30
     loss_streak_freeze: int = 12      # this many losses in a row stop downward moves until the next day
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
+    lane_dest_tilt: float = 0.0       # zero-mean destination supply tilt (+1.0x on deliv_supply < 30, -1.5x on >= 100)
+    cost_ratio_slope: float = 0.0     # centered cost-ratio slope on referenceFeeCents / listPriceCents - 0.91
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
     gate_radius_km: float = 55.0      # radius of the supply count the decline gate uses (v1; 0 = supply_radius_km, as v0)
@@ -266,6 +268,7 @@ class Desk:
                 )
         pickup = legs[0]["pickup"]["placeId"]
         supply = self.supply.get(pickup, 0)
+        deliv_supply = self.supply.get(legs[-1]["delivery"]["placeId"], 0)
         gate_supply = self.gate_supply.get(pickup, 0)
         tight = self.tightening()
         gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
@@ -361,6 +364,16 @@ class Desk:
             option_mult = mult
             if is_invest and slack >= 360:
                 option_mult *= (1 - p.trust_invest)
+            if p.lane_dest_tilt != 0.0:
+                if deliv_supply < 30:
+                    option_mult *= 1.0 + p.lane_dest_tilt
+                    self.stats["lane_thin_dest"] += 1
+                elif deliv_supply >= 100:
+                    option_mult *= 1.0 - 1.5 * p.lane_dest_tilt
+                    self.stats["lane_hub_dest"] += 1
+            if p.cost_ratio_slope != 0.0:
+                cost_ratio = request["referenceFeeCents"] / option["listPriceCents"]
+                option_mult *= clamp(1.0 + p.cost_ratio_slope * (cost_ratio - 0.91), 0.93, 1.07)
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
             floor = fee / (1 - p.min_margin_frac)
@@ -425,6 +438,11 @@ class Desk:
             self.stats["won"] += 1
             if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
+            deliv_supply = self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0)
+            if deliv_supply < 30:
+                self.stats["won_lane_thin_dest"] += 1
+            elif deliv_supply >= 100:
+                self.stats["won_lane_hub_dest"] += 1
             if order["option"] == "same_day" and order["id"] in self.ring_hub_same_day:
                 self.stats["won_ring_hub_same_day"] += 1
             self.stats[f"won_{order['option']}"] += 1
