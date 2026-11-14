@@ -1,13 +1,15 @@
-# Night status, 2026-11-14 08:10 UTC (ends 2026-11-15T02:50:05Z)
+# Night status, 2026-11-14 08:31 UTC (ends 2026-11-15T02:50:05Z)
 
 ## Workers
 
 | worker | started (UTC) | state | tool calls | pushed | last Δ line |
 |---|---|---|---|---|---|
-| d14-01-hitch-pairs | 07:50 | running | 69 | no |  |
-| d14-02-acceptance-model | 07:50 | running | 78 | no | I will fast-forward the current branch (which has no local commits yet) to `origin/main` so our work builds cleanly on the newly promoted champion (`51d1be6`) w |
+| d14-01-hitch-pairs | 07:50 | running | 119 | no |  |
+| d14-02-acceptance-model | 07:50 | done 08:31 (40 min) | 114 | yes | dev paired Δmargin `+€252.70 ± 142.89` (`t=1.77`, 10/16), worst on-time share `94.06%` (0/16 under 92%, SAFE; conservative `w=0.6, c=1.4`: `+€162.95 ± 91.38`, ` |
+| d14-03-buffer-spender | 08:21 | running | 50 | no |  |
+| d14-04-day-supervisor | 08:31 | running | 0 | no |  |
 
-Queued prompts: 03-buffer-spender.md, 04-day-supervisor.md, 05-eligible-supply.md
+Queued prompts: 05-eligible-supply.md
 
 ## Sweeps started (in order; logs/sweep-NN.txt has each table)
 
