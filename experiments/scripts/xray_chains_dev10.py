@@ -1,9 +1,10 @@
 import csv
+import sys
 from collections import defaultdict
 from pathlib import Path
 from spread_lab.geo import Geo
 
-rev = Path("/home/lab/.gemini/tmp/cp-chains/reveal-dev10/reveal-wf1a772bd88ece2422c10")
+rev = Path(sys.argv[1])
 places = [{"id": r["id"], "name": r["name"], "lat": float(r["lat"]), "lon": float(r["lon"])} for r in csv.DictReader(open(rev / "places.csv"))]
 roads = [{"from": r["from"], "to": r["to"], "km": float(r["km"]), "minutes": int(r["minutes"])} for r in csv.DictReader(open(rev / "roads.csv"))]
 geo = Geo({"places": places, "roads": roads})

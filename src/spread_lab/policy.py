@@ -141,6 +141,8 @@ class Params:
     return_toward_home: bool = False  # only match outbound drivers for whom delivery moves closer to home (or <=30km)
     return_min_deliv_supply: int = 0  # if > 0, require delivery 30km supply >= this (or <=30km of outbound driver home)
     return_max_wait_min: int = 0      # if > 0, max wait minutes from planned outbound delivery to return pickup
+    chain_guard_target: float = 0.0   # if > 0, pause thin chain intake (hitch_quote/return_offer) when projected_on_time < this
+    chain_max_urgent: int = 0         # if > 0, pause thin chain intake when active unstaffed urgent orders >= this
     # --- handling rules -----------------------------------------------------------------------------
     charge_min_km: float = 200.0      # rule 3: an EV under 30% charge needs a charging stop on a route over this
     notes_v2: bool = False            # v2 note reader + delivery hours / note deadlines shorten option slack
@@ -606,6 +608,16 @@ class Desk:
                 and drive <= p.return_hub_max_drive_min
             )
             if not (pass_ext_ring or pass_return_hub):
+                chain_braked = False
+                if p.chain_guard_target > 0 and self.projected_on_time() < p.chain_guard_target:
+                    chain_braked = True
+                elif p.chain_max_urgent > 0:
+                    urg_open = sum(1 for oid in self.urgent if oid in self.orders and undelivered(self.orders[oid]) and not self.staffed(self.orders[oid]))
+                    if urg_open >= p.chain_max_urgent:
+                        chain_braked = True
+                if chain_braked:
+                    self.stats["chain_guard_blocked"] += 1
+                    return {}, "decline"
                 can_try_hitch = p.hitch_quote and self.level >= 3 and len(legs) == 1 and self.hitch_cap_available()
                 can_try_return = p.return_offer_km > 0 and self.level >= 3 and self.return_wins_by_day[self.now // DAY] < p.return_cap_day
                 if not (can_try_hitch or can_try_return):
