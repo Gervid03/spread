@@ -61,6 +61,9 @@ main (`01-validate-top` does both), sweeps of the champion's own flags are usefu
 triage, thermostat and research-volume), and they now sit in `experiments/prompts/night2/` as a record. Don't queue
 them again. Write your own prompts as usual. A brief for idea 16, already adapted to A, is in
 `experiments/prompts/night2/feeclock-on-a.md`: copy it into `night-queue/` when a slot frees.
+**Copy `experiments/prompts/night2/capacity-steps.md` into `night-queue/` at your next tick.** It measures whether
+14-minute steps and event-driven evenings make practice worlds 20–40% cheaper without changing what they measure.
+Practice slots are the lab's bottleneck, so this is the cheapest capacity there is.
 
 **7. Promotion.** `01-validate-top` runs A, 03111, 03501 and the best v7 stack on holdout plus 32 fresh worlds,
 checks a restart and `step_min=3`, and promotes the winner through `scripts/promote.sh` (gated against the
