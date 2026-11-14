@@ -38,6 +38,23 @@ from .notes import note_flags, parse_note_v2, shift_business_days, window_from_n
 
 HOUR, DAY = 60, 24 * 60
 
+# The part of the competitor's lane factor that is the same in every world, as log-price effects by pickup and
+# delivery place (fitted by exp/gemini-d14-02-acceptance-model on 64 fresh level-8 worlds, shrunk towards 0).
+LANE_PICKUP = {
+    "espoo": 0.018, "hameenlinna": -0.0375, "helsinki": -0.0007, "hyvinkaa": 0.01, "joensuu": 0.0373, "jyvaskyla": -0.041,
+    "kokkola": 0.0017, "kotka": -0.0379, "kouvola": -0.0646, "kuopio": -0.0408, "lahti": -0.0341, "lappeenranta": -0.0208,
+    "lempaala": -0.0469, "mikkeli": -0.0126, "oulu": -0.0454, "pori": -0.0275, "porvoo": -0.002, "raisio": -0.0328,
+    "rauma": -0.014, "rovaniemi": -0.0324, "salo": -0.0562, "seinajoki": 0.0188, "tampere": -0.0363, "turku": -0.0356,
+    "vaasa": -0.0161, "vantaa": 0.0377,
+}
+LANE_DELIVERY = {
+    "espoo": -0.0555, "hameenlinna": 0.0268, "helsinki": -0.0661, "hyvinkaa": -0.0591, "joensuu": 0.0916, "jyvaskyla": 0.0526,
+    "kajaani": 0.1324, "kemi": 0.1347, "kokkola": 0.1185, "kotka": 0.0825, "kouvola": 0.078, "kuopio": 0.0665, "lahti": 0.0445,
+    "lappeenranta": 0.0861, "lempaala": 0.0072, "mikkeli": 0.0964, "oulu": 0.0591, "pori": 0.0917, "porvoo": -0.0445,
+    "raisio": 0.032, "rauma": 0.0667, "rovaniemi": 0.0923, "salo": 0.0413, "savonlinna": 0.104, "seinajoki": 0.0859,
+    "tampere": 0.0251, "turku": 0.0327, "vaasa": 0.0805, "vantaa": -0.1066, "ylivieska": 0.1392,
+}
+
 
 @dataclass
 class Params:
@@ -125,6 +142,20 @@ class Params:
     hitch_max_splits: int = 2         # 0 = unlimited; > 0 caps failed pair splits per order
     hitch_homeward: bool = True       # avoid diverging chains that end much further from A's pickup than A's delivery
     hitch_preserve_age: bool = True   # resume rising schedule at car's first-posting age after a hitch split
+    # --- the round-trip book: hold tomorrow's cars, pair them, price a request that completes a trip ---
+    rt_hold: bool = False             # a won single car that is ready on a later day waits unposted for a partner
+    rt_release_min: int = 18 * 60 + 20  # minute of the day at which a held car that found no partner is posted alone
+    rt_quote: bool = False            # a request with a feasible waiting partner is priced to win
+    rt_discount: float = 0.0          # price cut on such a request
+    rt_lane_weight: float = 0.0       # and x exp(weight x min(0, lane effect)): inbound lanes are cheap at the competitor
+    rt_cost_mult: float = 0.0         # if > 0, its margin floor uses this x the typical fee (the second leg of a trip is cheap)
+    rt_partner_load: int = 2          # at most this many unanswered discounted quotes may count on one waiting car
+    rt_fee: float = 0.0               # if > 0, a pair opens at this x its two typical fees and climbs a ladder
+    rt_fee_step: float = 0.05         # ladder step (x the two typical fees)
+    rt_fee_step_min: int = 10         # minutes between ladder steps
+    rt_patience_min: int = 0          # if > 0, an unbooked pair is split after this many daytime minutes (else hitch_patience_min)
+    rt_km: float = 0.0                # if > 0, overrides hitch_km (B's pickup this close to A's delivery)
+    ahead_fee_open: float = 0.0       # if > 0, opening fee of a single-car gig whose car is ready on a later day
     # --- handling rules -----------------------------------------------------------------------------
     charge_min_km: float = 200.0      # rule 3: an EV under 30% charge needs a charging stop on a route over this
     notes_v2: bool = False            # v2 note reader + delivery hours / note deadlines shorten option slack
@@ -217,6 +248,9 @@ class Desk:
         self.newly_won_hitch: list[str] = []
         self.hitch_order_splits: Counter = Counter()
         self.first_posted_at: dict[str, int] = {}
+        self.held: dict[str, int] = {}               # order id -> minute at which it is posted alone (round-trip book)
+        self.rt_reqs: set[str] = set()               # requests quoted at the round-trip price
+        self.rt_partner: dict[str, str] = {}         # such a request -> the waiting order it counted on
         self.lost: set[str] = set()                  # orders that can no longer be on time
         self.late_reposted: set[str] = set()         # orders already reposted in tick() upon becoming lost
         self.ends_at: int = 14280                    # second Wednesday 22:00
@@ -236,6 +270,7 @@ class Desk:
             self.change(event["order"])
         elif kind == "order_cancelled":
             self.orders.pop(event["orderId"], None)
+            self.held.pop(event["orderId"], None)
             if self.p.hitch:
                 self.handle_cancelled_hitch(event)
             else:
@@ -426,8 +461,46 @@ class Desk:
                             if action is not None:
                                 stops = without_windows(action["stops"], float("inf"))
                                 self.outbox.append({**action, "stops": stops, "schedule": self.fees_for(order, pickups(action), action)})
+        if self.held:
+            self.release_held()
         if self.p.hitch and self.level >= 3:
             self.tick_hitch()
+
+    def try_hold(self, order: Order) -> bool:
+        """The round-trip book: a single car that is ready on a later day waits unposted for a partner until the
+        evening. Cars for tomorrow book within minutes whenever they are posted, so the wait costs little, and
+        every request that arrives meanwhile can be priced as the second leg of a trip."""
+        p = self.p
+        if not (p.rt_hold and p.hitch and self.level >= 3):
+            return False
+        if len(order["legs"]) != 1 or undelivered(order) != [0] or order["id"] in self.urgent:
+            return False
+        leg = order["legs"][0]
+        if leg["pickup"]["privateAddress"] or leg["delivery"]["privateAddress"]:
+            return False
+        spec = self.car_spec_for_order(order)
+        if spec is None:
+            return False
+        today = self.now // DAY
+        release = today * DAY + p.rt_release_min
+        if spec.pick_from // DAY <= today or self.now >= release or order["lastPickupAt"] - release < 6 * HOUR:
+            return False
+        self.held[order["id"]] = release
+        self.stats["rt_held"] += 1
+        return True
+
+    def release_held(self) -> None:
+        """Posts alone every held car whose wait is over; it gets one more look for a partner in this tick."""
+        for oid in sorted(self.held):
+            order = self.orders.get(oid)
+            if order is None or not undelivered(order) or self.gigs_of(oid):
+                self.held.pop(oid, None)
+                continue
+            if self.now >= self.held[oid] or oid in self.urgent:
+                self.stats["rt_released"] += 1
+                self.post(order, undelivered(order))  # ends the hold
+                if self.p.hitch and oid not in self.urgent:
+                    self.newly_won_hitch.append(oid)
 
     # --- quoting --------------------------------------------------------------------------------------
     def quote(self, request: PriceRequest) -> None:
@@ -482,6 +555,7 @@ class Desk:
         pass_return_hub = False
         pass_hitch = False
         hitch_partner_oid: Optional[str] = None
+        rt_partner_oid: Optional[str] = None
         if gate_supply < gate_min:
             pass_ext_ring = (
                 p.ext_ring_min_supply > 0
@@ -593,11 +667,16 @@ class Desk:
             if slack < p.min_slack_min + p.slack_per_drive * drive:
                 self.stats["dropped_slack"] += 1
                 continue
+            rt_oid: Optional[str] = None
             if pass_hitch:
                 matched_oid = self.find_waiting_partner_for_request(request, option["deadline"], extra_days)
                 if matched_oid is None:
                     continue
                 hitch_partner_oid = matched_oid
+                if p.rt_quote:
+                    rt_oid = matched_oid
+            elif p.rt_quote and self.level >= 3 and len(legs) == 1:
+                rt_oid = self.find_waiting_partner_for_request(request, option["deadline"], extra_days, max_load=p.rt_partner_load)
             if ring_hub_sd:
                 self.stats["quoted_ring_hub_same_day"] += 1
                 self.ring_hub_same_day.add(request["id"])
@@ -608,13 +687,24 @@ class Desk:
             if p.return_hub_discount > 0 and pass_return_hub and not pass_ext_ring:
                 option_mult *= (1.0 - p.return_hub_discount)
 
+            opt_fee = fee
+            if rt_oid is not None:
+                eff = LANE_PICKUP.get(pickup, 0.0) + LANE_DELIVERY.get(legs[0]["delivery"]["placeId"], 0.0)
+                option_mult *= (1 - p.rt_discount) * math.exp(p.rt_lane_weight * min(0.0, eff))
+                if p.rt_cost_mult > 0:
+                    opt_fee = request["referenceFeeCents"] * p.rt_cost_mult
+                rt_partner_oid = rt_oid
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            floor = fee / (1 - p.min_margin_frac)
+            floor = opt_fee / (1 - p.min_margin_frac)
             if price < floor:
                 price, floored = floor, True
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if rt_partner_oid is not None:
+            self.rt_reqs.add(request["id"])
+            self.rt_partner[request["id"]] = rt_partner_oid
+            self.stats["rt_quoted"] += 1
         if pass_hitch:
             self.hitch_quote_reqs.add(request["id"])
             if hitch_partner_oid is not None:
@@ -630,6 +720,9 @@ class Desk:
     def learn(self, request_id: str, won: bool) -> None:
         """Moves the multiplier towards the price that wins `price_target_win` of the normal quotes."""
         if self.decided.get(request_id) != "quote":
+            return
+        if request_id in self.rt_reqs:
+            self.stats["rt_skipped_learn"] += 1
             return
         if self.p.ext_ring_neutral_learn and (request_id in self.ext_ring_reqs or request_id in self.hitch_quote_reqs):
             if request_id in self.hitch_quote_reqs:
@@ -715,6 +808,10 @@ class Desk:
             self.stats[f"won_{order['option']}"] += 1
             if self.p.hitch:
                 self.newly_won_hitch.append(order["id"])
+            if order["id"] in self.rt_reqs:
+                self.stats["rt_quote_won"] += 1
+            if self.try_hold(order):
+                return
             self.post(order, undelivered(order))
 
     def change(self, order: Order) -> None:
@@ -761,6 +858,9 @@ class Desk:
         if order is None:
             return
         self.urgent.add(order_id)
+        if order_id in self.held:
+            self.stats["rt_released_urgent"] += 1
+            self.post(order, undelivered(order), allow_pair=False)
         self.send_post_of(order_id)
         for gig_id in list(self.gigs_of(order_id)):
             if gig_id not in self.booked and gig_id in self.posts and len(order_ids_of(self.posts[gig_id])) > 1:
@@ -854,6 +954,15 @@ class Desk:
         elif p.thin_sameday_fee_open > 0 and order["option"] == "same_day" and supply < 65:
             fee_open_override = p.thin_sameday_fee_open
             self.stats["thin_sameday_posts"] += 1
+        if (
+            p.ahead_fee_open > 0
+            and cars == 1
+            and len(order["legs"]) == 1
+            and order["legs"][0]["pickup"]["window"]["from"] // DAY > self.now // DAY
+            and until - self.now >= 6 * HOUR
+        ):
+            fee_open_override = p.ahead_fee_open
+            self.stats["ahead_posts"] += 1
         if (
             self.p.hitch
             and self.p.hitch_preserve_age
@@ -1021,7 +1130,7 @@ class Desk:
             return None
         if self.p.hitch_max_b_supply > 0 and b.supply_p > self.p.hitch_max_b_supply:
             return None
-        if self.geo.line_km(a.place_d, b.place_p) > self.p.hitch_km:
+        if self.geo.line_km(a.place_d, b.place_p) > (self.p.rt_km if self.p.rt_km > 0 else self.p.hitch_km):
             return None
         if self.p.hitch_homeward and self.geo.line_km(b.place_d, a.place_p) > max(60.0, self.geo.line_km(a.place_d, a.place_p) + 25.0):
             return None
@@ -1122,21 +1231,28 @@ class Desk:
                     ord_obj = self.orders.get(oid)
                     if ord_obj is not None and len(ord_obj["legs"]) == 1 and undelivered(ord_obj) == [0]:
                         found[oid] = None
+        for oid in self.held:
+            if oid not in found and oid not in self.urgent:
+                ord_obj = self.orders.get(oid)
+                if ord_obj is not None and len(ord_obj["legs"]) == 1 and undelivered(ord_obj) == [0]:
+                    found[oid] = None
         return [(oid, found[oid]) for oid in sorted(found.keys())]
 
-    def find_waiting_partner_for_request(self, request: PriceRequest, option_deadline: int, extra_days: int) -> Optional[str]:
+    def find_waiting_partner_for_request(self, request: PriceRequest, option_deadline: int, extra_days: int,
+                                         max_load: int = 3) -> Optional[str]:
         spec_r = self.car_spec_for_request_option(request, option_deadline, extra_days)
         if spec_r is None:
             return None
         eval_at = max(self.now, request["respondBy"])
         partner_loads: Counter = Counter()
-        for rid, pid in self.hitch_quote_partner.items():
-            if rid not in self.orders and rid not in self.lost_requests and self.now <= self.requests[rid]["respondBy"]:
-                partner_loads[pid] += 1
+        for partners in (self.hitch_quote_partner, self.rt_partner):
+            for rid, pid in partners.items():
+                if rid != request["id"] and rid not in self.orders and rid not in self.lost_requests and self.now <= self.requests[rid]["respondBy"]:
+                    partner_loads[pid] += 1
 
         best: Optional[tuple[tuple[int, float, int, str], str]] = None
         for oid, _ in self.waiting_single_orders():
-            if partner_loads[oid] >= 3:
+            if partner_loads[oid] >= max_load:
                 continue
             spec_o = self.car_spec_for_order(self.orders[oid])
             if spec_o is None:
@@ -1170,7 +1286,37 @@ class Desk:
         for i in range(1, len(sched)):
             if sched[i]["feeCents"] < sched[i - 1]["feeCents"]:
                 sched[i]["feeCents"] = sched[i - 1]["feeCents"]
+        if self.p.rt_fee > 0:
+            sched = self.rt_ladder(sched, ref_sum)
         return sched, single_open_sum, ref_sum
+
+    def rt_ladder(self, sched: list[FeeStep], ref_sum: int) -> list[FeeStep]:
+        """A pair opens low and climbs in quick steps to the usual opening fee, then follows the usual schedule:
+        two-car gigs book within minutes at the usual fee, so the ladder finds what the cheapest driver takes."""
+        p = self.p
+        top = sched[0]["feeCents"]
+        steps: list[FeeStep] = []
+        k = 0
+        while k < 12:
+            fee = max(1, int(ref_sum * (p.rt_fee + k * p.rt_fee_step) + 0.5))
+            if fee >= top:
+                break
+            steps.append({"at": self.now + k * p.rt_fee_step_min, "feeCents": fee})
+            k += 1
+        if not steps:
+            return sched
+        t_join = self.now + k * p.rt_fee_step_min
+        head = steps + [{"at": t_join, "feeCents": top}]
+        tail = [dict(x) for x in sched if x["at"] > t_join]
+        keep = 48 - len(head)
+        if len(tail) > keep:
+            kk = len(tail) - 1
+            tail = [tail[round(i * kk / (keep - 1))] for i in range(keep)] if keep > 1 else tail[-1:]
+        joined = head + tail
+        for i in range(1, len(joined)):
+            if joined[i]["feeCents"] < joined[i - 1]["feeCents"]:
+                joined[i]["feeCents"] = joined[i - 1]["feeCents"]
+        return joined
 
     def stops_and_audience_for_single(self, order: Order, retry: Optional[Retry] = None) -> tuple[list[StopRef], Audience]:
         req = self.requests[order["id"]]
@@ -1270,7 +1416,7 @@ class Desk:
             if gig_id in self.booked:
                 continue
             info = self.hitch_gigs.get(gig_id)
-            if info is not None and daytime_minutes(info["unbooked_since"], self.now, p.day_start, p.day_end) >= p.hitch_patience_min:
+            if info is not None and daytime_minutes(info["unbooked_since"], self.now, p.day_start, p.day_end) >= (p.rt_patience_min or p.hitch_patience_min):
                 self.split_hitch_gig(gig_id, reason="patience")
 
         # 2. Build open single-car pool (both already-posted unbooked single gigs and unsent single posts in outbox)
@@ -1287,6 +1433,9 @@ class Desk:
                 oid = a["stops"][0]["orderId"]
                 if oid not in open_pool and self.can_order_hitch(oid):
                     open_pool[oid] = None
+        for oid in sorted(self.held):
+            if oid not in open_pool and self.can_order_hitch(oid):
+                open_pool[oid] = None
 
         if len(open_pool) < 2:
             return
@@ -1340,6 +1489,9 @@ class Desk:
             gid1 = open_pool.pop(oid1)
             gid2 = open_pool.pop(oid2)
             for x_oid, x_gid in ((oid1, gid1), (oid2, gid2)):
+                if x_oid in self.held:
+                    self.held.pop(x_oid, None)
+                    self.stats["rt_paired_from_hold"] += 1
                 if x_gid is not None:
                     self.single_open_since.pop(x_gid, None)
                     self.leg_gigs.get(x_oid, {}).pop(0, None)
@@ -1627,6 +1779,7 @@ class Desk:
         return True
 
     def post(self, order: Order, legs: list[int], retry: Retry = Retry(), allow_pair: bool = True) -> None:
+        self.held.pop(order["id"], None)
         if allow_pair and self.p.lead_car and order["id"] not in self.hitch_quote_reqs and self.try_pair_lead_car(order, legs, retry):
             return
         req = self.requests[order["id"]]
