@@ -69,6 +69,10 @@ class Params:
     fri_same_day_max_drive: int = 0   # if > 0, on Friday (ready // DAY >= 4), drop same_day with drive >= this
     ring_to_hub_same_day_min: int = 0  # if > 0, allow ring same_day into dense hub (supply >= 200) when drive <= this
     same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
+    respect_stop_windows: bool = False  # enforce leg pickup/delivery windows in price and stops_for
+    early_window_fee_ramp: bool = False  # shorten fees_for rising ramp to eff_last_pickup - 3h
+    min_pickup_window_slack_min: int = 180  # min minutes between max(now, pickup_from) and pickup_to when pickup_to < deadline
+    trade_in_mode: str = "all"        # "all", "same_day_only", or "decline" on 2-leg trade-ins
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
     decline_mult: float = 4.0         # a decline quotes this times the list price
@@ -199,6 +203,8 @@ class Desk:
                         self.stats["late_ring"] += 1
                     if order and order["option"] == "same_day" and line["orderId"] in self.ring_hub_same_day:
                         self.stats["late_ring_hub_same_day"] += 1
+                    if order and len(order["legs"]) == 2:
+                        self.stats["late_trade_in"] += 1
                 self.late.add(line["orderId"])
                 if dealer:
                     self.dealer_trust[dealer] //= 2
@@ -273,6 +279,9 @@ class Desk:
             return {}, "decline"
         if self.backlog_near(pickup) >= max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight):
             return {}, "decline"
+        if len(legs) == 2 and p.trade_in_mode == "decline":
+            self.stats["dropped_trade_in"] += 1
+            return {}, "decline"
         is_ring = supply < gate_min
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
@@ -312,6 +321,9 @@ class Desk:
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
+            if len(legs) == 2 and p.trade_in_mode == "same_day_only" and option["kind"] != "same_day":
+                self.stats["dropped_trade_in"] += 1
+                continue
             ring_hub_sd = False
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
                 if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
@@ -354,6 +366,36 @@ class Desk:
             if slack < p.min_slack_min + p.slack_per_drive * drive:
                 self.stats["dropped_slack"] += 1
                 continue
+            if p.respect_stop_windows:
+                skip_option = False
+                for i, leg in enumerate(legs):
+                    leg_drive = self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"])
+                    p_win = window_from_note(
+                        request["note"],
+                        leg["pickup"]["window"],
+                        "pickup",
+                        v2=p.notes_v2,
+                        arrived_at=request["arrivedAt"],
+                        private_address=leg["pickup"]["privateAddress"],
+                        stated_hours=leg["pickup"]["hours"],
+                    )
+                    p_ready = max(self.now, p_win["from"])
+                    p_hard_end = leg["pickup"]["window"]["to"] < deadline or deadline // DAY == p_ready // DAY
+                    if i == 0 and p_hard_end and p_win["to"] < deadline and p_win["to"] - p_ready < p.min_pickup_window_slack_min:
+                        self.stats["dropped_pickup_window"] += 1
+                        skip_option = True
+                        break
+                    eff_deliv_to = min(deadline, leg["delivery"]["window"]["to"])
+                    if i == 0 and eff_deliv_to - p_ready - leg_drive < p.min_slack_min + p.slack_per_drive * leg_drive:
+                        self.stats["dropped_delivery_window"] += 1
+                        skip_option = True
+                        break
+                if skip_option:
+                    continue
+                final_deadline = min(deadline, legs[-1]["delivery"]["window"]["to"])
+                if final_deadline - ready - drive < p.min_slack_min + p.slack_per_drive * drive:
+                    self.stats["dropped_delivery_window"] += 1
+                    continue
             if ring_hub_sd:
                 self.stats["quoted_ring_hub_same_day"] += 1
                 self.ring_hub_same_day.add(request["id"])
@@ -427,6 +469,8 @@ class Desk:
                 self.stats["won_ring"] += 1
             if order["option"] == "same_day" and order["id"] in self.ring_hub_same_day:
                 self.stats["won_ring_hub_same_day"] += 1
+            if len(order["legs"]) == 2:
+                self.stats["won_trade_in"] += 1
             self.stats[f"won_{order['option']}"] += 1
             self.post(order, undelivered(order))
 
@@ -491,7 +535,23 @@ class Desk:
             return [{"at": self.now, "feeCents": max(1, int(base * self.p.fee_open + 0.5))}]
         if order["id"] in self.urgent:
             return self.steep(base)
-        return self.rising(base, order["lastPickupAt"] - 3 * HOUR)
+        until = order["lastPickupAt"] - 3 * HOUR
+        if self.p.early_window_fee_ramp:
+            eff_last_pickup = min(
+                [order["lastPickupAt"]]
+                + [
+                    min(
+                        order["legs"][i]["pickup"]["window"]["to"],
+                        order["legs"][i]["delivery"]["window"]["to"]
+                        - self.geo.minutes(order["legs"][i]["pickup"]["placeId"], order["legs"][i]["delivery"]["placeId"]),
+                    )
+                    for i in undelivered(order)
+                ]
+            )
+            if eff_last_pickup < order["lastPickupAt"]:
+                self.stats["early_window_ramp"] += 1
+            until = eff_last_pickup - 3 * HOUR
+        return self.rising(base, until)
 
     def rising(self, base: float, until: int) -> list[FeeStep]:
         """From `fee_open` now to `fee_warn` at `until`, in daytime steps only, at most 48 steps."""
@@ -540,7 +600,17 @@ class Desk:
         }
         retry = retry._replace(plates=retry.plates or flags.plates)
         stops = without_windows(
-            stops_for(order, legs, note, retry, self.geo, self.p.charge_min_km, self.p.notes_v2, req["arrivedAt"]),
+            stops_for(
+                order,
+                legs,
+                note,
+                retry,
+                self.geo,
+                self.p.charge_min_km,
+                self.p.notes_v2,
+                req["arrivedAt"],
+                self.p.respect_stop_windows,
+            ),
             self.now,
         )
         self.outbox.append({"type": "post", "stops": stops, "audience": audience, "schedule": self.fees_for(order, len(legs))})
@@ -679,9 +749,22 @@ def stops_for(
     charge_min_km: float = 0.0,
     notes_v2: bool = False,
     arrived_at: Optional[int] = None,
+    respect_stop_windows: bool = False,
 ) -> list[StopRef]:
     """A pickup and a delivery for each leg. A stop has its own window only when the note or the retry
     makes it narrower. Rule 3: an electric car under 30% on a route over 200 km needs a charging stop."""
+    extra_days = 0
+    if notes_v2 and note:
+        pn = parse_note_v2(note, arrived_at if arrived_at is not None else 0)
+        if pn.ready_at is not None:
+            extra_days = max(
+                (
+                    max(0, pn.ready_at // DAY - l["pickup"]["window"]["from"] // DAY)
+                    for l in order["legs"]
+                    if not l["pickup"]["privateAddress"]
+                ),
+                default=0,
+            )
     stops: list[StopRef] = []
     for leg in legs:
         car, pickup, delivery = order["legs"][leg]["car"], order["legs"][leg]["pickup"], order["legs"][leg]["delivery"]
@@ -691,7 +774,12 @@ def stops_for(
         )
         start = max(noted["from"], retry.pickup_from)
         pickup_window: TimeWindow = {"from": start, "to": max(noted["to"], start)}
-        delivery_base: TimeWindow = {"from": delivery["window"]["from"], "to": max(delivery["window"]["from"], order["deadline"])}
+        deliv_to = (
+            min(delivery["window"]["to"], shift_business_days(order["deadline"], extra_days) if notes_v2 else order["deadline"])
+            if respect_stop_windows
+            else order["deadline"]
+        )
+        delivery_base: TimeWindow = {"from": delivery["window"]["from"], "to": max(delivery["window"]["from"], deliv_to)}
         delivery_window = window_from_note(
             note, delivery_base, "delivery",
             v2=notes_v2, arrived_at=arrived_at, private_address=delivery["privateAddress"], stated_hours=delivery["hours"],
