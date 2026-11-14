@@ -48,7 +48,7 @@ HOUR = 60
 SEED = sys.argv[1]
 ARMS = sys.argv[2:]
 SPARE, BUMP, QUOTE, TEACH = 4 * HOUR, 120, 0.92, 0.7
-OPEN = {1: 0.5, 2: 0.6, 3: 0.5, 4: 0.45}   # 1 = a homeward single: in the app at 0.5x while offers go out
+OPEN = {1: 0.5, 2: 0.6, 3: 0.5, 4: 0.45, "c": 0.65}   # 1 = a homeward single (offers meanwhile); "c" = chain home
 SOLO, RESCUE = 0.9, 1.4
 LO, HI, STEPS = 0.4, 1.4, 3
 HOME_OFFER, POOL = 0.75, 40   # ride home: offered at 0.75x to drivers living near the delivery; a pool = 40+ drivers
@@ -149,6 +149,25 @@ def homeward(exclude):
     return out
 
 
+def chains_home():
+    """His idea (Sun 00:30): a driver living in A takes the train to B, drives B -> C, then C' -> A home. Two cars x, y:
+    y's pickup within 30 km of x's delivery, y ends in a pool A (40+ drivers), x starts outside A (so it isn't a closed
+    pair), drivable in one gig. Disjoint chains by a maximum matching."""
+    ok = [r for r in REQ.values() if len(r["legs"]) == 1 and slow_option(r)
+          and not r["legs"][0]["pickup"]["privateAddress"] and not r["legs"][0]["delivery"]["privateAddress"]]
+    g = nx.Graph()
+    for x in ok:
+        for y in ok:
+            if x is y or abs(x["arrivedAt"] - y["arrivedAt"]) > DAY:
+                continue
+            (b, c), (c2, a) = ends(x), ends(y)
+            if geo.line_km(c, c2) <= 30 and NEAR[a] >= POOL and geo.line_km(b, a) > 30 and drivable([x, y]):
+                w = (x["referenceFeeCents"] + y["referenceFeeCents"]) * (SOLO - OPEN["c"])
+                if not g.has_edge(x["id"], y["id"]) or g.edges[x["id"], y["id"]]["w"] < w:
+                    g.add_edge(x["id"], y["id"], w=w, c=[x["id"], y["id"]])
+    return [g.edges[e]["c"] for e in nx.max_weight_matching(g, maxcardinality=True)]
+
+
 # ── the desk ──────────────────────────────────────────────────────────────────────────────────────────────
 class Desk:
     def __init__(self, arm, loops):
@@ -213,6 +232,8 @@ class Desk:
         if any(i in self.lost for i in loop):
             return [self.post([oid], SOLO, "broken", now)]
         if all(i in self.held for i in loop):
+            if self.arm == "chain":
+                return [self.post(list(loop), OPEN["c"], "chain", now)]
             return [self.post(list(loop), OPEN[len(loop)], "home" if len(loop) == 1 else f"loop{len(loop)}", now)]
         return []
 
@@ -280,7 +301,7 @@ class Desk:
             if g in self.booked:
                 continue
             last = x["steps"][-1][0]
-            if (x["kind"].startswith("loop") or x["kind"] == "home") and not x.get("bumped") and now - x["at"] >= BUMP:
+            if (x["kind"].startswith("loop") or x["kind"] in ("home", "chain")) and not x.get("bumped") and now - x["at"] >= BUMP:
                 x["bumped"] = True
                 out.append(self.reprice(g, int(SOLO * sum(REQ[o]["referenceFeeCents"] for o in x["oids"])), now, "bump"))
             elif x["kind"] == "search" and now - last >= HOUR:
@@ -302,18 +323,20 @@ class Desk:
         if now % DAY < 7 * HOUR or now % DAY >= 23 * HOUR:       # nobody reads an offer at night
             return out
         for g, x in self.gigs.items():
-            if x["kind"] != "home" or g in self.booked or x.get("bumped"):
+            if x["kind"] not in ("home", "chain") or g in self.booked or x.get("bumped") \
+                    or not all(o in self.orders for o in x["oids"]):     # a cancelled order: leave it
                 continue
-            o = x["oids"][0]
-            car = self.orders[o]["legs"][0]
-            d = car["delivery"]["placeId"]
-            manual = note_flags(REQ[o]["note"], v2=True).manual
+            last = x["oids"][-1]                  # the car that ends at the driver's home
+            d = self.orders[last]["legs"][0]["delivery"]["placeId"]
+            premium = any(self.orders[o]["legs"][0]["car"]["premium"] for o in x["oids"])
+            manual = any(note_flags(REQ[o]["note"], v2=True).manual for o in x["oids"])
             cands = [v for v in ROSTER.values() if geo.line_km(v["homePlaceId"], d) <= 30 and v["id"] not in self.offers[g]
                      and self.offers_today[(v["id"], now // DAY)] < 3
-                     and (not car["car"]["premium"] or (v["rating"] >= 4.8 and v["completedGigs"] >= 50))
+                     and (not premium or (v["rating"] >= 4.8 and v["completedGigs"] >= 50))
                      and (not manual or v["licence"] == "manual")]
             cands.sort(key=lambda v: (-self.last_view.get(v["id"], -10 ** 6), v["id"]))
-            fee = int(HOME_OFFER * REQ[o]["referenceFeeCents"])
+            fee = x["fee"] if x["kind"] == "chain" else int(HOME_OFFER * REQ[x["oids"][0]]["referenceFeeCents"])
+            # a chain's offer is its app fee: an aimed notification to the drivers it takes home
             for v in cands[:max(0, 3 - self.open_offers[g])]:
                 out.append({"type": "offer", "gigId": g, "driverId": v["id"], "feeCents": fee})
                 self.offers[g].add(v["id"])
@@ -355,7 +378,7 @@ KINDS = ["price_request", "order_won", "order_lost", "order_changed", "order_can
          "gig_expired", "gig_dropped", "no_show", "visit_failed", "offer_answered"]
 SELECT = {}
 GROUP = {"loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
-         "home": "2h", "solo4": "2h", "homeonly": "h", "solo5": "h"}
+         "home": "2h", "solo4": "2h", "homeonly": "h", "solo5": "h", "chain": "c", "solo6": "c"}
 
 
 def selection(arm):
@@ -368,6 +391,8 @@ def selection(arm):
         elif key == "2h":
             pairs, cands, n = selection("pairs")
             SELECT[key] = (pairs + homeward({i for c in pairs for i in c}), cands, n)
+        elif key == "c":
+            SELECT[key] = (chains_home(), 0, 0)
         else:
             SELECT[key] = (homeward(set()), 0, 0)
     return SELECT[key]
@@ -380,7 +405,7 @@ def play(arm):
     with world(SEED, what=f"loops1-{arm}") as w:
         pending = []
         while w.now < w.ends_at:
-            tick = 10 if GROUP[arm] in ("2h", "h") else 30          # offers last 10 minutes
+            tick = 10 if GROUP[arm] in ("2h", "h", "c") else 30          # offers last 10 minutes
             results, events = w.advance(until=KINDS, max=min(w.ends_at, w.now + tick), actions=pending)
             desk.took(pending, results)
             pending = desk.step(events, w.now)
