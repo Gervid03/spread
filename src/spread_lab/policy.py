@@ -69,6 +69,8 @@ class Params:
     fri_same_day_max_drive: int = 0   # if > 0, on Friday (ready // DAY >= 4), drop same_day with drive >= this
     ring_to_hub_same_day_min: int = 0  # if > 0, allow ring same_day into dense hub (supply >= 200) when drive <= this
     same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
+    min_pickup_window_slack_min: int = 0  # if > 0, drop option when leg 0 pickup window closes before deadline with < this slack from ready
+    trade_in_mode: str = "all"        # "all" or "same_day_only" on 2-leg trade-ins
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
     backlog_multiday_weight: float = 1.0  # weight in backlog_near for unurgent orders due on a future day
@@ -98,6 +100,9 @@ class Params:
     offer_recent_view_min: int = 240  # drivers who viewed one of our gigs this recently go first
     pre_warn_lead_min: int = 0        # > 0: minutes before deadline warning on deadline day to nudge fees & send offers
     pre_warn_fee: float = 1.35        # fee multiple used when pre_warn_lead_min triggers
+    crisis_lead_min: int = 0          # > 0: minutes before lastPickupAt to trigger second-wave crisis rescue on urgent unbooked orders
+    crisis_offer_mult: float = 1.95   # direct offer fee multiple during crisis rescue
+    crisis_steep_open: float = 1.90   # minimum opening multiple when repricing/reposting at or after lastPickupAt - crisis_lead_min
     # --- handling rules -----------------------------------------------------------------------------
     charge_min_km: float = 200.0      # rule 3: an EV under 30% charge needs a charging stop on a route over this
     delivery_buffer_min: int = 0      # minutes to shave off delivery window upper bound when slack is ample
@@ -147,6 +152,7 @@ class Desk:
         self.posts: dict[str, PostAction] = {}       # gig id -> the post that made it
         self.urgent: set[str] = set()                # orders whose deadline warning has come
         self.pre_warned: set[str] = set()            # orders whose pre-warning fee nudge has fired
+        self.crisis_warned: set[str] = set()         # orders whose second-wave crisis rescue has fired
         self.decided: dict[str, str] = {}            # request id -> "quote" | "floor" | "decline"
         self.lost_requests: set[str] = set()         # request ids where order_lost was received
         self.mult = {8: params.price_mult_l8, 7: params.price_mult_l7}.get(level, params.price_mult_low)
@@ -160,6 +166,8 @@ class Desk:
         self.gate_supply = geo.supply(roster, r)
         self.last_view: dict[str, int] = {}          # driver id -> minute of their last view of our gigs
         self.offers_sent: Counter = Counter()        # (driver id, day) -> direct offers sent
+        self.gig_offers_sent: set[tuple[str, str]] = set()  # (gig id, driver id) -> direct offer already sent
+        self.open_gig_offers: Counter = Counter()    # gig id -> currently open direct offers
         self.stats: Counter = Counter()
         self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
         self.ring_hub_same_day: set[str] = set()     # request/order ids where ring_to_hub_same_day_min allowed same_day
@@ -222,6 +230,8 @@ class Desk:
                         self.stats["late_ring"] += 1
                     if order and order["option"] == "same_day" and line["orderId"] in self.ring_hub_same_day:
                         self.stats["late_ring_hub_same_day"] += 1
+                    if order and len(order["legs"]) == 2:
+                        self.stats["late_trade_in"] += 1
                 self.late.add(line["orderId"])
                 if dealer:
                     self.dealer_trust[dealer] //= 2
@@ -231,6 +241,7 @@ class Desk:
                         self.dealer_trust[dealer] = min(25, self.dealer_trust[dealer] + 1)
         elif kind == "offer_answered":
             self.stats[f"offer_{event['answer']}"] += 1
+            self.open_gig_offers[event["gigId"]] = max(0, self.open_gig_offers[event["gigId"]] - 1)
         elif kind == "delivered":
             self.leg_gigs.get(event["orderId"], {}).pop(event["leg"], None)
             if event["orderId"] in self.orders:
@@ -257,6 +268,14 @@ class Desk:
                 warn_at = order["lastPickupAt"] - 3 * HOUR
                 if 0 < warn_at - self.now <= p.pre_warn_lead_min:
                     self.pre_warn(order_id, order, warn_at)
+        if p.crisis_lead_min > 0 and self.level >= 3:
+            for order_id, order in self.orders.items():
+                if order_id not in self.urgent or order_id in self.crisis_warned:
+                    continue
+                if not undelivered(order) or self.staffed(order):
+                    continue
+                if self.now >= order["lastPickupAt"] - p.crisis_lead_min:
+                    self.crisis_rescue(order_id, order)
 
     def pre_warn(self, order_id: str, order: Order, warn_at: int) -> None:
         p = self.p
@@ -274,6 +293,21 @@ class Desk:
                 self.posts[gig_id] = {**post, "schedule": schedule}
                 self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": schedule})
                 self.offer(gig_id, order, count=2, mult=p.pre_warn_fee)
+
+    def crisis_rescue(self, order_id: str, order: Order) -> None:
+        p = self.p
+        self.crisis_warned.add(order_id)
+        self.stats["crisis_rescued"] += 1
+        self.send_post_of(order_id)
+        for gig_id in self.gigs_of(order_id):
+            if gig_id not in self.booked and gig_id in self.posts:
+                post = self.posts[gig_id]
+                base = self.requests[order_id]["referenceFeeCents"] * pickups(post) / len(order["legs"])
+                schedule = self.steep(base, open_mult=max(p.steep_open, p.crisis_steep_open))
+                self.posts[gig_id] = {**post, "schedule": schedule}
+                if not any(a["type"] == "reprice" and a["gigId"] == gig_id for a in self.outbox):
+                    self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": schedule})
+                self.offer(gig_id, order, count=2, mult=p.crisis_offer_mult)
 
     # --- quoting --------------------------------------------------------------------------------------
     def quote(self, request: PriceRequest) -> None:
@@ -367,7 +401,15 @@ class Desk:
 
         prices: dict[str, int] = {}
         floored = False
+        p0_win = (
+            window_from_note(request["note"], legs[0]["pickup"]["window"], "pickup")
+            if p.min_pickup_window_slack_min > 0
+            else None
+        )
         for option in request["options"]:
+            if len(legs) == 2 and p.trade_in_mode == "same_day_only" and option["kind"] != "same_day":
+                self.stats["dropped_trade_in"] += 1
+                continue
             ring_hub_sd = False
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
                 if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
@@ -409,6 +451,9 @@ class Desk:
             slack = deadline - ready - drive
             if slack < p.min_slack_min + p.slack_per_drive * drive:
                 self.stats["dropped_slack"] += 1
+                continue
+            if p0_win is not None and p0_win["to"] < option["deadline"] and p0_win["to"] - ready < p.min_pickup_window_slack_min:
+                self.stats["dropped_pickup_window"] += 1
                 continue
             if ring_hub_sd:
                 self.stats["quoted_ring_hub_same_day"] += 1
@@ -496,6 +541,8 @@ class Desk:
                 self.stats["won_ring"] += 1
             if order["option"] == "same_day" and order["id"] in self.ring_hub_same_day:
                 self.stats["won_ring_hub_same_day"] += 1
+            if len(order["legs"]) == 2:
+                self.stats["won_trade_in"] += 1
             self.stats[f"won_{order['option']}"] += 1
             self.post(order, undelivered(order))
 
@@ -547,13 +594,18 @@ class Desk:
                 continue
             if self.offers_sent[(d["id"], day)] >= 3:
                 continue
+            if p.crisis_lead_min > 0 and (gig_id, d["id"]) in self.gig_offers_sent:
+                continue
             recent = self.now - self.last_view.get(d["id"], -10 ** 9) <= p.offer_recent_view_min
             candidates.append((0 if recent else 1, self.geo.minutes(d["homePlaceId"], pickup), d["id"]))
         candidates.sort()
         fee = int(self.requests[order["id"]]["referenceFeeCents"] * pickups(post) / len(order["legs"]) * offer_mult + 0.5)
-        for _, _, driver_id in candidates[: min(3, n_offers)]:
+        max_offers = max(0, min(3 - self.open_gig_offers[gig_id], n_offers)) if p.crisis_lead_min > 0 else min(3, n_offers)
+        for _, _, driver_id in candidates[:max_offers]:
             self.outbox.append({"type": "offer", "gigId": gig_id, "driverId": driver_id, "feeCents": fee})
             self.offers_sent[(driver_id, day)] += 1
+            self.gig_offers_sent.add((gig_id, driver_id))
+            self.open_gig_offers[gig_id] += 1
             self.stats["offers"] += 1
 
     def fees_for(self, order: Order, cars: int) -> list[FeeStep]:
@@ -562,7 +614,10 @@ class Desk:
         if self.level == 1:
             return [{"at": self.now, "feeCents": max(1, int(base * p.fee_open + 0.5))}]
         if order["id"] in self.urgent:
-            return self.steep(base)
+            open_mult = p.steep_open
+            if p.crisis_lead_min > 0 and order["lastPickupAt"] - self.now <= p.crisis_lead_min:
+                open_mult = max(open_mult, p.crisis_steep_open)
+            return self.steep(base, open_mult=open_mult)
         until = order["lastPickupAt"] - 3 * HOUR
         supply = self.supply.get(order["legs"][0]["pickup"]["placeId"], 0)
         fee_open_override: Optional[float] = None
@@ -591,11 +646,12 @@ class Desk:
         return [{"at": at, "feeCents": max(1, int(base * (fee_open + (p.fee_warn - fee_open) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
                 for i, at in enumerate(times)]
 
-    def steep(self, base: float) -> list[FeeStep]:
+    def steep(self, base: float, open_mult: Optional[float] = None) -> list[FeeStep]:
         p = self.p
+        start_mult = p.steep_open if open_mult is None else open_mult
         steps, k = [], 0
         while True:
-            mult = p.steep_open + k * p.steep_step
+            mult = start_mult + k * p.steep_step
             if mult > p.steep_max + 1e-9 or k >= 48:
                 break
             steps.append({"at": self.now + k * 30, "feeCents": max(1, int(base * mult + 0.5))})
@@ -729,6 +785,7 @@ class Desk:
                 self.last_view[e["driverId"]] = e["at"]
             elif e["kind"] == "offer_answered":
                 self.offers_sent[(e["driverId"], e["at"] // DAY)] += 1
+                self.gig_offers_sent.add((e["gigId"], e["driverId"]))
         self.orders = {o["id"]: o for o in snapshot["orders"] if o["id"] in self.requests and o["status"] != "cancelled"}
         if self.p.drop_urgent_margin_min > 0:
             for e in history:
@@ -739,6 +796,13 @@ class Desk:
                             order = self.orders.get(order_id)
                             if order and order["lastPickupAt"] - e["at"] <= self.p.drop_urgent_margin_min:
                                 self.urgent.add(order_id)
+        if self.p.crisis_lead_min > 0:
+            for gig in snapshot["gigs"]:
+                order_id = gig["stops"][0]["orderId"]
+                order = self.orders.get(order_id)
+                if order and order_id in self.urgent and gig["schedule"]:
+                    if gig["schedule"][0]["at"] >= order["lastPickupAt"] - self.p.crisis_lead_min:
+                        self.crisis_warned.add(order_id)
         ratios = []  # the price level of the latest wins, so a restarted desk does not relearn from the prior
         for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"])[-30:]:
             option = next((o for o in self.requests[order["id"]]["options"] if o["kind"] == order["option"]), None)
