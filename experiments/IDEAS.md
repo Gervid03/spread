@@ -62,8 +62,9 @@ of your own while those four are still unstarted. A brief for idea 16 already ad
 `experiments/prompts/night2/feeclock-on-a.md`: copy it into `night-queue/` when a slot frees.
 
 **7. Promotion.** `01-validate-top` runs A, 03111, 03501 and the best v7 stack on holdout plus 32 fresh worlds,
-checks a restart and `step_min=3`, and leaves a promotion branch. The cloud lead promotes from there. Nobody
-else touches `champion/` or `main`.
+checks a restart and `step_min=3`, and promotes the winner through `scripts/promote.sh` (gated against the
+champion on dev, holdout and a restart). Nobody else touches `champion/` or `main`. To promote a later winner,
+write a prompt that runs `bash scripts/promote.sh <branch> <flags>` (see `01-validate-top`, step 3).
 
 ## Where we are
 | Version | What it added | Dev mean | Holdout mean | Worst world |

@@ -1,8 +1,8 @@
 The cloud lead's validation worker. No new mechanism, so protocol steps 1–4 don't apply. You measure the night's
 best candidates on worlds they were never tuned on, run two checks for the final, and leave a promotion branch.
 Two exceptions to the common rules, for you alone and given by the lead: you may evaluate holdout seeds
-(`--seeds-from holdout`), and you may run `uv run lab promote` inside YOUR OWN worktree. Never push `main`, and
-never run `lab board`, `lab final` or `lab reap --force`.
+(`--seeds-from holdout`), and you may run `scripts/promote.sh` once, as step 3 says. Never push `main`
+yourself, and never run `lab board`, `lab final`, `lab promote` or `lab reap --force` by hand.
 
 ## Candidates (each one: a branch, plus the flags to pass on every eval)
 BASE = `-s trust_invest=0.05 -s notes_v2=True -s note_unsure=decline -s max_next_day_drive_min=480 -s fri_same_day_max_drive=100 -s thin_long_next_day_supply=50 -s ring_to_hub_same_day_min=60 -s same_day_min_supply=50 -s min_slack_min=150 -s slack_per_drive=0.75`
@@ -35,17 +35,17 @@ higher worst on-time share.
   on-time share of more than 1 point on any seed matters more than the margin: say so in the first line of
   your report.
 
-## 3. The promotion branch
-In your own worktree: `git fetch -q origin && git merge --no-edit origin/<W's branch>`, `uv sync -q`, then
-`uv run lab eval <W flags> --name dev` (it must reproduce W's dev mean to the cent; say whether it does) and
-`uv run lab eval --seeds-from holdout <W flags> --name holdout`. Then
-`uv run lab promote runs/<the dev folder> --note "<one line: W, the 48-world numbers>"` and
-`uv run lab promote runs/<the holdout folder> --note "<the same line>"`. Commit `champion/` together with your
-note, and push your branch. Don't merge into main.
+## 3. Promotion, through the gated script
+If the step3 check is clean (no seed loses more than 1 point of on-time share) and the restart finished ranked, run
+from your worktree: `bash scripts/promote.sh <W's branch> <W's flags>`. It merges W onto origin/main in a fresh
+worktree and runs dev, holdout and a restart against the current champion. If every gate passes, it promotes and
+pushes main: that is the only push to main you may make, and only through this script. Copy its last ten lines
+into your note. If it refuses, report which gate refused, and don't retry with other flags. If the step3 check is
+not clean, don't run it; say why in your first line.
 
 ## 4. The note
 `experiments/<YYYYMMDD-HHMM>-gemini-validate-top.md` with one table: one row per candidate and v2, with columns
 holdout mean, Δ vs v2 ± SE (t), night32 mean, Δ vs v2 ± SE (t), the 48-world mean, worst on-time, worlds under
 92% and under 91%. Add the restart and step3 results, which candidate won and why, and the commit of your branch.
 Your last three lines: W and its branch; its 48-world mean and Δ vs v2, worst on-time, worlds under 92%; the
-step3 and restart verdicts.
+step3 verdict and promote.sh's verdict (PROMOTED with the main commit, or which gate refused).
