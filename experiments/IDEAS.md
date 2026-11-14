@@ -84,6 +84,12 @@ offer to our own driver after booking, or a paired gig before booking), run side
 idea 17 (`slack_by_hours=True`, `min_slack_min` 120, `n14-06261`) was margin-neutral with 29% fewer warnings and
 fewer late orders, a safety lever for the final's tail.
 
+**6c. The route network (idea 31, the user's design, added 09:30 Helsinki). Queue both briefs at your next tick, right
+after 6a's two:** `experiments/prompts/night2/network-routes-on-v3.md` (a third route to the chains' volume, beside the
+two hitch briefs: offers to our finishing drivers with redundancy and a home-bound fee, on-network quotes, seeding) and
+`experiments/prompts/night2/research-network-census.md` (R15, slot-free: how many continuations, how many candidates
+each, how many home-bound). Once each; if they already sit in the queue or have started, don't copy them again.
+
 **6b. Faster practice, once the final-champion study is done.** When INPUT.md shows the `final-champion` worker
 finished, copy `experiments/prompts/night2/rebase-capacity.md` into `night-queue/`, once. It re-baselines the champion
 on 14-minute steps with event-driven evenings: neutral on margin (+€26 ± 149), +61% worlds per hour (n14-06041). Don't
@@ -393,6 +399,23 @@ of the day once we hold more than this share of its requests today, so that it n
 size of its roster, which we hold before the first request, the Monday prior (1.35 for every world, against
 levels of 1.26–1.54) can be read off it: `prior_from_roster` (default off).
 
+### 31. `open` The route network: our finishing drivers are the cheapest drivers there are (the user, 14 Nov)
+- **Mechanism.** A driver who has just delivered one of our cars needs no trip to the next pickup near them, and if
+  the next car goes towards their home, no ticket home either (the dear one, bought on the day). The app never tells
+  them about it (notifications go by home), so it has to reach them by a direct offer, which the handbook names for
+  exactly this case. One offer can fail; several of our drivers finishing near one pickup make it safe: offer it to up
+  to three at once (3 open offers a gig, 3 a driver a day), and the app post stays up for the local drivers. The price
+  side follows: a request near where our drivers will finish is cheap to staff, so quote it to win (and open the
+  thin-gate requests there), and win more of the outbound cars that leave drivers where return work appears (seeding).
+- **Evidence.** R11: 94 disjoint chains a week among requests we decline. `n14-05162`: thin towns without chains take
+  drivers from the other orders. Scouting: 18–41 driver-days a world with two of our pickups, a third of the pairs
+  within 30 km.
+- **Change.** `prompts/night2/network-routes-on-v3.md`: (a) a position ledger, (b) `net_offer` with `net_fanout`,
+  `net_offer_mult`, `net_home_mult`, `net_lead_min`, (c) `net_quote`, (d) `net_seed`. R15 (`research-network-census.md`)
+  sizes it.
+- **Guess.** Unknown; the jury's creative entry if it works. Differs from 26 in three ways: every open gig, not only
+  declined thin requests; redundancy; the home-bound fee.
+
 ## Still open from round 1
 ### 10. `open` **The brake.** Insurance for the final; do the cheap form before Sunday
 - **Mechanism.** The minimum is a share: nine on-time orders pay for one late one. One world of 32 is at
@@ -484,6 +507,9 @@ ones. Briefs: `prompts/gemini-research3.md` (R6 and R8), `prompts/gemini-snow.md
 - R14. `open` **The value of speed.** When we quoted two or three options, which one did the dealer take, by
   the price gap between them? Margin and late share per won option. For S10 and a `within_3_days` discount
   (13 orders a world, none late: the cheapest ballast there is).
+- R15. `open` **The network census** (for idea 31): our drivers' finishes by town and hour, the continuations near
+  each (any outcome; home-bound or not), candidates per continuation, organic chaining, seeding potential.
+  Brief: `prompts/night2/research-network-census.md`.
 - R1 `open` (X-ray by fork; needs the lead) · R2 → R6 · R3 `open` (how late is late; with idea 15 it also
   gives the tiers) · R4 → R12 · R5 `open` (the capital's daily ceiling; idea 20 needs its number).
 
