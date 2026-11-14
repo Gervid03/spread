@@ -1,0 +1,20 @@
+# uv run lab sweep --seeds-from dev --name n-backlog -g backlog_ratio=0.04,0.09,0.12
+# started 2026-11-14T00:57:46Z
+
+=== backlog_ratio=0.04
+  mean margin €8,886.93  (median €8,118.31, min €5,852.08)  ranked 16/16  on time min 94.3% mean 96.8%  won 226  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-103.37 ± 106.64 (SE) t=-0.97  better on 4, worse on 7  Δon-time +0.04%
+
+=== backlog_ratio=0.09
+  mean margin €8,821.43  (median €7,766.36, min €6,017.30)  ranked 16/16  on time min 93.9% mean 96.6%  won 231  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-168.88 ± 143.20 (SE) t=-1.18  better on 4, worse on 5  Δon-time -0.10%
+
+=== backlog_ratio=0.12
+  mean margin €8,771.15  (median €7,865.26, min €6,017.30)  ranked 16/16  on time min 92.5% mean 96.5%  won 231  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-219.15 ± 169.47 (SE) t=-1.29  better on 3, worse on 7  Δon-time -0.27%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  backlog_ratio=0.04                                 €     8,887  on-time min 94.3%  SAFE  Δ €-103±107  20261114-005746-n-backlog-backlog_ratio0.04
+  backlog_ratio=0.09                                 €     8,821  on-time min 93.9%  SAFE  Δ €-169±143  20261114-005900-n-backlog-backlog_ratio0.09
+  backlog_ratio=0.12                                 €     8,771  on-time min 92.5%  SAFE  Δ €-219±169  20261114-010000-n-backlog-backlog_ratio0.12
+# exit 0 at 2026-11-14T01:01:06Z

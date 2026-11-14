@@ -1,0 +1,20 @@
+# uv run lab sweep --seeds-from dev --name n-longdrive -g long_drive_min=0,240,360
+# started 2026-11-14T01:01:46Z
+
+=== long_drive_min=0
+  mean margin €8,953.52  (median €8,142.85, min €6,017.30)  ranked 16/16  on time min 94.4% mean 96.9%  won 227  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-36.79 ± 89.63 (SE) t=-0.41  better on 3, worse on 4  Δon-time +0.11%
+
+=== long_drive_min=240
+  mean margin €8,869.83  (median €8,572.25, min €6,393.16)  ranked 16/16  on time min 93.4% mean 96.9%  won 229  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-120.47 ± 138.68 (SE) t=-0.87  better on 8, worse on 8  Δon-time +0.11%
+
+=== long_drive_min=360
+  mean margin €8,974.96  (median €8,142.85, min €6,017.30)  ranked 16/16  on time min 94.4% mean 96.9%  won 227  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-15.34 ± 88.73 (SE) t=-0.17  better on 3, worse on 1  Δon-time +0.15%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  long_drive_min=360                                 €     8,975  on-time min 94.4%  SAFE  Δ €-15±89  20261114-010343-n-longdrive-long_drive_min360
+  long_drive_min=0                                   €     8,954  on-time min 94.4%  SAFE  Δ €-37±90  20261114-010146-n-longdrive-long_drive_min0
+  long_drive_min=240                                 €     8,870  on-time min 93.4%  SAFE  Δ €-120±139  20261114-010239-n-longdrive-long_drive_min240
+# exit 0 at 2026-11-14T01:05:40Z

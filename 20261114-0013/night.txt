@@ -25,3 +25,14 @@
 00:48:22 worker n14-10-flu started (pid 12703)
 00:48:42 sweep 9 started: sweep --seeds-from dev --name n-lr -g price_lr=0.03,0.08 -g dealer_lr=0.01,0.04
 00:52:42 sweep 10 started: sweep --seeds-from dev --name n-margin -g expected_fee_mult=1.10,1.40 -g min_margin_frac=0.04,0.12
+00:54:46 published to night/20261114
+00:57:46 sweep 11 started: sweep --seeds-from dev --name n-backlog -g backlog_ratio=0.04,0.09,0.12
+01:01:46 sweep 12 started: sweep --seeds-from dev --name n-longdrive -g long_drive_min=0,240,360
+01:02:46 worker n14-06-budget finished after 34 min
+01:02:46 worker n14-11-class-table started (pid 14561)
+01:06:06 sweep 13 started: sweep --seeds-from dev --name n-streak -g loss_streak_freeze=8,20,9999
+01:09:06 worker n14-08-return finished after 35 min
+01:09:06 worker n14-12-twoclocks-v2 started (pid 15263)
+01:09:28 lead tick started (pid 15410)
+01:10:28 sweep 14 started: sweep --seeds-from dev --name n-sdmarkup -g same_day_markup=0.0,0.10,0.15
+01:14:28 sweep 15 started: sweep --seeds-from dev --name n-steep -g steep_open=1.5,2.2 -g steep_step=0.15,0.35

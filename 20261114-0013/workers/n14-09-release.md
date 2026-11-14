@@ -1,6 +1,6 @@
 # n14-09-release
-tool calls 71; result {}
+tool calls 102; result {}
 
 ## Its last words
 
-I will run `uv run lab reveal` on four finished champion dev worlds (`dev-01`, `dev-07`, `dev-10`, `dev-14`) into the temporary directory `/home/lab/.gemini/tmp/n14-09-release` (4 requests total) and inspect their events for `driver_late`, `order_changed`, and late deliveries.I will reveal the remaining 12 finished champion dev worlds into `/home/lab/.gemini/tmp/n14-09-release` (12 requests) and inspect all `driver_late` events, `order_changed` events on booked gigs, and the timeline of every late order across all 16 dev worlds.
+I will run `uv run lab reveal` on four finished champion dev worlds (`dev-01`, `dev-07`, `dev-10`, `dev-14`) into the temporary directory `/home/lab/.gemini/tmp/n14-09-release` (4 requests total) and inspect their events for `driver_late`, `order_changed`, and late deliveries.I will reveal the remaining 12 finished champion dev worlds into `/home/lab/.gemini/tmp/n14-09-release` (12 requests) and inspect all `driver_late` events, `order_changed` events on booked gigs, and the timeline of every late order across all 16 dev worlds.I will run `uv run lab eval --seeds-from smoke --name release-noop` to verify that our default parameters reproduce the champion's results (+0.00 paired delta on every smoke seed).I will run `uv run lab eval --seeds-from smoke -s release_late=true -s release_window=true --name release-win` to test whether narrowing the first pickup stop's window `to` to `order["lastPickupAt"]` causes `driver_late` to fire and improves smoke performance.I will now run `uv run lab eval -s release_late=true --name release-dev` on the 16-seed `dev` set to measure the paired effect of `release_late=true` against the champion.

@@ -1,0 +1,20 @@
+# uv run lab sweep --seeds-from dev --name n-sdmarkup -g same_day_markup=0.0,0.10,0.15
+# started 2026-11-14T01:10:28Z
+
+=== same_day_markup=0.0
+  mean margin €8,900.97  (median €8,274.24, min €6,360.33)  ranked 16/16  on time min 91.8% mean 96.9%  won 230  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €-89.33 ± 228.84 (SE) t=-0.39  better on 8, worse on 8  Δon-time +0.17%
+
+=== same_day_markup=0.10
+  mean margin €8,798.26  (median €8,060.47, min €6,100.38)  ranked 16/16  on time min 92.8% mean 96.9%  won 224  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-192.05 ± 233.67 (SE) t=-0.82  better on 5, worse on 11  Δon-time +0.10%
+
+=== same_day_markup=0.15
+  mean margin €8,467.07  (median €7,558.82, min €5,773.67)  ranked 16/16  on time min 94.0% mean 96.7%  won 225  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-523.24 ± 264.70 (SE) t=-1.98  better on 3, worse on 13  Δon-time -0.03%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  same_day_markup=0.0                                €     8,901  on-time min 91.8%  unsafe  Δ €-89±229  20261114-011028-n-sdmarkup-same_day_markup0.0
+  same_day_markup=0.10                               €     8,798  on-time min 92.8%  SAFE  Δ €-192±234  20261114-011150-n-sdmarkup-same_day_markup0.10
+  same_day_markup=0.15                               €     8,467  on-time min 94.0%  SAFE  Δ €-523±265  20261114-011257-n-sdmarkup-same_day_markup0.15
+# exit 0 at 2026-11-14T01:14:05Z

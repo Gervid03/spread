@@ -1,0 +1,20 @@
+# uv run lab sweep --seeds-from dev --name n-streak -g loss_streak_freeze=8,20,9999
+# started 2026-11-14T01:06:06Z
+
+=== loss_streak_freeze=8
+  mean margin €8,910.25  (median €8,615.36, min €5,581.05)  ranked 16/16  on time min 93.0% mean 96.8%  won 217  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-80.06 ± 190.34 (SE) t=-0.42  better on 6, worse on 10  Δon-time +0.07%
+
+=== loss_streak_freeze=20
+  mean margin €8,979.93  (median €8,703.18, min €5,698.19)  ranked 16/16  on time min 93.9% mean 96.7%  won 230  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-10.37 ± 126.13 (SE) t=-0.08  better on 5, worse on 7  Δon-time -0.08%
+
+=== loss_streak_freeze=9999
+  mean margin €8,979.27  (median €8,703.18, min €5,698.19)  ranked 16/16  on time min 93.9% mean 96.7%  won 230  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-11.04 ± 126.11 (SE) t=-0.09  better on 5, worse on 7  Δon-time -0.08%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  loss_streak_freeze=20                              €     8,980  on-time min 93.9%  SAFE  Δ €-10±126  20261114-010707-n-streak-loss_streak_freeze20
+  loss_streak_freeze=9999                            €     8,979  on-time min 93.9%  SAFE  Δ €-11±126  20261114-010833-n-streak-loss_streak_freeze9999
+  loss_streak_freeze=8                               €     8,910  on-time min 93.0%  SAFE  Δ €-80±190  20261114-010606-n-streak-loss_streak_freeze8
+# exit 0 at 2026-11-14T01:10:00Z

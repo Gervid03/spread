@@ -1,0 +1,4 @@
+# uv run lab sweep --seeds-from dev --name n-steep -g steep_open=1.5,2.2 -g steep_step=0.15,0.35
+# started 2026-11-14T01:14:28Z
+
+=== steep_open=1.5,steep_step=0.15

@@ -10,3 +10,16 @@
   vs champion on 16 paired seeds: Δmargin €-266.70 ± 163.53 (SE) t=-1.63  better on 7, worse on 9  Δon-time +0.08%
 
 === expected_fee_mult=1.40,min_margin_frac=0.04
+  mean margin €8,884.07  (median €8,275.07, min €6,251.29)  ranked 16/16  on time min 92.7% mean 97.0%  won 216  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-106.24 ± 282.47 (SE) t=-0.38  better on 9, worse on 7  Δon-time +0.25%
+
+=== expected_fee_mult=1.40,min_margin_frac=0.12
+  mean margin €8,563.22  (median €8,079.38, min €5,229.97)  ranked 16/16  on time min 92.4% mean 97.3%  won 193  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-427.08 ± 247.68 (SE) t=-1.72  better on 4, worse on 12  Δon-time +0.54%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  expected_fee_mult=1.40,min_margin_frac=0.04        €     8,884  on-time min 92.7%  SAFE  Δ €-106±282  20261114-005436-n-margin-expected_fee_mult1.40-min_margin_frac0.04
+  expected_fee_mult=1.10,min_margin_frac=0.12        €     8,724  on-time min 94.0%  SAFE  Δ €-267±164  20261114-005337-n-margin-expected_fee_mult1.10-min_margin_frac0.12
+  expected_fee_mult=1.40,min_margin_frac=0.12        €     8,563  on-time min 92.4%  SAFE  Δ €-427±248  20261114-005540-n-margin-expected_fee_mult1.40-min_margin_frac0.12
+  expected_fee_mult=1.10,min_margin_frac=0.04        €     8,127  on-time min 93.3%  SAFE  Δ €-864±259  20261114-005242-n-margin-expected_fee_mult1.10-min_margin_frac0.04
+# exit 0 at 2026-11-14T00:57:04Z
