@@ -363,7 +363,15 @@ def promote(folder: Path, note: str) -> None:
     meta = json.loads((folder / "meta.json").read_text(encoding="utf-8"))
     rows = load_results(folder)
     old = champion()
-    same = old.get("policy") == meta["policy"] and old.get("params") == meta["params"]
+    # Store the params the desk actually ran with, not just the overrides. A desk whose Params.from_dict merges the
+    # champion's params (cycles, sunday_tours) ran on the OLD champion's params plus its flags; storing only the flags
+    # made v7 play on defaults for 35 of v6's settings (16:02-18:40 Sat). Resolved here, before the new record is
+    # written, so from_dict still sees the old champion, exactly as the eval did.
+    cls = load_policy(meta["policy"])
+    resolved = asdict(cls.Params.from_dict(meta["params"]))
+    defaults = asdict(cls.Params())
+    params = {k: v for k, v in resolved.items() if k in meta["params"] or v != defaults.get(k)}
+    same = old.get("policy") == meta["policy"] and old.get("params") == params
     (CHAMPION / "results").mkdir(parents=True, exist_ok=True)
     if not same:
         for path in (CHAMPION / "results").glob("*.jsonl"):
@@ -372,7 +380,7 @@ def promote(folder: Path, note: str) -> None:
     (CHAMPION / "results" / name).write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
     summaries = dict(old.get("summary", {})) if same else {}
     summaries[name] = summarize(rows)
-    record = {"policy": meta["policy"], "params": meta["params"], "params_hash": meta["params_hash"],
+    record = {"policy": meta["policy"], "params": params, "params_hash": params_hash(meta["policy"], params),
               "git": meta["git"], "promoted": dt.datetime.now().isoformat(timespec="minutes"), "note": note,
               "summary": summaries}
     (CHAMPION / "champion.json").write_text(json.dumps(record, indent=2), encoding="utf-8")
