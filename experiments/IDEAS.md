@@ -5,239 +5,439 @@ Mark an idea **taken** with your branch when you start, and link your experiment
 
 Status: `open` · `taken (<branch>)` · `done → <note>` · `dropped (<why>)`
 
-**This version: Fable's scouting pass, 13 Nov 23:30.** Nothing below is tested. Every number marked
-*measured* comes from the reveals of seven finished worlds and is in
-[`20261113-2330-fable-research-scouting.md`](20261113-2330-fable-research-scouting.md), with the scripts
-that produced it (`experiments/scripts/scout_*.py`). Everything else is a guess to test. Gains in euros are
-rough guesses per level-8 week, there to order the work, not to quote.
+**This version: Fable's round 3, 14 Nov 01:30.** Nothing new below is tested. Numbers marked *measured*
+come from reveals of seven worlds at v0 ([scouting note](20261113-2330-fable-research-scouting.md)) or from
+the champion's 32 result lines at v2 ([results note](20261114-0130-fable-research-v2-results.md), script
+`experiments/scripts/scout_results.py`); the second kind are correlations *between worlds* and are leads.
+Everything else is a guess to test. Gains in euros are rough guesses per level-8 week, there to order the
+work. Ideas keep their numbers for good: 1–14 are round 1, 15–30 round 3.
 
-## What the reveals say (read this first)
-1. **v0 declines the biggest pickup town.** Hyvinkää sends 173–219 of the ~1,035 requests a week (17–21%) and
-   is the top delivery town. It has 5–22 drivers within 30 km, so `min_supply` 30 declines all of it. It is
-   39 km from Vantaa, and the Helsinki–Espoo–Vantaa ring holds 327–444 drivers. In the three `min_supply` 6
-   runs we have, Hyvinkää `next_day` and `within_3_days` orders were 1 late of 50, at a median fee of 1.0× the
-   typical fee, and 58% of the drivers who booked Hyvinkää cars live in the ring. *measured*
-2. **Lateness sits in a few classes.** At v0: capital `same_day` 10 late of 302, capital `next_day` 8 of 229,
-   `within_3_days` 0 of 43, but `same_day` outside the capital 16 of 109, and drives of 500 km or more 14 of
-   104. One 20-car bulk order (same yard, `same_day`) gave 5 of one world's 10 late orders. About a quarter
-   of the late orders carried a note about delivery hours or a tighter deadline. *measured*
-3. **The deadline warning is an obituary.** 30 of the 42 orders that got `deadline_close` ended late, and 30 of
-   the 41 late orders had one. Direct offers after it: 218 sent, 3 accepted, 149 unread, although every one
-   went to a driver who had viewed a gig of ours that day. *measured*
-4. **We pay the opening fee, at once.** 55–81% of gigs are booked within 5 minutes of the post and 60% at
-   exactly 1.0× the typical fee. Driver fees are 67% of revenue (€15.0k of €22.3k a week). We have never
-   posted below the typical fee. `next_day` gigs that book after the post day cost 1.21–1.65× the typical
-   fee, against 1.01–1.03× for those booked on the post day. *measured*
-5. **The price tracker loses a day around every price war.** It either sits the low day out (dev-04 Tuesday:
-   4 wins from 105 quotes) or follows it down and starts the next morning far too cheap (dev-03 Tuesday
-   08–12: 36 wins from 45 quotes at 1.28–1.32× list, the same afternoon 1.6–1.9× still won 40%). The caps
-   bind too: on hold-10, D01's median quote from Wednesday is 2.39× list, which is `price_mult_max` ×
-   `dealer_adj_max`. *measured*
-6. **One dealer is a third of the market.** D01 sends 282–372 requests a week, mostly from one yard. Trust
-   (+1% per on-time order, up to 25) is therefore worth most at D01, and a late D01 order costs far more
-   than its refund. *measured (the sizes), the rest from the rules*
-7. **Volume has a ceiling per day in the capital.** At v0 the capital carries about 75 `same_day` orders a
-   week at 3% late; in the `min_supply` 6 runs it carried 112–172 at 11–19% late. More volume has to come
-   from slower options and other pools, not from more `same_day` in the same town. *measured*
+## Where we are
+| Version | What it added | Dev mean | Holdout mean | Worst world |
+|---|---|---|---|---|
+| v0 | `min_supply` 30, win target 35% | €6,447 | €6,837 | 93.0% |
+| v1 | the ring (idea 1) and option steering (idea 2) | €7,926 | €7,942 | 92.7% |
+| **v2** | opening fee 0.85×, tracker step 0.05, no offers, slack 180 (sweeps S1–S6) | **€8,990** | **€9,414** | **91.8%** (hold-10) |
 
-**The principle for this round.** v0 buys its safety with two blunt levers, `min_supply` 30 and a 35% win
-target, which tax every order to stop a few classes. Replace each blunt lever with a gate on the class that
-is actually late, then give the tax back (lower `min_supply`, higher `price_target_win`) and measure again.
-After any idea below that removes late orders, re-run `-s price_target_win=0.45` on top of it.
+Wave 2, each against v1 on dev, none merged: two price clocks +€46 ± 204 · fee floor in dense towns with a
+night hold +€104 ± 196 · trust: investing +€215 ± 157, a trust gain on the price −€285 ± 117 · yard budget
+−€98 ± 220 (safer on the bulk world). **Lesson: with 16 seeds one standard error is €200–300, so an idea
+worth €300 is invisible** (see "For the lead" at the end), and tracker tuning is not where the money is.
 
-## Tier 0: sweeps that need no code (run these tonight)
-Each is one command on smoke, then dev if it looks good. One short note per sweep.
+## What we know (read this first)
+**From seven reveals at v0** *(measured)*
+1. Hyvinkää sends 17–21% of all requests and has 5–22 drivers within 30 km; the capital ring, 39 km away,
+   holds 327–444. *(Now served by the ring, slow options only: 56 orders a world, 4% late, €2,212.)*
+2. Lateness sits in classes: `same_day` outside the capital 15%, drives of 500 km or more 13.5%,
+   `within_3_days` 0 of 43. A quarter of the late orders had a note about hours or a tighter deadline.
+3. The deadline warning is an obituary: 30 of 42 warned orders ended late.
+4. Most gigs book within 5 minutes of the post at the opening fee. `next_day` gigs booked after the post
+   day cost 1.21–1.65× the typical fee, against 1.01–1.03× on the post day.
+5. The tracker loses a day around the price war; quotes that won and quotes that lost have the same
+   distribution of price ÷ list: one multiplier carries no lane structure.
+6. D01 is a third of the market. 45% of requests come in batches. 64–67% of requests of 60 km or more have
+   a request on the reverse lane the same or the next day.
+7. The capital carries about 75 `same_day` orders a week at 3% late, and 112–172 at 11–19% late.
+
+**From v2's 32 result lines and a second reading of the rules** *(measured between worlds, or read in the code)*
+
+8. **Margin follows volume (r = 0.79); the on-time share does not fall with volume (r = −0.11).** Worlds
+   differ in how many orders they can carry; the gates and the 35% target are the same in all of them.
+9. **A late order is an expired gig (8.7 against 8.2 a world), and each expired gig goes with €132 more
+   driver fees: about €1,150 a world.** The code explains it: an expired gig, already late, is posted
+   again at 1.8× the typical fee, 2.8× two hours later, and stays there overnight. The late tiers are
+   10% / 25% / 50% of the price: that fee buys nothing. Between `lastPickupAt` and the end of its window
+   an open gig cannot be booked at all, and the desk waits for `gig_expired`.
+10. **The fee clock ticks when nobody can act.** The climb from 0.85× to 1.6× is spread over every daytime
+    half-hour to the warning: a `next_day` gig posted at 15:00 is at about 1.2× at 07:00 next morning, a
+    Friday gig due Monday at 1.48× on Monday 07:00 (Saturday and Sunday tick). This is point 4.
+11. **Drops are the other face of the worst worlds** (late against drops r = 0.69; 31 drops a world, 11% of
+    bookings). hold-14 and dev-07 have 72 and 58 drops; the median is 30 and the next world has 42. A spike
+    like that needs a cause that hits many drivers at once. The flu comes every week, so snow is the
+    candidate ("drop bookings that must start that day"), and the desk ignores `forecast` events. *A guess
+    until R7: `not_ready` visits do not separate these two worlds (8 and 7 against a median of 4).*
+12. **The worst world is the richest**: hold-10, 91.8% on time, €14,067, 293 orders at €179 each, 46
+    warnings. The 90% is at risk where the week is good.
+13. **Floor quotes (205 a world, priced above the tracker) win about 31%**, nearly as often as normal
+    quotes: where the typical fee is high against the list price, dealers accept more. The typical fee
+    carries part of the competitor's lane factor. Floor outcomes do not teach the tracker.
+14. **`same_day_min_supply` 100 strips `same_day` from 170–313 requests in 7 of 32 worlds**; in 5 of them
+    the busy yard's town kept 30–99 drivers, so it is neither ring nor capital (mean margin €8,461).
+15. `within_3_days` is 13 of 232 orders. Failed visits in 32 worlds: `not_ready` 118, `no_plates` 38,
+    `closed` 19. Slack is measured to 20:00, not to the delivery site's closing time. Premium cars need
+    experienced drivers, and the gates count every driver. `order_won` already shows when a note moved the
+    ready day. Friday's slow options are due on the last Monday.
+
+## Principles for this round
+- **Spend safety on gates, not on price.** Every "tax back" through the win target (0.45) was unsafe and
+  worth €100–160: it cuts the price of the orders we would win anyway. Opening a class at full price (the
+  ring) was worth €1,500. The unspent safety (96.5% on average against a 92% rule: about 10 late orders a
+  world) should buy *new classes*, in the worlds and on the days that can carry them.
+- **A fee is worth what it can still save.** Before `lastPickupAt` it can save the order, the dealer's
+  trust and a place in the 90%. After it, it can save one refund tier.
+- **Measure as the world measures**: opening hours, `lastPickupAt`, who may drive the car.
+- **The plan lives in the world.** When our process stops, gigs keep their fee schedules. Put a new
+  escalation into the schedule at post time where you can, not into a timer; and keep `rejoin()` right.
+- **One load number should move both sides of the spread**: the dealer's price and the driver's fee.
+
+## Tier 0, round 2: sweeps that need no code
+On v2, smoke first, then dev for what looks good. Two briefs, so that neither holds the slots for long:
+`prompts/gemini-sweeps2.md` (the fee side: S7–S9, S16, S17) and `prompts/gemini-sweeps3.md` (the quote side:
+S10–S15). The grids leave out the champion's own values, except S14's.
 
 | # | Status | Command | Why |
 |---|---|---|---|
-| S1 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab sweep -g supply_radius_km=30,40,55` | 55 km puts Hyvinkää (and Porvoo) inside the capital's supply. Crude form of idea 1. Watch the on-time share: this also wins Hyvinkää `same_day`. |
-| S2 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab sweep -g price_mult_max=1.8,2.3 -g dealer_adj_max=1.3,1.6` | The caps bind on worlds with a dear competitor and high trust. |
-| S3 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab sweep -g fee_open=0.85,0.9,1.0` | Most gigs book in minutes at 1.0: is the floor lower? Crude form of idea 6. Watch `deadline_close` and drops. |
-| S4 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab sweep -g loss_streak_freeze=12,9999 -g price_lr=0.02,0.05` | Does following the price war down beat sitting it out? Crude form of idea 3. |
-| S5 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab eval --seeds-from smoke -s offers_per_warning=0` | 3 offers accepted of 218: if nothing changes, the offers go, and the desk is simpler. |
-| S6 | `done → 20261114-0017-gemini-tier0-sweeps.md` | `lab sweep -g min_slack_min=120,180,240` | `same_day` long drives are late; more slack is the bluntest fix (idea 2 is the sharp one). |
+| S7 | `open` | `lab sweep -g fee_open=0.70,0.75,0.80` | S3 was still rising at 0.85 (+€795 at 0.90, +€1,362 at 0.85 on smoke): the floor was not found. Watch `gig_dropped` and `deadline_close`. |
+| S8 | `open` | `lab sweep -g steep_max=1.8,2.3` and `lab eval --seeds-from smoke -s steep_open=1.6 -s steep_max=1.6` | Point 9: are fees up to 2.8× after the warning buying on-time orders? 1.8 is one flat step, (1.6, 1.6) is "no steep schedule at all". Crude form of idea 15. Never set `steep_open` above `steep_max`: the schedule would be empty. |
+| S9 | `open` | `lab sweep -g fee_warn=1.3,1.45` | Only 1.9 was ever tried (worse). With the opening at 0.85 the climb is steeper than at v0. |
+| S10 | `open` | `lab sweep -g same_day_markup=0.12,0.20` | Speed is what dealers pay for and what costs us drivers. Never swept. |
+| S11 | `open` | `lab sweep -g expected_fee_mult=1.1,1.4 -g min_margin_frac=0.08,0.18` | The floor assumes a fee of 1.25× typical; we pay about 1.0×. 205 quotes a world sit on it and win 31%. Both directions are open. |
+| S12 | `open` | `lab sweep -g dealer_lr=0.05,0.08` | The global step went 0.02 → 0.05 for +€281. The dealer factor carries trust and the competitor's reaction, still at 0.02. |
+| S13 | `open` | `lab sweep -g gate_radius_km=70,90` | The ring at 55 km was the biggest win. Is there a second ring for slow options? Report `won_ring`, `late_ring`. |
+| S14 | `open` | `lab sweep -g price_target_win=0.35,0.40 -g min_supply=20,30` | 0.45 was unsafe three times; 0.40 and the looser gate are untested on v2. The (0.35, 30) cell is the champion and must show Δ = 0.00. |
+| S15 | `open` | `lab sweep -g long_drive_min=480,0 -g slack_per_drive=0.25,0.5` | Steering went in as a bundle. Which rule earns its keep at v2 (38 and 24 options dropped a world)? The jury asks for "with and without". |
+| S16 | `open` | `lab eval --seeds-from smoke -s step_min=3 --name live-parity` | Not an improvement: a check. The final has no 10-minute steps. Margin and on-time share should stay within noise; if not, tell the lead at once. |
+| S17 | `open` | `lab eval --seeds dev-07,dev-10,dev-14,dev-01,dev-13,dev-02 -s guard_target=0.95 -s guard_band=0.02 --name guard-low` | The old guard at 0.97 cost €905. Does a guard that only wakes near the edge lift dev's six weakest worlds, and what does it cost? (It can only close the gate: idea 10 is the real brake. The lead checks hold-10 and hold-14.) |
 
-## Tier 1: mechanisms, ordered by expected gain per hour of work
+## Tier 1: new mechanisms, ordered by expected gain per hour of work
 
-### 1. `done → 20261113-2358-gemini-ring.md, in v1` The ring: gate on who can reach the car, not on who is notified
-- **Mechanism.** The app notifies drivers within 30 km of the first pickup, but drivers browse further and
-  book what pays them (rules: "a gig far away gets fewer views, unless its fee could pay them"). For a ring
-  driver, Hyvinkää → capital even ends at home, so it costs less than the typical fee assumes.
-- **Evidence.** Point 1 above. A third of all views come from drivers who live over 30 km from both ends.
-- **Change.** `gate_radius_km` (default = `supply_radius_km`): the radius of the supply count used by the
-  decline gate only. `far_options` (default `all`): with `slow`, a pickup that passes only on the wider ring
-  is quoted `next_day` and `within_3_days` only. Count `won_ring` and its late orders in `stats`.
-- **Measure.** dev, with `gate_radius_km` 45 and 55, `far_options` `slow` and `all`. Report won, late and
-  margin for ring orders separately.
-- **Risk.** Hyvinkää `same_day` was 9 late of 120 in the overloaded runs; start with `slow`.
-- **Guess.** +50–70 orders at €20–30: **+€1.0–2.0k**.
+### 15. `open` Late-order triage: a car that cannot be on time is a cost to cut, not a rescue to pay for
+- **Mechanism.** A fee can save an order only until `lastPickupAt`. After it the car is late whatever we pay,
+  and the refund table pays little for speed: 10% up to 2 h, 25% up to 24 h, 50% up to two business days.
+- **Evidence.** Point 9. `repost()` gives an expired gig the steep schedule (`steep()` also climbs at
+  night). 8.7 expired gigs a world; €132 more fee with each, between worlds.
+- **Change.** `late_fee_open` (default 0 = off, the champion's steep schedule): an order that can no longer be
+  on time (unstaffed with `now > lastPickupAt`, or its gig expired) is *lost*; its gigs open at this multiple
+  of the typical fee (try 1.0) and climb in daytime steps to `late_fee_max` (1.3) by the next tier boundary
+  minus the drive, never steeply. In the world's last 36 hours they do go to `steep_max`: an undelivered car
+  costs twice its price. `late_repost` (default off): in `tick()`, a lost order whose gig is still open is
+  withdrawn and posted again without stop windows at once, instead of standing unbookable until
+  `gig_expired`. Rebuild the lost set in `rejoin()` from the snapshot.
+- **Measure.** dev. `stats`: fees paid on lost orders and on warned orders that were saved (cents and
+  counts), reposts, late orders by tier. The on-time share should not move at all.
+- **Risk.** A cheap late car waits longer and may slip a tier: the climb to the boundary guards it.
+- **Guess.** **+€0.5–1.0k**, no risk to the 90%. Brief: `prompts/gemini-triage.md`.
 
-### 2. `done → 20261114-0010-gemini-option-steering.md, in v1` Option steering: quote the speed we can staff
-- **Mechanism.** We choose which options to quote. A `next_day` order gives drivers an evening to plan and a
-  morning to travel; a `same_day` order needs a free driver within the hour.
-- **Evidence.** Point 2. In the overloaded runs `same_day` was 24% late in towns with 30–200 drivers and 32%
-  in thinner ones, `next_day` 0–16%. Late `same_day` long drives at v0: Vantaa → Oulu (602 km), Espoo →
-  Joensuu (445 km, twice), Oulu → Lempäälä (497 km).
-- **Change.** `same_day_min_supply` (default 0): quote `same_day` only where at least this many drivers are
-  notified. `slack_per_drive` (default 0): required slack = `min_slack_min` + this × drive minutes.
-  `long_drive_min` (default off): above it, quote only options whose deadline is on a later day than the
-  ready day, so the driver can start in the morning.
-- **Measure.** dev; then give the tax back: `-s price_target_win=0.45` and `-s min_supply=20` on top.
-- **Guess.** Removes about a third of the late orders; worth **+€0.5–1.5k** once the blunt levers are loosened.
+### 16. `open` The fee clock runs only when it can matter
+- **Mechanism.** A raise sends no notification, and an old gig is one that drivers wait on. A climb that runs
+  through the evening, the night's edges and the weekend meets the morning's drivers at a high fee.
+- **Evidence.** Points 4 and 10. The `night_hold` of wave 2 held only gigs posted after 17:00.
+- **Change.** `ramp_hours` (default 0 = climb from the post, as today): the climb from `fee_open` to
+  `fee_warn` takes only the last this-many daytime hours before the warning point; until then the fee holds
+  at the opening fee. Try 4 and 6. `ramp_skip_closed` (default off): Sunday is never daytime for a schedule,
+  Saturday only when every site of the gig has Saturday hours. And the other end: `fee_open_near` (default 0
+  = `fee_open`) with `near_slack_min` (240): a gig posted with less than this to `lastPickupAt` opens higher
+  (try 1.0), because there a drop or a slow booking is a late car (drops grew when the opening fee fell).
+- **Measure.** dev, the three flags apart. `stats`: booked fee ÷ typical fee (sum and count) by option and by
+  "booked on the post day or later"; drops by slack class; `deadline_close`.
+- **Risk.** A fee that holds uses up slack: watch the warnings.
+- **Guess.** **+€0.3–0.6k**. Brief: `prompts/gemini-feeclock.md`.
 
-### 3. `taken (exp/gemini-clocks)` Two clocks for the price: the week's level and today's shift
-- **Mechanism.** The competitor's price is level × day factor × lane × noise. The level holds all week, the
-  day factor is new every morning, and one day is a price war (−20%). One multiplier with one small step
-  mixes them up.
-- **Evidence.** Point 5. Monday also starts blind: the prior 1.35 against a level of 1.26–1.54.
-- **Change.** `level` moves slowly; `shift` starts at 0 every morning (`morning_reset`, default off) and
-  takes large steps for the day's first outcomes (`price_lr_day0` 0.15, falling as 1/√n to `price_lr`). At
-  the day's end the level takes over a part of the shift, unless the shift is under `war_shift` (−0.12): a
-  price-war day never moves the level. On a war day keep quoting at the shifted price wherever
-  `min_margin_frac` still holds (dealers with trust do pay), instead of freezing. Outage: a region (town +
-  80 km) that wins 8 quotes in a row gets its own upward shift for the day, up to +25%.
-- **Measure.** dev. Add `stats` for wins by weekday and the detected war day. Compare the morning after.
-- **Risk.** Faster steps overshoot; cap the shift at ±0.30.
-- **Guess.** A recovered war day and its morning after: **+€0.8–1.5k**.
+### 17. `open` Slack by opening hours: measure slack as the world does
+- **Mechanism.** The desk's slack is deadline − ready − drive. The world's `lastPickupAt` counts the sites'
+  stated hours; a car left at a closed site is delivered when it next opens (rule 4), and drivers plan inside
+  the hours. Every request carries `hours` for both sites, and Saturday hours.
+- **Evidence.** Point 15, and slack is the strongest safety lever we have (worst world 90.3% at 120 minutes,
+  94.4% at 180). **Check first, in ten minutes on one reveal:** when do delivery sites close? If nearly all
+  close at 20:00 or later, drop this idea and write that down.
+- **Change.** `slack_by_hours` (default off): per option, `earliest` = the first minute from max(now + 15,
+  the note's ready time) at which the pickup site is open; `last_pickup` = the last minute t with the pickup
+  site open at t, the delivery site open at t + drive, and t + drive ≤ the deadline (search back over days:
+  Saturday hours, Sunday closed; a private address uses its window). Slack = `last_pickup` − `earliest`. The
+  slack rule and the long-drive rule use it. Prove it: for won orders without a note, `last_pickup` must
+  equal the order's `lastPickupAt` (`stats`: count and summed absolute error).
+- **Measure.** dev; then give the tax back on top: `-s min_slack_min=150` and `120`.
+- **Guess.** Removes late orders that look safe today, and lets the 180 minutes come down: **+€0.3–0.8k**.
+  Brief: `prompts/gemini-hours.md`.
 
-### 4. `taken (exp/gemini-trust)` Trust is capital: count it exactly, buy it on Monday, never gamble it
-- **Mechanism.** Each on-time order raises what that dealer accepts by 1%, up to 25; a late order halves the
-  count. The count is exact from our own ledger (a revenue line without a late refund).
-- **Evidence.** Point 6. D01's winning quotes climb from 1.3× list on Monday to 2.2× by Thursday while the
-  per-dealer tracker (`dealer_lr` 0.02, cap 1.30) follows with a lag.
-- **Change.** (a) `trust_gain` (default 0): multiply the quote by 1 + `trust_gain` × count/100; with it, the
-  per-dealer factor only has to follow the competitor. (b) `trust_invest` (default 0): a discount on safe
-  classes (capital, short, no note) for the three dealers with the most requests so far, until their count
-  is 25, Monday to Wednesday only; one count at D01 on Monday morning is worth about 1% of ~€9k of later
-  revenue. (c) `trust_guard` (default off): for a dealer with a count of 13 or more, decline the late-prone
-  classes of idea 2 instead of pricing them. Trust is worth nothing after Friday 18:00, so (b) and (c) fade.
-- **Measure.** dev. `stats`: trust count of the top dealer at each day's end, mean price ÷ list by weekday.
-- **Risk.** The competitor cuts its prices each morning for dealers where we "won most". R4 below measures
-  that; until then keep the investing share of a dealer's requests under a half.
-- **Guess.** **+€0.5–1.5k**.
+### 18. `open` A price that knows the cost: undo the adverse selection
+- **Mechanism.** The competitor's lane factor "follows how hard the lane is for drivers" and is "almost the
+  same in every world". The typical fee is the cost of the lane to a typical driver. One multiplier on the
+  list price therefore wins the lanes where the competitor is dear, "often the difficult lanes" (handbook),
+  and loses the easy ones: we are left with the cars that cost most and run late most.
+- **Evidence.** Points 5 and 13.
+- **Change.** `fee_weight` w (default 0): the base of the price is list × (typical fee ÷ (`fee_ratio_mid` ×
+  the request's highest list price))^w, clipped to ±25%, with `fee_ratio_mid` 0.9 (the median ratio); then
+  the tracker's multiplier and the dealer factor as today. Try w = 0.25, 0.5, 0.75. Easy lanes get cheaper,
+  so we win more of the cheap, safe cars; hard lanes get dearer. `learn_from_floor` (default off): a floor
+  quote that *wins* moves the tracker up like any win; one that loses teaches nothing.
+- **Measure.** dev. `stats`: quotes and wins by third of typical fee ÷ list; driver fees ÷ revenue (1 point is
+  €280 a week); late orders by third.
+- **Risk.** The typical fee has noise per request: hence the clip.
+- **Guess.** **+€0.5–1.5k**. R8 gives the exact weight and the lane table. Brief: `prompts/gemini-costprice.md`.
 
-### 5. `open` The twin ladder: let batches bracket the competitor
-- **Mechanism.** About 45% of requests arrive in batches (same dealer, same yard, same minutes; 144–152
-  `batchId`s a world, most of 2–4 cars). Quote the cars of a batch at different prices around the estimate:
-  the dearest win and the cheapest loss bracket this dealer's price today in one step. A single quote tells
-  only "above" or "below".
-- **Change.** `ladder_spread` (default 0): batch members are quoted at the estimate × exp(±spread), evenly
-  spread (try 0.05 and 0.08). When a batch both wins and loses, move the day's shift (idea 3) to the middle
-  of the bracket. Works without idea 3 as a larger step of `mult`.
-- **Measure.** smoke first: how many quotes until the multiplier settles on Monday and after the price war.
-- **Guess.** Mostly speeds up idea 3; alone **+€0.2–0.5k**. The jury has probably not seen it.
+### 19. `open` The thermostat: one load number per pool sets the price and the opening fee
+- **Mechanism.** "The competitor knows nothing about your drivers, your other orders or your timing. That is
+  your advantage." A fixed 35% target taxes Monday's empty board to protect Wednesday's full one. The
+  backlog gate knows the load but only as on/off.
+- **Evidence.** Points 8 and 12; principle 1.
+- **Change.** Load L (0 to 1) = (orders near the pickup still unstaffed `load_stale_min` (20) daytime
+  minutes after their post + `price_target_win` × quotes in flight near the pickup) ÷ the backlog gate's
+  limit; at 1 the gate declines, as today. `load_tilt` (default 0): price × exp(tilt × (L − `load_mid`)),
+  try tilt 0.2 with mid 0.25: 5% cheaper on a clear board, 15% dearer just under the gate. `load_fee_tilt`
+  (default 0): the opening fee × (1 + this × L), try 0.3: when the pool is slow, pay for speed and charge
+  for it. The tracker learns from tilted quotes as from any (also try: they do not teach).
+- **Measure.** dev; report the worst world. `stats`: mean L at the quote, wins and late orders by band of L.
+- **Guess.** **+€0.5–1.5k**, and a better worst world. Brief: `prompts/gemini-thermostat.md`.
 
-### 6. `taken (exp/gemini-feefloor)` Find the fee floor: the same tracker on the drivers' side
-- **Mechanism.** The typical fee is the cost of a typical driver from the pickup town, "not what the cheapest
-  driver needs". With hundreds notified, the cheapest one needs less.
-- **Evidence.** Point 4.
-- **Change.** `fee_open_dense` (default = `fee_open`) for pickups with at least `dense_supply` (200) drivers
-  notified, rising to 1.0× in `open_ramp_min` (45 for `same_day`, 120 otherwise), then the v0 schedule.
-  Better: one opening multiple per town, learned as the price is: down a step when a gig books within 5
-  minutes, up when it waits 30 daytime minutes, within 0.7–1.1. And `night_hold` (default off): a gig posted
-  after 17:00 for a later day keeps its opening fee until 08:00 instead of climbing overnight.
-- **Measure.** dev: booked fee ÷ typical fee, minutes to book, drops, `deadline_close`.
-- **Risk.** Drivers learn booked ÷ first-viewed fee; a low start with a quick rise teaches them to wait, and
-  a fee that only just pays is dropped more often. Compare a flat low fee with the ramp.
-- **Guess.** −8% on two thirds of the fees: **+€0.6–1.0k**.
+### 20. `open` A same-day quota per pool instead of a threshold
+- **Mechanism.** Capacity for `same_day` is drivers free today near the car. A threshold of 100 drivers gives
+  the capital no limit and every other town nothing.
+- **Evidence.** Points 7 and 14.
+- **Change.** `same_day_quota` q (default 0 = off): a pool takes at most max(1, q × its drivers within 30 km)
+  `same_day` orders a day, counting today's wins plus `price_target_win` × quotes in flight; with it,
+  `same_day` is quoted from `same_day_quota_min_supply` (40) drivers up, not from 100. Try q = 0.04 and
+  0.06. The capital gets a daily cap for the first time (about 16–24 at 400 drivers).
+- **Measure.** dev; report dev-02, dev-10 and dev-15 (three of point 14's worlds) apart. `stats`:
+  `dropped_same_day_quota`, `same_day` wins and late orders by pool size (≥ 200, 100–199, 40–99).
+- **Risk.** Uncapped, `same_day` in pools of 30–200 was 24% late (set B).
+- **Guess.** **+€0.3–0.8k** in the worlds the threshold starves, safety in the rich ones.
+  Brief: `prompts/gemini-quota.md`.
 
-### 7. `taken (exp/gemini-bulk)` Bulk orders: budget the yard, count the quotes in flight
-- **Mechanism.** The backlog gate counts won orders. A bulk order's 10–40 requests are all quoted before any
-  is won, so none sees the others. A world has 3–6 batches of 10 or more.
-- **Evidence.** dev-04, v0's worst world (93.0%): 20 `same_day` cars from Lempäälä, 10 won, 5 late.
-- **Change.** `yard_cap_ratio` (default 0 = off): per pickup town and deadline day, won-and-unstaffed orders
-  plus quotes in flight × `price_target_win` may not exceed max(`backlog_min`, ratio × supply). Within a
-  batch quote the safest cars first (slow option, short, towards a town with drivers) and decline the rest.
-- **Measure.** dev; `stats`: declined by the cap, late orders from batches of 5 or more.
-- **Guess.** Safety on exactly the world that came closest to 90%.
+### 21. `open` Friday has two days of drivers, and by Thursday we know what we can afford
+- **Mechanism.** Friday's `next_day` and Thursday's and Friday's `within_3_days` are due on the last Monday
+  at 20:00: Saturday's weekend drivers and a whole Monday with no new requests. Trust, satisfaction and the
+  competitor's reaction are worth nothing after Friday 18:00. And the 90% is a share of the week: on
+  Thursday noon most of the week's late orders are known.
+- **Evidence.** Principle 1; v2 ends at 96.5% on average.
+- **Change.** (a) `fri_gate_min_supply` (default = `min_supply`): on Friday, an option due on the last Monday
+  passes the supply gate from this many drivers (try 10), slow options only. (b) `fri_slow_discount`
+  (default 0): those options × (1 − d), try 0.05; they do not teach the tracker. (c) `surplus_min` (default
+  0 = off) with `surplus_relax` (a comma list): from Thursday 12:00, surplus = the late orders we could
+  still take and end at 94% (count known late orders, orders past their deadline, and unstaffed orders past
+  their warning as late). While it is at least `surplus_min` (try 6), the named classes open: `slack`
+  (`min_slack_min` 120), `midtown` (`same_day` from 60 drivers), `ring` (`same_day` for ring pickups before
+  11:00). They close again under half of it. R6 says which class pays most per late order.
+- **Measure.** dev, (a)+(b) and (c) apart; report the worst world. `stats`: Friday wins by option; won, late
+  and margin of orders that came through an opened gate.
+- **Risk.** The surplus is an estimate until Monday. Friday's slow orders are themselves ballast.
+- **Guess.** (a)+(b) **+€0.3–0.8k**; (c) **+€0.5–1.5k**. Brief: `prompts/gemini-friday.md`.
+
+### 22. `open` Snow: read the forecast (after R7 confirms it)
+- **Mechanism.** In snow, drives are slower, drivers "drop bookings that must start that day", and a car on
+  summer tyres cannot be collected: the visit fails as `not_ready` and the dealer moves its deadline. The
+  desk ignores `forecast` (`from`, `to`, `placeIds`) and the summer-tyres flag that `notes.py` already reads.
+- **Evidence.** Point 11.
+- **Change.** `snow_guard` (default off): keep the forecasts. Quoting: when the pickup or the delivery is in
+  a forecast place and the option's working time overlaps the snow, no `same_day`, and the slack rule asks
+  `snow_slack_min` (120) more. Posting: a car with the summer-tyres flag gets a pickup window from the end
+  of the snow at its places (when the deadline allows; else wait for `order_changed`). Gigs that must start
+  in the snow open at `fee_open_near` (idea 16).
+- **Measure.** The snow worlds that R7 names, then dev. `stats`: forecasts, options dropped, drops in snow.
+- **Guess.** Safety on two of the five weakest worlds, if R7 confirms. Brief: `prompts/gemini-snow.md` (R7 first).
+
+### 23. `open` Free signals the desk throws away
+- (a) **The won order says the note moved the ready day.** `order_won` carries the moved deadline; the desk
+  uses that only after the first failed visit (`retry_from`). `ready_from_deadline` (default off): at the
+  first post, move the pickup window by (order deadline − the won option's deadline) when that is a day or
+  more, *then* read the note's clock time on that day. Exact to the day in any language and any spelling.
+  118 `not_ready` visits in 32 worlds, each half a fee and a lost half-day.
+- (b) **Who may drive the car.** `eligible_supply` (default off): for a premium car the gates and the
+  `same_day` rule count experienced drivers only (rating ≥ 4.8 and ≥ 50 gigs), for a note that says manual,
+  manual licences only. `stats`: premium orders won and late.
+- (c) **`release`** says when a car held for payment can be collected: keep it, and never plan a pickup
+  before it when posting again.
+- (d) **The note's delivery side at quote time** (this is 11c): closing hours and a tighter deadline in the
+  note shorten the option's slack before we price it, not only the stop window after we won.
+- **Guess.** **+€0.1–0.3k** and a few late orders; an hour of work. Brief: `prompts/gemini-signals.md`.
+
+## Tier 2: bigger bets
+### 24. `open` Inbound: a car that goes where drivers live
+- **Mechanism.** "A driver who lives near the delivery place ... needs much less"; the handbook's first sign of
+  a good request is that "it goes towards towns where drivers live". The gate looks at the pickup only.
+- **Evidence.** 100–131 requests a week come to the capital from other towns, mostly from towns we decline;
+  6–10% of bookers live within 30 km of the delivery although the app never notifies them. Free cut first:
+  in the set-B reveals, the late share of thin pickup → capital delivery, by option.
+- **Change.** `inbound_min_supply` (default 0 = off): a pickup that fails the supply gate passes for slow
+  options when this many drivers (try 200) live within 30 km of the delivery and the drive is under
+  `inbound_max_drive` (240 minutes); price × (1 + `inbound_markup`) (0.05); the gig opens at
+  `fee_open_inbound` (1.0): the driver pays a ticket out. Second step: at the post, direct offers to up to
+  three drivers who live near the delivery and viewed a gig of ours today. That uses offers as the
+  notification the app does not send, not as a rescue.
+- **Guess.** 20–30 orders at €30: **+€0.6–0.9k**. **Risk.** Thin `next_day` was 16% late in set B.
+
+### 25. `open` Price what we decline
+- **Mechanism.** A decline quotes 4× list and never wins: 350 quotes a world. But on the outage day the
+  dealers of a region pay a backup about 30% dearer than the competitor, a dealer with 25 counts of trust
+  accepts 25% more, and "a driver goes as far as the fee pays".
+- **Change.** `thin_fee_mult` (default 0 = decline): a pickup under the supply gate is quoted for its slow
+  options at max(the tracker's price × `thin_markup` (1.25), `thin_fee_mult` (1.8) × typical fee ÷ (1 −
+  `min_margin_frac`)): the price that pays a driver from far away. A won order opens at `thin_fee_open`
+  (1.3). At most `thin_cap_day` (4) such wins a day. They do not teach the tracker.
+- **Measure.** dev: won, late and margin of these orders; how many fall on the outage day.
+- **Guess.** 10–20 orders a world: **+€0.3–1.0k**. Best together with 21(c): only with a surplus.
+
+### 26. `open` Hitch: a stuck car rides with the next car going its way
+- **Mechanism.** The app notifies by a gig's *first* pickup, and for a driver with one of our cars a second
+  one "costs only the extra time and tickets". Capital → Hyvinkää followed by Hyvinkää → capital is a round
+  trip without a ticket, notified to 330–440 drivers instead of 5–22. Hyvinkää is the top pickup town and
+  the top delivery town. The desk posts multi-car gigs for trade-ins only.
+- **Change.** A policy subclass, `policies/hitch.py`. When an order is won, or a gig has waited
+  `hitch_after_min` (20) daytime minutes, look among our open, unbooked single-car gigs for a partner: A then
+  B, with B's pickup within `hitch_km` (15) of A's delivery, B's site open on arrival, both on time with
+  `min_slack_min` to spare, at most 12 hours of driving; the first pickup at the end with more drivers.
+  Withdraw both, post one gig at `hitch_fee` (0.85) × the sum of what they would open at. If it is unbooked
+  after `hitch_patience_min` (30), or at a warning, split it again. Then `hitch_discount`: a request that
+  would pair with a waiting gig is quoted lower. Care: fees per gig not per order, `order_cancelled` with
+  `shortened`, a failed visit in a two-car gig, `rejoin()`.
+- **Measure.** R11 first (how many pairs were there to make?). Then dev: pairs posted, booked, split; the
+  pair's fee against the two typical fees; late orders in pairs.
+- **Guess.** Unknown; the creative entry for the jury. Supersedes 12(c).
+
+### 27. `open` Answer the view: a private raise for the driver who is looking now
+- **Mechanism.** A view is a driver with the app open. An offer is read by a driver who has the app open, and
+  "saves most on gigs whose fee drivers expect to rise": the offer pays the waiting driver now, and the fee
+  on the board does not move for everyone else. The 218 offers of v0 went out after the warning, to drivers
+  who had looked hours before.
+- **Change.** `view_offer_mult` (default 0 = off): when a driver views a gig that has been open for
+  `view_offer_after_min` (15) minutes and has not booked it within 2 minutes, offer them the gig at the
+  board's fee × this (try 1.10). Three offers a driver a day, three open a gig.
+- **Measure.** R10's waiting cut first. It depends on speed: the final answers each event, practice answers
+  every 10 minutes, so measure with `-s step_min=3` on smoke for both arms. `stats`: offers by answer.
+- **Guess.** Unknown; a cheap probe with a clear answer (accepted share against 3 of 218).
+
+### 28. `open` The lane table (after R8)
+The part of the competitor's lane factor that "is almost the same in every world", fitted once over all our
+reveals as a pickup effect plus a delivery effect, shipped as a small JSON file, used as price × exp(effect ×
+`lane_prior_weight`) (default 0). Idea 18 is its one-number form.
+
+### 29. `open` A share band per dealer (after R12)
+The competitor cuts its prices each morning for a dealer "where you won most", and raises them "where you
+won few". If R12 finds the thresholds: `dealer_share_cap` (default 0 = off) prices a dealer up for the rest
+of the day once we hold more than this share of its requests today, so that it never starts cutting at D01.
+
+### 30. `open` Monday's price from the driver list (after R9)
+"The competitor has the same problem: it pays its own drivers more." If the world's price level follows the
+size of its roster, which we hold before the first request, the Monday prior (1.35 for every world, against
+levels of 1.26–1.54) can be read off it: `prior_from_roster` (default off).
+
+## Still open from round 1
+### 10. `open` **The brake.** Insurance for the final; do the cheap form before Sunday
+- **Mechanism.** The minimum is a share: nine on-time orders pay for one late one. One world of 32 is at
+  91.8%, and it is the richest (point 12). `guard_target` can only close the gate, and at full tightening it
+  declines everything: a share that takes no orders cannot recover.
+- **Change (cheap form).** `brake_at` (default 0 = off; try 0.935): while the projected on-time share (known
+  late, past the deadline, and unstaffed past the warning at weight 0.7) is under it, quote only *ballast*
+  (a pickup with 200 drivers or a ring pickup, `next_day` or `within_3_days`, a drive under 120 minutes, no
+  time in the note) at `brake_discount` (0.08) under the tracker's price, and decline the rest, until the
+  projection is 1 point above `brake_at`. Ballast adds on-time orders; the old guard only stopped orders.
+- **Measure.** First show that it works: `brake_at` 0.96 on `--seeds dev-07,dev-10,dev-14,dev-01` (it must
+  wake and lift them). Then 0.935 on dev for the cost (it should almost never wake). `stats`: minutes
+  braked, ballast orders won and late. The lead checks hold-10 and hold-14: agents never tune on holdout.
+- **Round 1's full form** (project late orders from the class table, Friday as the repair day) is idea 21(c)
+  turned around. Brief: `prompts/gemini-brake.md`.
 
 ### 8. `open` An early staffing alarm instead of the deadline warning
-- **Evidence.** Point 3. 75–92% of gigs are booked within an hour of the post.
-- **Change.** `alarm_after_min` (default 0 = off): an order with no driver this many daytime minutes after
-  its post (try 45 for `same_day`; 10:00 on the deadline day for the others) is treated as urgent now: the
-  fee jumps to `alarm_fee` × typical (1.4) and then climbs. A second signal to try: fewer than 2 viewers
-  in the first 15 minutes.
-- **Measure.** dev: late orders among alarmed orders, fees paid, against the 71% late after `deadline_close`.
-- **Risk.** Higher fees on orders that would have booked anyway; raises teach drivers to wait.
+`alarm_after_min` (default 0 = off): an order with no driver this many daytime minutes after its post (45 for
+`same_day`; 10:00 on the deadline day for the others) jumps to `alarm_fee` (1.4) and then climbs. Second
+signal: fewer than 2 viewers in 15 minutes. *Round 3 adds:* write the jump into the schedule at post time
+(a flat part, then a step), so it needs no timer and survives a restart; and it is the same-day half of
+idea 16. Do them in one branch if 16 is taken first.
 
 ### 9. `open` Give drivers an earlier deadline than the dealer's
-- **Mechanism.** A driver plans to reach each stop inside its window, and real drives vary around the road
-  minutes. A plan that ends at 19:55 is a late car. A stop may carry its own, narrower window.
-- **Evidence.** 11 of the 41 late orders never had a deadline warning: they had a driver and were late anyway.
-- **Change.** `delivery_buffer_min` (default 0) and `buffer_per_drive` (default 0): the delivery stop's
-  window ends that much before the deadline (try 45 + 0.1 × drive). When the gig expires, the repost uses the
-  order's own window, as today.
-- **Measure.** R3 first (how late are these orders: minutes or hours?). Then dev.
-- **Risk.** A narrower window leaves fewer drivers who fit, and the gig expires earlier.
+`delivery_buffer_min` (default 0) and `buffer_per_drive` (0): the delivery stop's window ends that much
+before the deadline (try 45 + 0.1 × drive); a repost after expiry uses the order's own window. 11 of 41 late
+orders at v0 had a driver. R3 first. *Round 3 adds:* withdraw and repost with the full window at the
+buffered window's own last pickup time, not at its expiry (point 9: a gig is dead before it expires).
 
-### 10. `open` The on-time share as a budget, and Friday as the repair day
-- **Mechanism.** The minimum is a share: nine on-time orders pay for one late one. So a safe order has a value
-  beyond its margin when the share is tight, and a late-prone order has a cost beyond its refund.
-- **Why the old guard failed.** `guard_target` read the ledger, where lateness shows up a day late, and it
-  could only close the gate. This one projects from classes and can also add safe orders.
-- **Change.** Projected late = known late + 0.7 × warned-without-driver + Σ over open orders of their class's
-  late rate (the table from R2). `budget_target` (default 0 = off): under it, discount the safest classes
-  (capital and ring, `next_day` or slower) by up to `ballast_discount` and decline the worst classes. On
-  Friday every `next_day` order is due on Monday 20:00 and Saturday has weekend drivers: `friday_ballast`
-  wins safe Friday orders when the projection is under 93%.
-- **Measure.** holdout-like worst cases matter here: report the worst world, not the mean.
-- **Risk.** The capital has a daily ceiling (point 7): ballast has to be slow options.
+### 11. `open` Notes: score the reader on the truth we already hold, then price out what we cannot read
+*Round 3 adds:* no harvest worlds are needed for a first pass. Every champion world holds about 95 won
+orders with a note and its truth (`readyAt`, `releasedAt`, real hours, `needsPlates`, `noteDeadline`). (b)
+Score `notes.py` field by field on them and fix it: `not_ready` 118, `no_plates` 38 and `closed` 19 failed
+visits say where. (c) Use the reader when quoting (23d), and `note_unsure` (default `quote`) = `decline`
+when a note has a time the reader cannot place. (a) The harvest policy stays for a second pass.
+Brief: `prompts/gemini-notes.md`.
 
-### 11. `open` Notes: harvest the truth, then price out what we cannot read
-- **Mechanism.** The reveal gives the truth of every *won* car's note, delivered or not.
-- **Change.** (a) A research policy `policies/note_harvest.py`: quote 0.9× list on every request with a note,
-  decline the rest, post nothing. One world gives ~400 labelled notes; ten give 4,000. Never promote it.
-  (b) Score `notes.py` field by field on that set and fix it (delivery hours, "by tomorrow 17:00", weekday
-  names, hours in words). A language model may write the rules offline; none runs in the final.
-  (c) Use the reader when quoting: delivery hours and note deadlines shorten each option's slack, and
-  `note_unsure` (default `quote`) = `decline` when a note has a time the reader cannot place.
-- **Evidence.** Late at v0 with a timing note: "Nobody at the destination after 3pm", "perillä liike kiinni
-  klo 15 jälkeen", "Open weekdays 9:00-14:30", "must be at destination by monday 13:00", "mottagaren har
-  öppet 9 - 16", "haettava ennen klo 14". Failed visits cost €237 a week.
-- **Guess.** A quarter of the late orders and most failed visits: **+€0.3–0.6k** and safety.
+### 12. `open` Supply follows our cars: return offers, return-aware quotes
+(a) `return_offer_mult` (default 0): when one of our drivers will deliver within 30 km of an open gig's
+pickup in time, offer them that gig at 0.8× the typical fee as they deliver: the only drivers we *know* work
+today are the ones carrying our cars. (b) Only if (a) is accepted one time in five: `return_gate` lets a
+thin-town request pass when such a driver is on the way and the car goes towards their home. (c) is now
+idea 26.
 
-### 12. `open` Supply follows our cars: return offers, return-aware quotes, lead cars
-- **Mechanism.** A driver who delivers our car far from home has to buy a ticket back. A car from there
-  towards their home is nearly free for them, and the app does not tell them ("the app does not notify a
-  driver where your gigs have taken them"); a direct offer does. We know who and where from our bookings.
-- **Evidence.** 64–67% of requests of 60 km or more have a request on the reverse lane the same or next day.
-  Only a third of our drivers' consecutive gigs start near the previous delivery. The capital sends 175–252
-  requests a week to other towns, and 100–131 come back from them, mostly from towns we decline.
-- **Change, in three steps; stop at the first that fails.** (a) `return_offer_mult` (default 0 = off): when
-  one of our drivers will deliver within 30 km of an open gig's pickup in time, offer them that gig at this
-  multiple of the typical fee (try 0.8) as they deliver. Measure the accepted share against 3 of 218.
-  (b) Only if (a) is accepted at least one time in five: `return_gate` lets a thin-town request pass the
-  supply gate when such a driver is on the way and the delivery is towards their home, with a small
-  `return_discount` on the price to win it. (c) `lead_car` (default off): post a thin-town car as the second
-  car of a gig whose first pickup is in a dense town, so the dense town's drivers are notified (multi-car
-  gigs: at most 12 hours of driving). Try it on Hyvinkää first.
-- **Risk.** Offers have been close to useless so far; that is why (a) is a cheap test before (b).
+### 5. `open` The twin ladder: let batches bracket the competitor
+`ladder_spread` (default 0): the cars of a batch are quoted at the estimate × exp(±spread), evenly spread.
+A batch that both wins and loses brackets the dealer's price in one step. *Round 3:* low priority after
+wave 2; worth it only as the measuring half of R8 (it gives the slope of acceptance for free).
 
-### Kept from the first list
-- 13. `open` **Release a late driver.** On `driver_late`, release (free until they leave) when their
-  `pickupAt` makes the car late and a fresh post can still be on time.
-- 14. `open` **Flu day.** Distinct viewers per town by 10:00 against the same hour on earlier days; a fall of
-  a quarter or more means the flu: that day raise `same_day_min_supply` and the win target's price.
+### 13. `open` Release a late driver · 14. `open` Flu day
+13: on `driver_late`, release (free until they leave) when `pickupAt` makes the car late and a fresh post can
+still be on time. 14: distinct viewers per town by 10:00 against earlier days; a fall of a quarter means the
+flu: that day lower the `same_day` quota (idea 20) or raise `same_day_min_supply`. R13 says if views can
+carry it.
 
 ## Research (no policy change; results feed the ideas above)
-- R1. `open` **X-ray by fork** *(touches the instrument: agree it with the lead first)*. A fork has the same
-  future draws. Fork a world at Monday 08:00 into six copies, quote every request at a different multiple of
-  list in each (1.1 … 1.7), post nothing, play to 18:00: each request's outcomes across the copies bracket
-  the price that dealer accepted. Check first that outcomes are monotone in price. It gives the acceptance
-  curve, the lane factors that hold in every world (ten worlds = 10,000 brackets), the value of speed per
-  option, and the price war and outage sizes. The same trick on the drivers' side: fork after a post and
-  open at 0.6 … 1.0× in the copies to see the lowest fee that books within 30 minutes, by town and hour.
-- R2. `open` **The class table.** Reveal every finished world in `runs/` (one request each) and tabulate late
-  share, margin per order and booked fee ÷ typical fee by pickup class (capital, ring, 30–200, under 30) ×
-  option × drive length × weekday. `scout_classes.py` is a start. Ideas 2 and 10 take their gates from it.
-- R3. `open` **How late is late.** Minutes late per late order (reveal `deliveredAt` − deadline), split by
-  whether a driver held it at the deadline warning. Sizes idea 9.
-- R4. `open` **The competitor's morning reaction.** Fork at Monday 18:00 after winning 0%, 30%, 60% and 90% of
-  D01's requests; quote a fixed ladder on Tuesday morning in each. Where does it start cutting?
-- R5. `open` **The capital's daily ceiling.** From runs at different volumes: `same_day` orders per day in the
-  capital against that day's late share. Gives idea 10 its capacity.
+First, once, for everyone: reveal the champion's worlds (ids in `champion/results/*.jsonl`, one request
+each) into one folder outside the repo and share its path: agents the 16 dev worlds, the lead the holdout
+ones. Briefs: `prompts/gemini-research3.md` (R6 and R8), `prompts/gemini-snow.md` (R7).
+
+- R6. `open` **The class table at v2, and the loose run.** R2 on the champion's worlds, with new cuts: premium car;
+  private pickup or delivery; trade-in; a time in the note; the delivery site's closing hour; drive band;
+  pickup pool (capital, ring, 100+, 30–99, under 30) × delivery pool; booked on the post day or later; drops;
+  weekday. Per class: orders, late, margin an order, booked fee ÷ typical. Then one *loose* dev run that is
+  never promoted (`min_supply` 10, `same_day_min_supply` 0, `far_options` all, `min_slack_min` 120,
+  `long_drive_min` 0) and its reveals, for the classes v2 never wins. Output: **margin per late order by
+  class**, the order in which ideas 20, 21(c), 24 and 25 should open gates.
+- R7. `open` **Snow.** `forecast` events per world; drops and `not_ready` visits inside snow windows at snow
+  places; late orders touched by snow. Is point 11 snow? Names the worlds for idea 22.
+- R8. `open` **What predicts a win beyond price ÷ list.** One logistic fit over every quote that was not a
+  decline (about 11,000 on the 16 dev worlds) with a level per world and day: log(quote ÷ list), log(typical fee ÷
+  list), log km, pickup place, delivery place, option, weekday, hour, batch size, and the dealer's trust
+  count at that minute (from the account). Gives the slope of acceptance, the weight for idea 18, the lane
+  table for idea 28, and whether +1% per count of trust is visible as the rules state it.
+- R9. `open` **The world's price level against its roster** (drivers in all, in the capital ring). For idea 30.
+- R10. `open` **Do we bid against ourselves, and do drivers learn to wait?** Drops followed within 30 minutes
+  by the same driver booking a dearer gig of ours; steep gigs booked by drivers who held another booking of
+  ours. Booked fee ÷ first viewed fee by weekday (does it creep up from Monday to Friday?). Bookers who had
+  viewed the order earlier at a lower fee: how many, how much more they got, how long they waited: the size
+  of idea 27, and the case for a calm board (no gig of ours far above the others in the same pool).
+- R11. `open` **Pairs.** Among won orders: pairs open at the same time that one driver could chain (delivery of
+  one within 15 km of the pickup of the other, windows fit, at most 12 hours). And among all requests, had
+  we priced to pair. For idea 26.
+- R12. `open` **The competitor's morning reaction, from reveals we hold.** Per world, dealer and day: our share
+  of the dealer's requests (declines count as lost), against the change in what that dealer accepted the
+  next morning. Where does it start to cut, where to raise? No forks needed (R4 asked for them). For idea 29.
+- R13. `open` **Views as a census.** Distinct viewers per pool by 10:00 against that day's minutes-to-book and
+  late share in the pool. Can the morning's views size the day's capacity (ideas 19, 20, 14)?
+- R14. `open` **The value of speed.** When we quoted two or three options, which one did the dealer take, by
+  the price gap between them? Margin and late share per won option. For S10 and a `within_3_days` discount
+  (13 orders a world, none late: the cheapest ballast there is).
+- R1 `open` (X-ray by fork; needs the lead) · R2 → R6 · R3 `open` (how late is late; with idea 15 it also
+  gives the tiers) · R4 → R12 · R5 `open` (the capital's daily ceiling; idea 20 needs its number).
+
+## For the lead: the next waves and the instrument (agents: propose, don't touch)
+- **Waves of four**, merged to `main` first so that the worktrees see this file and the briefs:
+  `TURNS=120 scripts/wave.sh <model> triage feeclock costprice sweeps2`, then `brake thermostat quota
+  research3`, then `friday hours signals sweeps3`, then `snow notes`. The first wave is the money that
+  cannot hurt the 90%; the second is the worst world and the tables the third needs.
+- **More seeds for small effects.** A second dev set of 32 (`dev-17` … `dev-48`) brings one standard error
+  from about €250 to €150. Wave 2's four results (+46, +104, +215, −98) cannot be told from zero today.
+- **Stack the positives once.** One dev run with wave 2's positive flags together on v2 (`trust_invest`
+  0.1, `fee_open_dense` with `night_hold`, `morning_reset`), after merging those branches' flags (all
+  default to off). S1–S6 were individually unsafe or small and together +€2,644.
+- **Quieter secondary numbers in `summary.json`**: driver fees ÷ typical fees of the won orders, price ÷
+  list of the wins, late orders by class. A fee idea shows there long before it shows in the week's margin.
+- **Insurance.** v2 was promoted as an exception to the 92% rule. Idea 10's brake, S17 and idea 15 (which
+  cannot hurt the share) are the three things worth having in the final desk whatever else lands.
+- **Holdout is a little less blind now.** Points 8–15 read all 32 result lines, hold-10 and hold-14 among
+  them, to find mechanisms (no parameter was set on them). Ideas 15, 20 and 22 owe something to those two
+  worlds: when one of them is claimed, weigh its holdout gain on the other 14 worlds too.
+
+## Finished
+| # | Idea | Result (dev, paired) | Note |
+|---|---|---|---|
+| 1 | The ring: gate on who can reach the car | +€1,587 ± 257 against v0; in v1 | `20261113-2358-gemini-ring.md` |
+| 2 | Option steering | +€336 ± 196 with `min_supply` 20; safer; in v1 | `20261114-0010-gemini-option-steering.md` |
+| S1–S6 | Tier 0 sweeps | together +€2,644 ± 306 against v0; four of them in v2 | `20261114-0017-gemini-tier0-sweeps.md` |
+| 3 | Two clocks for the price | +€46 ± 204 against v1; not merged | branch `exp/gemini-clocks` |
+| 4 | Trust is capital | invest +€215 ± 157; gain −€285 ± 117; guard −€711 (smoke); not merged | branch `exp/gemini-trust` |
+| 6 | The fee floor (dense towns, night hold) | +€104 ± 196 against v1; not merged; 16 and S7 follow it | branch `exp/gemini-feefloor` |
+| 7 | Bulk orders: the yard budget | −€98 ± 220; the bulk world safer; not merged; 19 and 20 count quotes in flight | branch `exp/gemini-bulk` |
 
 ## For the jury (collect as you go)
-Each idea above is one sentence, one reason and one paired number. The three most likely to be the story:
-*we gate on who can reach the car, not on who is notified* (1); *trust is capital* (4); *the spread has two
-trackers, one per side, and two clocks* (3 and 6). The failures count too: the ledger guard, and direct offers.
+Each idea is one sentence, one reason and one paired number. Candidates for the story, beyond the ring:
+*a late car is a cost to cut, not a rescue to pay for* (15); *the fee clock only runs when a driver can
+act* (16); *one load number moves both sides of the spread* (19); *the 90% is a budget, and Friday is when
+we know what is left of it* (21, 10); *a stuck car rides with the next car going its way* (26). What did
+not work counts too: the ledger guard, direct offers after the warning, a trust gain on top of a tracker
+that had already learned it, and four ideas we could not tell from zero on 16 weeks.
