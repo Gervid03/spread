@@ -90,12 +90,18 @@ def run_phase_dev12(tas_mod, seed: str = "dev-12", is_selftest: bool = False) ->
     sdir = tas_mod.home(seed)
     tape_path = str(sdir / "tape.json")
 
-    # 1. Thursday 00:00 cold-start probe (only on real server or if not selftest)
-    if not is_selftest and not (sdir / "tas-state-thu-coldstart.json").exists():
+    # 1. Thursday 00:00 cold-start probe
+    if not (sdir / "tas-state-thu-coldstart.json").exists():
         print()
-        print(">>> [dev-12] Running Thursday 00:00 Test-Final Cold-Start Probe ...", flush=True)
+        print(f">>> [{seed}] Running Thursday 00:00 Test-Final Cold-Start Probe ...", flush=True)
         import tas_state_thu_coldstart_probe as thu_probe
-        thu_probe.main()
+        r_sil = thu_probe.probe_thu_morning(seed, silent_mon_wed=True)
+        r_dec = thu_probe.probe_thu_morning(seed, silent_mon_wed=False)
+        b_res = thu_probe.run_thu_coldstart_branch(seed)
+        (sdir / "tas-state-thu-coldstart.json").write_text(
+            json.dumps({"silent_probe": r_sil, "declined_probe": r_dec, "branch": b_res}, indent=2),
+            encoding="utf-8",
+        )
 
     # 2. Zero-fork flat-fee driver holdout state test on Layer 1 won book
     bwa = sdir / "book-won-apply.json"

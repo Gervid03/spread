@@ -19,7 +19,8 @@ ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 from spread_lab.env import lab_home  # noqa: E402
-from tas import DAY, HOUR, Tas, branch, forked, probe_prices  # noqa: E402
+from spread_lab.policy import DAY, HOUR  # noqa: E402
+from tas import Tas, branch, probe_prices  # noqa: E402
 
 
 def probe_thu_morning(seed: str, silent_mon_wed: bool) -> dict:
