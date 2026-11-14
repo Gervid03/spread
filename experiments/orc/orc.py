@@ -53,8 +53,8 @@ class W:
         self.ends_at = parent.ends_at if parent else raw.snapshot()["endsAt"]
         self.orders = dict(parent.orders) if parent else {}
         self.events = []          # the events of this world since it was made (a copy: since the fork)
-        self.first = parent is not None   # a copy's first advance answers with its whole history
         self.seen = parent.seen if parent else -1
+        self.fork_slot = None     # a world keeps one slot for its copies (one copy at a time), to its end
 
     def _take(self, events):
         fresh = [e for e in events if e["seq"] > self.seen]
@@ -112,7 +112,9 @@ class W:
     @contextmanager
     def fork(self):
         wait_while_quiet()
-        slot = Slot().__enter__()
+        if self.fork_slot is None:
+            self.fork_slot = Slot().__enter__()
+        slot = self.fork_slot
         raw = None
         try:
             for attempt in range(5):
@@ -135,7 +137,6 @@ class W:
                     raw.delete()
                 except Exception:
                     pass
-            slot.__exit__(None, None, None)
 
 
 @contextmanager
@@ -148,8 +149,11 @@ def world(seed: str, level: int = 8, what: str = "orc"):
     try:
         raw = create_world(client, level, seed)
         entry = register(raw.id, {"seed": seed, "level": level, "orc": what})
-        yield W(client, raw, slot, entry)
+        w = W(client, raw, slot, entry)
+        yield w
     finally:
+        if raw is not None and w.fork_slot is not None:
+            w.fork_slot.__exit__(None, None, None)
         if raw is not None:
             try:
                 raw.delete()
