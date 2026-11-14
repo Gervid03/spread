@@ -34,7 +34,7 @@ from spread.types import (
 )
 
 from .geo import Geo
-from .notes import note_flags, window_from_note
+from .notes import note_flags, parse_note_v2, shift_business_days, window_from_note
 
 HOUR, DAY = 60, 24 * 60
 
@@ -89,6 +89,8 @@ class Params:
     offer_recent_view_min: int = 240  # drivers who viewed one of our gigs this recently go first
     # --- handling rules -----------------------------------------------------------------------------
     charge_min_km: float = 200.0      # rule 3: an EV under 30% charge needs a charging stop on a route over this
+    notes_v2: bool = False            # v2 note reader + delivery hours / note deadlines shorten option slack
+    note_unsure: str = "quote"        # "quote" or "decline" when a note has a time the reader cannot place
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -156,6 +158,7 @@ class Desk:
             for books in (self.orders, self.leg_gigs):
                 books.pop(event["orderId"], None)
         elif kind == "visit_failed":
+            self.stats["visit_failed"] += 1
             self.stats[f"visit_failed_{event['reason']}"] += 1
             self.retry(event["orderId"], event["leg"], event["reason"])
         elif kind == "gig_expired":
@@ -212,6 +215,20 @@ class Desk:
     def price(self, request: PriceRequest) -> tuple[dict[str, int], str]:
         """The prices to quote, and "quote", "floor" (a price raised to keep the margin) or "decline"."""
         p, legs = self.p, request["legs"]
+        extra_days = 0
+        if p.notes_v2 and request["note"]:
+            pn = parse_note_v2(request["note"], request["arrivedAt"])
+            if pn.has_info:
+                self.stats["notes_read"] += 1
+            if pn.unsure:
+                self.stats["notes_unsure"] += 1
+                if p.note_unsure == "decline":
+                    return {}, "decline"
+            if pn.ready_at is not None:
+                extra_days = max(
+                    (max(0, pn.ready_at // DAY - leg["pickup"]["window"]["from"] // DAY) for leg in legs if not leg["pickup"]["privateAddress"]),
+                    default=0,
+                )
         pickup = legs[0]["pickup"]["placeId"]
         supply = self.supply.get(pickup, 0)
         gate_supply = self.gate_supply.get(pickup, 0)
@@ -225,7 +242,20 @@ class Desk:
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
-        ready = max([self.now] + [window_from_note(request["note"], leg["pickup"]["window"], "pickup")["from"] for leg in legs])
+        ready = max(
+            [self.now]
+            + [
+                window_from_note(
+                    request["note"],
+                    leg["pickup"]["window"],
+                    "pickup",
+                    v2=p.notes_v2,
+                    arrived_at=request["arrivedAt"],
+                    private_address=leg["pickup"]["privateAddress"],
+                )["from"]
+                for leg in legs
+            ]
+        )
         fee = request["referenceFeeCents"] * p.expected_fee_mult
         mult = self.mult * self.dealer_adj[request["dealerId"]]
         prices: dict[str, int] = {}
@@ -233,14 +263,28 @@ class Desk:
         for option in request["options"]:
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
                 continue
+            deadline = option["deadline"]
+            if p.notes_v2:
+                base_dl = shift_business_days(deadline, extra_days)
+                deadline = min(
+                    window_from_note(
+                        request["note"],
+                        {"from": leg["delivery"]["window"]["from"], "to": max(leg["delivery"]["window"]["from"], base_dl)},
+                        "delivery",
+                        v2=True,
+                        arrived_at=request["arrivedAt"],
+                        private_address=leg["delivery"]["privateAddress"],
+                    )["to"]
+                    for leg in legs
+                )
             if p.long_drive_min > 0 and drive > p.long_drive_min:
-                if option["deadline"] // DAY <= ready // DAY:
+                if deadline // DAY <= ready // DAY:
                     self.stats["dropped_long_drive"] += 1
                     continue
             if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply:
                 self.stats["dropped_same_day_supply"] += 1
                 continue
-            if option["deadline"] - ready - drive < p.min_slack_min + p.slack_per_drive * drive:
+            if deadline - ready - drive < p.min_slack_min + p.slack_per_drive * drive:
                 self.stats["dropped_slack"] += 1
                 continue
             price = option["listPriceCents"] * mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
@@ -410,14 +454,18 @@ class Desk:
             self.post(order, [leg], Retry(pickup_from, manual_licence=reason == "licence", plates=reason == "no_plates"))
 
     def post(self, order: Order, legs: list[int], retry: Retry = Retry()) -> None:
-        note = self.requests[order["id"]]["note"]
-        flags = note_flags(note)
+        req = self.requests[order["id"]]
+        note = req["note"]
+        flags = note_flags(note, v2=self.p.notes_v2)
         audience: Audience = {
             "experienced": any(leg["car"]["premium"] for leg in order["legs"]),  # rule 1: €150 fine otherwise
             "manualLicence": retry.manual_licence or flags.manual,
         }
         retry = retry._replace(plates=retry.plates or flags.plates)
-        stops = without_windows(stops_for(order, legs, note, retry, self.geo, self.p.charge_min_km), self.now)
+        stops = without_windows(
+            stops_for(order, legs, note, retry, self.geo, self.p.charge_min_km, self.p.notes_v2, req["arrivedAt"]),
+            self.now,
+        )
         self.outbox.append({"type": "post", "stops": stops, "audience": audience, "schedule": self.fees_for(order, len(legs))})
         self.stats["posts"] += 1
         if len(legs) == 1:
@@ -524,17 +572,32 @@ def without_windows(stops: list[StopRef], before: float) -> list[StopRef]:
     return [{k: v for k, v in stop.items() if k != "window"} if "window" in stop and stop["window"]["to"] < before else stop for stop in stops]
 
 
-def stops_for(order: Order, legs: list[int], note, retry: Retry, geo: Optional[Geo] = None, charge_min_km: float = 0.0) -> list[StopRef]:
+def stops_for(
+    order: Order,
+    legs: list[int],
+    note,
+    retry: Retry,
+    geo: Optional[Geo] = None,
+    charge_min_km: float = 0.0,
+    notes_v2: bool = False,
+    arrived_at: Optional[int] = None,
+) -> list[StopRef]:
     """A pickup and a delivery for each leg. A stop has its own window only when the note or the retry
     makes it narrower. Rule 3: an electric car under 30% on a route over 200 km needs a charging stop."""
     stops: list[StopRef] = []
     for leg in legs:
         car, pickup, delivery = order["legs"][leg]["car"], order["legs"][leg]["pickup"], order["legs"][leg]["delivery"]
-        noted = window_from_note(note, pickup["window"], "pickup")
+        noted = window_from_note(
+            note, pickup["window"], "pickup",
+            v2=notes_v2, arrived_at=arrived_at, private_address=pickup["privateAddress"], stated_hours=pickup["hours"],
+        )
         start = max(noted["from"], retry.pickup_from)
         pickup_window: TimeWindow = {"from": start, "to": max(noted["to"], start)}
         delivery_base: TimeWindow = {"from": delivery["window"]["from"], "to": max(delivery["window"]["from"], order["deadline"])}
-        delivery_window = window_from_note(note, delivery_base, "delivery")
+        delivery_window = window_from_note(
+            note, delivery_base, "delivery",
+            v2=notes_v2, arrived_at=arrived_at, private_address=delivery["privateAddress"], stated_hours=delivery["hours"],
+        )
         low_battery = car["electric"] and car["chargePercent"] is not None and car["chargePercent"] < 30
         if low_battery and geo is not None:
             low_battery = geo.road_km(pickup["placeId"], delivery["placeId"]) > charge_min_km
@@ -545,4 +608,4 @@ def stops_for(order: Order, legs: list[int], note, retry: Retry, geo: Optional[G
 
 
 def narrower(stop: StopRef, window: TimeWindow, base: TimeWindow) -> StopRef:
-    return {**stop, "window": window} if window["from"] > base["from"] or window["to"] < base["to"] else stop
+    return {**stop, "window": window} if window["from"] <= window["to"] and (window["from"] > base["from"] or window["to"] < base["to"]) else stop
