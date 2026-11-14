@@ -1,0 +1,25 @@
+# uv run lab sweep --seeds-from dev --name n-slack-feewarn -s min_slack_min=150 -s slack_per_drive=0.75 -g fee_warn=1.40,1.50 -g fee_step_min=20,30
+# started 2026-11-14T01:59:24Z
+
+=== fee_warn=1.40,fee_step_min=20
+  mean margin €9,139.08  (median €8,335.12, min €6,446.54)  ranked 16/16  on time min 91.7% mean 96.2%  won 228  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €+148.78 ± 208.44 (SE) t=0.71  better on 10, worse on 6  Δon-time -0.51%
+
+=== fee_warn=1.40,fee_step_min=30
+  mean margin €9,066.13  (median €8,392.06, min €6,607.46)  ranked 16/16  on time min 92.6% mean 96.5%  won 228  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+75.83 ± 221.19 (SE) t=0.34  better on 9, worse on 7  Δon-time -0.20%
+
+=== fee_warn=1.50,fee_step_min=20
+  mean margin €9,243.67  (median €8,697.36, min €6,151.54)  ranked 16/16  on time min 93.3% mean 96.8%  won 227  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+253.36 ± 168.23 (SE) t=1.51  better on 11, worse on 5  Δon-time +0.07%
+
+=== fee_warn=1.50,fee_step_min=30
+  mean margin €9,024.84  (median €8,148.82, min €6,489.10)  ranked 16/16  on time min 93.4% mean 96.8%  won 228  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+34.54 ± 152.07 (SE) t=0.23  better on 10, worse on 6  Δon-time +0.03%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  fee_warn=1.50,fee_step_min=20                      €     9,244  on-time min 93.3%  SAFE  Δ €+253±168  20261114-020118-n-slack-feewarn-fee_warn1.50-fee_step_min20
+  fee_warn=1.40,fee_step_min=20                      €     9,139  on-time min 91.7%  unsafe  Δ €+149±208  20261114-015924-n-slack-feewarn-fee_warn1.40-fee_step_min20
+  fee_warn=1.40,fee_step_min=30                      €     9,066  on-time min 92.6%  SAFE  Δ €+76±221  20261114-020022-n-slack-feewarn-fee_warn1.40-fee_step_min30
+  fee_warn=1.50,fee_step_min=30                      €     9,025  on-time min 93.4%  SAFE  Δ €+35±152  20261114-020239-n-slack-feewarn-fee_warn1.50-fee_step_min30
+# exit 0 at 2026-11-14T02:04:02Z

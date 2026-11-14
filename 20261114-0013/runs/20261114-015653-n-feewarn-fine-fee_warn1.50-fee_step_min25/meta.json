@@ -1,0 +1,58 @@
+{
+  "name": "n-feewarn-fine-fee_warn1.50-fee_step_min25",
+  "policy": "spread_lab.policy:Desk",
+  "params": {
+    "backlog_ratio": 0.06,
+    "price_target_win": 0.35,
+    "min_supply": 30,
+    "gate_radius_km": 55.0,
+    "far_options": "slow",
+    "same_day_min_supply": 100,
+    "slack_per_drive": 0.5,
+    "long_drive_min": 300,
+    "fee_open": 0.85,
+    "price_lr": 0.05,
+    "offers_per_warning": 0,
+    "min_slack_min": 180,
+    "fee_warn": 1.5,
+    "fee_step_min": 25
+  },
+  "params_hash": "9a6777f819",
+  "level": 8,
+  "seeds": [
+    "dev-01",
+    "dev-02",
+    "dev-03",
+    "dev-04",
+    "dev-05",
+    "dev-06",
+    "dev-07",
+    "dev-08",
+    "dev-09",
+    "dev-10",
+    "dev-11",
+    "dev-12",
+    "dev-13",
+    "dev-14",
+    "dev-15",
+    "dev-16"
+  ],
+  "started": "20261114-015653",
+  "host": "spread-swarm",
+  "git": {
+    "commit": "66554de",
+    "branch": "main",
+    "dirty": false
+  },
+  "argv": [
+    "sweep",
+    "--seeds-from",
+    "dev",
+    "--name",
+    "n-feewarn-fine",
+    "-g",
+    "fee_warn=1.40,1.45,1.50",
+    "-g",
+    "fee_step_min=20,25"
+  ]
+}

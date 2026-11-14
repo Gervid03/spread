@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-slack-ultra -g min_slack_min=130,145 -g slack_per_drive=0.70,0.75,0.80
+# started 2026-11-14T02:10:24Z
+
+=== min_slack_min=130,slack_per_drive=0.70
+  mean margin €8,996.52  (median €8,197.01, min €6,413.94)  ranked 16/16  on time min 92.7% mean 96.6%  won 231  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+6.21 ± 239.20 (SE) t=0.03  better on 11, worse on 3  Δon-time -0.15%
+
+=== min_slack_min=130,slack_per_drive=0.75
+  mean margin €9,199.33  (median €8,801.83, min €6,413.94)  ranked 16/16  on time min 94.1% mean 96.8%  won 230  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+209.02 ± 133.59 (SE) t=1.56  better on 12, worse on 2  Δon-time +0.01%
+
+=== min_slack_min=130,slack_per_drive=0.80
+  mean margin €9,239.84  (median €8,685.06, min €6,413.94)  ranked 16/16  on time min 93.8% mean 96.8%  won 230  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+249.54 ± 130.10 (SE) t=1.92  better on 11, worse on 3  Δon-time +0.05%
+
+=== min_slack_min=145,slack_per_drive=0.70
+  mean margin €9,164.98  (median €8,685.06, min €6,436.81)  ranked 16/16  on time min 93.8% mean 96.7%  won 229  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+174.68 ± 127.24 (SE) t=1.37  better on 9, worse on 2  Δon-time -0.06%
+
+=== min_slack_min=145,slack_per_drive=0.75
+  mean margin €9,125.13  (median €8,685.06, min €6,279.10)  ranked 16/16  on time min 93.8% mean 96.8%  won 229  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+134.83 ± 59.19 (SE) t=2.28  better on 10, worse on 3  Δon-time +0.04%
+
+=== min_slack_min=145,slack_per_drive=0.80
+  mean margin €9,098.48  (median €8,565.71, min €6,279.10)  ranked 16/16  on time min 93.8% mean 96.9%  won 230  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+108.18 ± 69.55 (SE) t=1.56  better on 11, worse on 4  Δon-time +0.18%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  min_slack_min=130,slack_per_drive=0.80             €     9,240  on-time min 93.8%  SAFE  Δ €+250±130  20261114-021203-n-slack-ultra-min_slack_min130-slack_per_drive0.80
+  min_slack_min=130,slack_per_drive=0.75             €     9,199  on-time min 94.1%  SAFE  Δ €+209±134  20261114-021113-n-slack-ultra-min_slack_min130-slack_per_drive0.75
+  min_slack_min=145,slack_per_drive=0.70             €     9,165  on-time min 93.8%  SAFE  Δ €+175±127  20261114-021254-n-slack-ultra-min_slack_min145-slack_per_drive0.70
+  min_slack_min=145,slack_per_drive=0.75             €     9,125  on-time min 93.8%  SAFE  Δ €+135±59  20261114-021342-n-slack-ultra-min_slack_min145-slack_per_drive0.75
+  min_slack_min=145,slack_per_drive=0.80             €     9,098  on-time min 93.8%  SAFE  Δ €+108±70  20261114-021434-n-slack-ultra-min_slack_min145-slack_per_drive0.80
+  min_slack_min=130,slack_per_drive=0.70             €     8,997  on-time min 92.7%  SAFE  Δ €+6±239  20261114-021024-n-slack-ultra-min_slack_min130-slack_per_drive0.70
+# exit 0 at 2026-11-14T02:15:26Z

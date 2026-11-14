@@ -1,0 +1,8 @@
+# uv run lab sweep --seeds-from dev --name n-slack140-sdsup -s min_slack_min=140 -s slack_per_drive=0.75 -g same_day_min_supply=50,75,100 -g long_drive_min=200,300
+# started 2026-11-14T02:15:46Z
+
+=== same_day_min_supply=50,long_drive_min=200
+  mean margin €9,010.92  (median €8,679.48, min €5,562.57)  ranked 16/16  on time min 93.9% mean 96.5%  won 233  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+20.62 ± 200.20 (SE) t=0.1  better on 5, worse on 11  Δon-time -0.25%
+
+=== same_day_min_supply=50,long_drive_min=300

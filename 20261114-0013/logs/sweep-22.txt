@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-lr-fine -g price_lr=0.03,0.04,0.05 -g dealer_lr=0.01,0.015
+# started 2026-11-14T02:04:24Z
+
+=== price_lr=0.03,dealer_lr=0.01
+  mean margin €9,094.07  (median €8,116.45, min €6,298.06)  ranked 16/16  on time min 94.0% mean 96.8%  won 223  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+103.76 ± 160.69 (SE) t=0.65  better on 9, worse on 7  Δon-time +0.08%
+
+=== price_lr=0.03,dealer_lr=0.015
+  mean margin €8,772.79  (median €7,883.81, min €6,123.93)  ranked 16/16  on time min 92.9% mean 96.4%  won 217  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-217.51 ± 188.93 (SE) t=-1.15  better on 7, worse on 9  Δon-time -0.31%
+
+=== price_lr=0.04,dealer_lr=0.01
+  mean margin €8,869.38  (median €8,086.14, min €6,320.16)  ranked 16/16  on time min 92.5% mean 96.7%  won 225  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-120.92 ± 250.73 (SE) t=-0.48  better on 7, worse on 9  Δon-time -0.07%
+
+=== price_lr=0.04,dealer_lr=0.015
+  mean margin €8,892.88  (median €7,885.77, min €5,933.11)  ranked 16/16  on time min 92.9% mean 96.6%  won 224  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-97.43 ± 254.77 (SE) t=-0.38  better on 9, worse on 7  Δon-time -0.14%
+
+=== price_lr=0.05,dealer_lr=0.01
+  mean margin €9,145.01  (median €8,616.65, min €5,833.06)  ranked 16/16  on time min 95.0% mean 97.0%  won 230  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+154.70 ± 134.56 (SE) t=1.15  better on 9, worse on 7  Δon-time +0.28%
+
+=== price_lr=0.05,dealer_lr=0.015
+  mean margin €8,958.26  (median €8,589.65, min €6,497.03)  ranked 16/16  on time min 93.0% mean 96.8%  won 229  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-32.04 ± 139.78 (SE) t=-0.23  better on 9, worse on 7  Δon-time +0.04%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  price_lr=0.05,dealer_lr=0.01                       €     9,145  on-time min 95.0%  SAFE  Δ €+155±135  20261114-020817-n-lr-fine-price_lr0.05-dealer_lr0.01
+  price_lr=0.03,dealer_lr=0.01                       €     9,094  on-time min 94.0%  SAFE  Δ €+104±161  20261114-020424-n-lr-fine-price_lr0.03-dealer_lr0.01
+  price_lr=0.05,dealer_lr=0.015                      €     8,958  on-time min 93.0%  SAFE  Δ €-32±140  20261114-020905-n-lr-fine-price_lr0.05-dealer_lr0.015
+  price_lr=0.04,dealer_lr=0.015                      €     8,893  on-time min 92.9%  SAFE  Δ €-97±255  20261114-020732-n-lr-fine-price_lr0.04-dealer_lr0.015
+  price_lr=0.04,dealer_lr=0.01                       €     8,869  on-time min 92.5%  SAFE  Δ €-121±251  20261114-020642-n-lr-fine-price_lr0.04-dealer_lr0.01
+  price_lr=0.03,dealer_lr=0.015                      €     8,773  on-time min 92.9%  SAFE  Δ €-218±189  20261114-020555-n-lr-fine-price_lr0.03-dealer_lr0.015
+# exit 0 at 2026-11-14T02:09:54Z

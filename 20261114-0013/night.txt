@@ -61,3 +61,18 @@
 01:51:58 worker n14-01154-trust-refined-and-guard finished after 17 min
 01:51:58 worker n14-01394-stack-trust-notes-slack started (pid 20330)
 01:55:20 lead tick started (pid 20649)
+01:56:24 published to night/20261114
+01:59:24 sweep 21 started: sweep --seeds-from dev --name n-slack-feewarn -s min_slack_min=150 -s slack_per_drive=0.75 -g fee_warn=1.40,1.50 -g fee_step_min=20,30
+02:02:24 worker n14-01391-class-table-gates finished after 22 min
+02:02:24 worker n14-01152-lead-car-pairing finished after 31 min
+02:03:24 worker n14-01393-option-spread-and-d01-cap finished after 17 min
+02:04:24 sweep 22 started: sweep --seeds-from dev --name n-lr-fine -g price_lr=0.03,0.04,0.05 -g dealer_lr=0.01,0.015
+02:05:24 worker n14-01392-margin-xray-v2 finished after 25 min
+02:09:24 worker n14-01394-stack-trust-notes-slack finished after 17 min
+02:10:24 sweep 23 started: sweep --seeds-from dev --name n-slack-ultra -g min_slack_min=130,145 -g slack_per_drive=0.70,0.75,0.80
+02:12:24 worker n14-02111-overnight-fee-hold started (pid 22387)
+02:12:44 worker n14-02112-post-war-rebound-and-option-spread started (pid 22480)
+02:13:04 worker n14-02113-private-windows-and-tradeins started (pid 22593)
+02:13:24 worker n14-02114-stack-gates-trust-notes started (pid 22702)
+02:15:46 lead tick started (pid 22990)
+02:15:46 sweep 24 started: sweep --seeds-from dev --name n-slack140-sdsup -s min_slack_min=140 -s slack_per_drive=0.75 -g same_day_min_supply=50,75,100 -g long_drive_min=200,300

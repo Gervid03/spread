@@ -1,6 +1,8 @@
 # n14-01391-class-table-gates
-tool calls 24; result {}
+tool calls 36; result {"total_tokens": 1341527, "input_tokens": 1326960, "output_tokens": 14567, "cached": 1220954, "input": 106006, "duration_ms": 1307903, "tool_calls": 36, "models": {"gemini-4-argon": {"total_tokens": 1341527, "input_tokens": 1326960, "output_tokens": 14567, "cached": 1220954, "input": 106006}}}
 
 ## Its last words
 
-
+Best flags: `-s max_next_day_drive_min=480 -s fri_same_day_max_drive=100 -s thin_long_next_day_supply=50 -s ring_to_hub_same_day_min=60 -s same_day_min_supply=50` (stats over 16 dev worlds: `dropped_next_day_long=213`, `dropped_thin_long_next_day=156`, `dropped_fri_same_day=894`, `quoted_ring_hub_same_day=657`, `won_ring_hub_same_day=198`, `late_ring_hub_same_day=2`; closing gates alone `-s max_next_day_drive_min=480 -s fri_same_day_max_drive=100 -s thin_long_next_day_supply=50` cut late orders 118 → 84 with `dropped_next_day_long=213`, `dropped_thin_long_next_day=161`, `dropped_fri_same_day=890`).
+Dev paired delta ± SE and worst on-time: `gates-full-dev` Δmargin €+327.58 ± 198.04 (t=1.65, 11/5 better, mean €9,317.88), worst on-time 94.1% (mean 97.2%, SAFE); `gates-close-dev` Δmargin €+268.60 ± 189.62 (t=1.42, 10/6 better, mean €9,258.90), worst on-time 94.9% (mean 97.6%, SAFE); `gates-taxback-dev` Δmargin €+524.45 ± 344.17 (t=1.52, 11/5 better, mean €9,514.75), worst on-time 89.8% (NOT SAFE on `dev-07`).
+Run folders: `runs/20261114-014953-gates-close-dev`, `runs/20261114-015204-gates-full-dev`, `runs/20261114-015653-gates-taxback-dev` (smoke: `runs/20261114-014159-gates-noop`, `runs/20261114-014420-gates-smoke-nd480`, `runs/20261114-014535-gates-smoke-close480`, `runs/20261114-014655-gates-smoke-full480`, `runs/20261114-014736-gates-smoke-full500`, `runs/20261114-014828-gates-smoke-ring500`).

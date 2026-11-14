@@ -1,4 +1,4 @@
-# Night status, 2026-11-14 01:56 UTC (ends 2026-11-14T10:13:17Z)
+# Night status, 2026-11-14 02:16 UTC (ends 2026-11-14T10:13:17Z)
 
 ## Workers
 
@@ -17,13 +17,17 @@
 | n14-11-class-table | 01:02 | done 01:34 (31 min) | 73 | no | dev baseline (champion v2, 16 worlds): €8,974.96 mean margin (Δ +€0.00 ± 0.00), mean on-time 96.75%, worst on-time share 94.36% (SAFE; closing `next_day > 500m` |
 | n14-12-twoclocks-v2 | 01:09 | done 01:33 (24 min) | 41 | yes | Dev paired Δmargin ± SE and worst on-time: clocks alone €-366.98 ± 234.65 (t=-1.56, min on-time 93.0%, SAFE); feefloor alone €-274.14 ± 227.47 (t=-1.21, min on- |
 | n14-01151-lane-return-pricing | 01:18 | done 01:36 (18 min) | 36 | yes | Dev paired delta: `Δmargin €+194.99 ± 185.10 (SE) (t=1.05, 9/7 better/worse)`, worst on-time `93.5%` (SAFE) |
-| n14-01152-lead-car-pairing | 01:30 | running | 33 | no |  |
+| n14-01152-lead-car-pairing | 01:30 | done 02:02 (31 min) | 33 | no |  |
 | n14-01153-stack-trust-slack-budget | 01:33 | done 01:45 (12 min) | 24 | no | Stack Run A Δmargin €+136.75 ± 145.19 (t=0.94, 10/16 better), worst on-time 93.54% (SAFE); Stack Run D Δmargin €+159.19 ± 267.87 (t=0.59, 9/16 better), worst on |
 | n14-01154-trust-refined-and-guard | 01:34 | done 01:51 (17 min) | 34 | yes | Δmargin €+303.46 ± 134.52 (t=2.26), worst on-time 94.7% SAFE at trust_invest=0.05 (trust_invest=0.06: Δmargin €+98.17 ± 178.72, t=0.55, worst on-time 95.0% SAFE |
-| n14-01391-class-table-gates | 01:39 | running | 24 | no |  |
-| n14-01392-margin-xray-v2 | 01:40 | running | 32 | no |  |
-| n14-01393-option-spread-and-d01-cap | 01:45 | running | 29 | no | I will merge `origin/exp/gemini-n14-02-trust-v2` onto the current branch to incorporate the ledger trust tracking implementation.I will now run the smoke evalua |
-| n14-01394-stack-trust-notes-slack | 01:51 | running | 14 | no | I will now merge `origin/exp/gemini-n14-02-trust-v2` and start merging `origin/exp/gemini-n14-07-notes` into the current branch so we can combine their changes  |
+| n14-01391-class-table-gates | 01:39 | done 02:02 (22 min) | 36 | yes | Dev paired delta ± SE and worst on-time: `gates-full-dev` Δmargin €+327.58 ± 198.04 (t=1.65, 11/5 better, mean €9,317.88), worst on-time 94.1% (mean 97.2%, SAFE |
+| n14-01392-margin-xray-v2 | 01:40 | done 02:05 (25 min) | 46 | yes | dev paired delta: +€0.00 ± 0.00 (champion v2 baseline €8,990.31/wk; quantified leaks: +€1.8k–2.5k pricing/trust/clocks/floor, +€1.1k–1.6k rising fees >0.85x, +€ |
+| n14-01393-option-spread-and-d01-cap | 01:45 | done 02:03 (17 min) | 48 | yes | dev paired Δmargin €+263.26 ± 138.74 (t=1.90, 10/6 better/worse), worst on-time share 94.7% (SAFE); stacked with `-s min_slack_min=140 -s slack_per_drive=0.75`: |
+| n14-01394-stack-trust-notes-slack | 01:51 | done 02:09 (17 min) | 33 | yes | Run B (slack140): Δmargin €+488.08 ± 182.33 (t=2.68, 14/16 better), worst on-time 95.3% (mean 97.8%, SAFE); Run C (+taxback): Δmargin €+636.33 ± 269.13 (t=2.36, |
+| n14-02111-overnight-fee-hold | 02:12 | running | 16 | no | I will run `uv run lab eval --seeds-from smoke --name fee-hold-noop` to verify that our default parameters reproduce the champion v2 baseline with zero delta ac |
+| n14-02112-post-war-rebound-and-option-spread | 02:12 | running | 20 | no |  |
+| n14-02113-private-windows-and-tradeins | 02:13 | running | 8 | no |  |
+| n14-02114-stack-gates-trust-notes | 02:13 | running | 22 | no |  |
 
 Queued prompts: none
 
@@ -49,6 +53,10 @@ Queued prompts: none
 18. `sweep --seeds-from dev --name n-slack-ptw -s min_slack_min=150 -s slack_per_drive=0.75 -g price_target_win=0.37,0.40 -g min_supply=20,25`
 19. `sweep --seeds-from dev --name n-slack-sdsup-dlr -s min_slack_min=150 -s slack_per_drive=0.75 -g same_day_min_supply=50,75,100 -g dealer_lr=0.01,0.02`
 20. `sweep --seeds-from dev --name n-feewarn-fine -g fee_warn=1.40,1.45,1.50 -g fee_step_min=20,25`
+21. `sweep --seeds-from dev --name n-slack-feewarn -s min_slack_min=150 -s slack_per_drive=0.75 -g fee_warn=1.40,1.50 -g fee_step_min=20,30`
+22. `sweep --seeds-from dev --name n-lr-fine -g price_lr=0.03,0.04,0.05 -g dealer_lr=0.01,0.015`
+23. `sweep --seeds-from dev --name n-slack-ultra -g min_slack_min=130,145 -g slack_per_drive=0.70,0.75,0.80`
+24. `sweep --seeds-from dev --name n-slack140-sdsup -s min_slack_min=140 -s slack_per_drive=0.75 -g same_day_min_supply=50,75,100 -g long_drive_min=200,300`
 
 ## Every evaluation since the night began
 
@@ -133,4 +141,23 @@ Champion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds 
 | 20261114-015142-n-feewarn-fine-fee_warn1.40-fee_step_min25 | 16 | 9,229 | 7,351 | 93.0% | SAFE | +239 ± 179 (t +1.3, 9/16 better) |
 | 20261114-015257-n-feewarn-fine-fee_warn1.45-fee_step_min20 | 16 | 9,198 | 6,708 | 92.9% | SAFE | +208 ± 195 (t +1.1, 10/16 better) |
 | 20261114-015424-n-feewarn-fine-fee_warn1.45-fee_step_min25 | 16 | 9,094 | 6,566 | 92.4% | SAFE | +104 ± 164 (t +0.6, 9/16 better) |
-| 20261114-015527-n-feewarn-fine-fee_warn1.50-fee_step_min20 (running) | 4 | 9,844 | 7,955 | 96.6% | no | +203 ± 268 (t +0.8, 2/4 better) |
+| 20261114-015527-n-feewarn-fine-fee_warn1.50-fee_step_min20 | 16 | 9,233 | 6,613 | 91.3% | no | +243 ± 210 (t +1.2, 12/16 better) |
+| 20261114-015653-n-feewarn-fine-fee_warn1.50-fee_step_min25 | 16 | 9,070 | 6,731 | 93.4% | SAFE | +80 ± 165 (t +0.5, 9/16 better) |
+| 20261114-015924-n-slack-feewarn-fee_warn1.40-fee_step_min20 | 16 | 9,139 | 6,447 | 91.7% | no | +149 ± 208 (t +0.7, 10/16 better) |
+| 20261114-020022-n-slack-feewarn-fee_warn1.40-fee_step_min30 | 16 | 9,066 | 6,607 | 92.6% | SAFE | +76 ± 221 (t +0.3, 9/16 better) |
+| 20261114-020118-n-slack-feewarn-fee_warn1.50-fee_step_min20 | 16 | 9,244 | 6,152 | 93.3% | SAFE | +253 ± 168 (t +1.5, 11/16 better) |
+| 20261114-020239-n-slack-feewarn-fee_warn1.50-fee_step_min30 | 16 | 9,025 | 6,489 | 93.4% | SAFE | +35 ± 152 (t +0.2, 10/16 better) |
+| 20261114-020424-n-lr-fine-price_lr0.03-dealer_lr0.01 | 16 | 9,094 | 6,298 | 94.0% | SAFE | +104 ± 161 (t +0.6, 9/16 better) |
+| 20261114-020555-n-lr-fine-price_lr0.03-dealer_lr0.015 | 16 | 8,773 | 6,124 | 92.9% | SAFE | -218 ± 189 (t -1.2, 7/16 better) |
+| 20261114-020642-n-lr-fine-price_lr0.04-dealer_lr0.01 | 16 | 8,869 | 6,320 | 92.5% | SAFE | -121 ± 251 (t -0.5, 7/16 better) |
+| 20261114-020732-n-lr-fine-price_lr0.04-dealer_lr0.015 | 16 | 8,893 | 5,933 | 92.9% | SAFE | -97 ± 255 (t -0.4, 9/16 better) |
+| 20261114-020817-n-lr-fine-price_lr0.05-dealer_lr0.01 | 16 | 9,145 | 5,833 | 95.0% | SAFE | +155 ± 135 (t +1.1, 9/16 better) |
+| 20261114-020905-n-lr-fine-price_lr0.05-dealer_lr0.015 | 16 | 8,958 | 6,497 | 93.0% | SAFE | -32 ± 140 (t -0.2, 9/16 better) |
+| 20261114-021024-n-slack-ultra-min_slack_min130-slack_per_drive0.70 | 16 | 8,997 | 6,414 | 92.7% | SAFE | +6 ± 239 (t +0.0, 11/16 better) |
+| 20261114-021113-n-slack-ultra-min_slack_min130-slack_per_drive0.75 | 16 | 9,199 | 6,414 | 94.1% | SAFE | +209 ± 134 (t +1.6, 12/16 better) |
+| 20261114-021203-n-slack-ultra-min_slack_min130-slack_per_drive0.80 | 16 | 9,240 | 6,414 | 93.8% | SAFE | +250 ± 130 (t +1.9, 11/16 better) |
+| 20261114-021254-n-slack-ultra-min_slack_min145-slack_per_drive0.70 | 16 | 9,165 | 6,437 | 93.8% | SAFE | +175 ± 127 (t +1.4, 9/16 better) |
+| 20261114-021342-n-slack-ultra-min_slack_min145-slack_per_drive0.75 | 16 | 9,125 | 6,279 | 93.8% | SAFE | +135 ± 59 (t +2.3, 10/16 better) |
+| 20261114-021434-n-slack-ultra-min_slack_min145-slack_per_drive0.80 | 16 | 9,098 | 6,279 | 93.8% | SAFE | +108 ± 70 (t +1.6, 11/16 better) |
+| 20261114-021546-n-slack140-sdsup-same_day_min_supply50-long_drive_min200 | 16 | 9,011 | 5,563 | 93.9% | SAFE | +21 ± 200 (t +0.1, 5/16 better) |
+| 20261114-021643-n-slack140-sdsup-same_day_min_supply50-long_drive_min300 | 0 failed | | | | | |
