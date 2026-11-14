@@ -6,6 +6,7 @@ from spread_lab.env import lab_home
 
 TARGETS = [
     ("dev-12", "tas-routes-elite385-exactfees"),
+    ("dev-01", "tas-routes-steered440-exactfees"),
     ("dev-08", "tas-routes-steered440-exactfees"),
     ("dev-07", "tas-routes-safe360-exactfees"),
 ]
