@@ -48,6 +48,7 @@ class Params(SundayParams):
     cyc_quote: bool = False           # quote requests that close a cycle with the pool to win
     cyc_quote_mult: float = 1.20      # at most this x list on a cycle-closing quote
     cyc_search_every_min: int = 5     # search at most this often (game minutes), and when the pool changed
+    cyc_km: float = 30.0              # a car's delivery this close (straight line) to the next pickup, and back home
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Params":
@@ -93,7 +94,7 @@ class Desk(SundayDesk):
     def _cycles(self, ids: list[str], must: Optional[str] = None) -> list[list[str]]:
         P = {x: self._ends(x)[0] for x in ids}
         D = {x: self._ends(x)[1] for x in ids}
-        near = lambda a, b: a == b or self.geo.line_km(a, b) <= KM
+        near = lambda a, b: a == b or self.geo.line_km(a, b) <= self.p.cyc_km
         nxt = {a: [b for b in ids if b != a and near(D[a], P[b])] for a in ids}
         pos = {x: i for i, x in enumerate(ids)}
         out: list[list[str]] = []
