@@ -57,10 +57,12 @@ v2, nothing on the stacks) · S10 same-day markup (worse) · S11 margin floor (w
 S13 gate radius (worse) · S14 win target 0.40 with `min_supply` 22 (in A). Not done yet: **S16 (`step_min=3`, the
 final's live parity)** and S17. S16 is in `01-validate-top`.
 
-**5. Sweep lines only on the champion's own code.** The sweep track runs in the root checkout. While that checkout
-is still on v2's code (INPUT.md's champion line says v2, €8,990 on dev), its sweeps measure nothing about A: write
-no sweep lines, and the slots go to the workers. Once a new champion is promoted and the root checkout is reset to
-main (`01-validate-top` does both), sweeps of the champion's own flags are useful again: up to 6 lines a tick.
+**5. Sweeps are useful again, on v3's own flags.** `01-validate-top` reset the swarm host's root checkout to main
+(34e7063) at 06:16 UTC, so the sweep track, the ranking rounds and INPUT.md's paired deltas now run on v3.
+(INPUT.md's line "Champion v2 on dev: 8,990" is a stale hard-coded label in this night's copy of night_status.py, fixed
+on main. The deltas under it are against v3.) Up to 6 sweep lines a tick, on v3's flags, with
+`--seeds-from dev`. For a candidate final champion, the validation note's lesson holds: v7 was the best on dev and
+went unranked on a fresh world (night-15, 89.3%), so measure the tail on fresh seeds, not the dev mean.
 
 **6. The cloud lead's five prompts were queued at the 05:11 UTC tick** (`n14-05161-validate-top`, then thin-volume,
 triage, thermostat and research-volume), and they now sit in `experiments/prompts/night2/` as a record. Don't queue

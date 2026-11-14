@@ -140,7 +140,14 @@ def main() -> None:
     done = (NIGHT / "sweeps.done").read_text().splitlines() if (NIGHT / "sweeps.done").exists() else []
     print("## Sweeps started (in order; logs/sweep-NN.txt has each table)\n")
     print("\n".join(f"{i + 1:02d}. `{x}`" for i, x in enumerate(done)) or "none")
-    print(f"\n## Every evaluation since the night began\n\nChampion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds the champion has (dev, holdout).\n")
+    try:
+        cj = json.loads((ROOT / "champion" / "champion.json").read_text(encoding="utf-8"))
+        dv = cj.get("summary", {}).get("dev-L8.jsonl", {})
+        label = (f"Champion (promoted {cj.get('promoted', '?')}, git {cj.get('git', {}).get('commit', '?')}) on dev: margin mean "
+                 f"{dv.get('margin_mean', 0):,.0f}, on-time min {dv.get('on_time_min', 0):.1%}")
+    except Exception:
+        label = "Champion: unreadable champion/champion.json"
+    print(f"\n## Every evaluation since the night began\n\n{label}. Δ is paired on seeds the champion has (dev, holdout).\n")
     print("\n".join(run_table(since)))
     if args[:1] == ["--lead"]:
         print("\n## Each finished worker's last words\n")
