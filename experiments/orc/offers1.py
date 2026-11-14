@@ -20,6 +20,7 @@ from spread_lab.env import lab_home  # noqa: E402
 
 SEED = sys.argv[1] if len(sys.argv) > 1 else "dev-12"
 T = int(sys.argv[2]) if len(sys.argv) > 2 else 780
+MODE = sys.argv[3] if len(sys.argv) > 3 else "mix"      # mix: every second car same_day; slow: the latest option only
 ROUNDS = 8
 HI = 3.0
 
@@ -45,7 +46,7 @@ def quote(request, now):
     n[0] += 1
     opts = request["options"]
     kinds = [o["kind"] for o in opts]
-    pick = opts[0] if (n[0] % 2 == 0 and "same_day" in kinds) else opts[-1]
+    pick = opts[0] if (MODE == "mix" and n[0] % 2 == 0 and "same_day" in kinds) else opts[-1]
     return {pick["kind"]: max(100, int(pick["listPriceCents"] * 0.3))}
 
 
@@ -146,7 +147,7 @@ with world(SEED, what="offers1") as w:
         done = [p for p in pairs if p["hi"] is not None]
         say(f"track {ti}: {len(done)} of {len(pairs)} accept at <= {HI}x; median x {sorted(p['hi'] for p in done)[len(done) // 2] if done else None}")
         out["pairs"] += pairs
-        (home(SEED) / f"offers1-{T}.json").write_text(json.dumps(out), encoding="utf-8")
+        (home(SEED) / f"offers1-{T}-{MODE}.json").write_text(json.dumps(out), encoding="utf-8")
     by = defaultdict(list)
     for p in out["pairs"]:
         by[p["cls"]].append(p["hi"])

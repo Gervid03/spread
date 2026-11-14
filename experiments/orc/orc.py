@@ -19,10 +19,41 @@ from pathlib import Path
 from spread.client import SpreadError
 
 from spread_lab.env import lab_home, load_dotenv
-from spread_lab.lab import CountingClient, Slot, create_world, register, wait_while_quiet
+from filelock import FileLock, Timeout
+
+from spread_lab.lab import CountingClient, create_world, register, slot_budget, wait_while_quiet
 
 DAY = 1440
 DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun", "Mon+", "Tue+", "Wed+"]
+
+
+class Slot:
+    """A practice slot, like lab.Slot, but it looks every 5 ms instead of every 500 ms. The oracle holds a world
+    and one copy for a whole run; the evals turn their slots over every minute, so with the lab's slow poll an
+    oracle run queued behind ~20 eval workers waited 15 minutes for its copy (Sat 18:57-19:13, and with five
+    fork users each holding one slot and waiting for a second, nothing moved at all)."""
+
+    def __init__(self):
+        self.lock = None
+
+    def __enter__(self):
+        wait_while_quiet()
+        folder = lab_home() / "slots"
+        folder.mkdir(exist_ok=True)
+        while True:
+            for i in range(slot_budget()):
+                lock = FileLock(str(folder / f"{i}.lock"))
+                try:
+                    lock.acquire(timeout=0)
+                    self.lock = lock
+                    return self
+                except Timeout:
+                    continue
+            time.sleep(0.005)
+
+    def __exit__(self, *exc):
+        if self.lock:
+            self.lock.release()
 
 
 def clock(m: int) -> str:
@@ -140,20 +171,24 @@ class W:
 
 
 @contextmanager
-def world(seed: str, level: int = 8, what: str = "orc"):
+def world(seed: str, level: int = 8, what: str = "orc", forks: bool = True):
     load_dotenv()
     client = CountingClient()
     slot = Slot().__enter__()
+    fork_slot = Slot().__enter__() if forks else None   # both before the world exists: never hold one and wait
     raw = None
     entry = None
+    w = None
     try:
         raw = create_world(client, level, seed)
         entry = register(raw.id, {"seed": seed, "level": level, "orc": what})
         w = W(client, raw, slot, entry)
+        w.fork_slot = fork_slot
         yield w
     finally:
-        if raw is not None and w.fork_slot is not None:
-            w.fork_slot.__exit__(None, None, None)
+        held = w.fork_slot if w is not None else fork_slot
+        if held is not None:
+            held.__exit__(None, None, None)
         if raw is not None:
             try:
                 raw.delete()
