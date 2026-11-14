@@ -1,4 +1,4 @@
-# Night status, 2026-11-14 06:22 UTC (ends 2026-11-14T10:13:17Z)
+# Night status, 2026-11-14 06:42 UTC (ends 2026-11-14T10:13:17Z)
 
 ## Workers
 
@@ -65,13 +65,16 @@
 | n14-05163-triage | 05:35 | done 05:57 (22 min) | 54 | yes | dev mean margin €10,842.27: vs A Δmargin €+264.35 ± 63.80 (t=4.14, 13/16 better, Δon-time -0.27%), vs champion Δmargin €+1,851.96 ± 217.66 (t=8.51, 16/16 better |
 | n14-05164-thermostat | 05:35 | done 06:06 (30 min) | 48 | no | Dev paired Δmargin ± SE and worst on-time: vs A (`fee-drop-all180-dev`, worst OT 95.64%, lowest 3 OT: dev-13 95.64%, dev-02 96.28%, dev-07 96.42%): `load_tilt=0 |
 | n14-05165-research-volume | 05:56 | done 06:17 (21 min) | 29 | no |  |
-| n14-05166-quota | 05:57 | running | 51 | no |  |
-| n14-06041-capacity-steps | 06:04 | running | 61 | no |  |
-| n14-06042-costprice-on-a | 06:06 | running | 41 | no | I will read `experiments/prompts/gemini-costprice.md`, fetch and merge branch `origin/exp/gemini-n14-03324-supply-adaptive-fee-open-and-drop-rescue` into our cu |
-| n14-06043-feeclock-on-a | 06:16 | running | 26 | no |  |
-| n14-06044-friday-on-a | 06:17 | running | 19 | no |  |
+| n14-05166-quota | 05:57 | done 06:33 (36 min) | 63 | yes | Dev (`q=0.06, m=35`, mean €9,901.98): Δmargin €-675.94 ± 201.25 (t=-3.36, 4/12) vs A, €+911.68 ± 279.62 (t=3.26, 13/3) vs champion, worst on-time 92.95% (`dev-0 |
+| n14-06041-capacity-steps | 06:04 | done 06:26 (21 min) | 71 | yes | 480.3 requests/world and 10.21 s/world vs base 645.1 requests/world and 16.49 s/world (dev Δmargin +€26.08 ± 148.85, t=0.18, Δon-time +0.09%, worst world on-tim |
+| n14-06042-costprice-on-a | 06:06 | done 06:35 (28 min) | 59 | yes | Dev paired Δmargin: `€-342.23 ± 154.44 (t=-2.22, 4/12) vs A` / `€+1,245.38 ± 185.95 (t=6.70, 16/0) vs champion`, worst on-time `95.1%` (SAFE, `driver_fee / reve |
+| n14-06043-feeclock-on-a | 06:16 | running | 65 | no |  |
+| n14-06044-friday-on-a | 06:17 | running | 50 | no | I will run the noop smoke evaluation with Policy A's parameters to verify that the new parameter defaults reproduce Policy A's behavior (+0.00 delta on all 4 sm |
+| n14-06261-hours-on-v3 | 06:27 | running | 56 | no |  |
+| n14-06262-signals-on-v3 | 06:33 | running | 21 | no |  |
+| n14-06263-snow-and-hitch-research | 06:35 | running | 32 | no |  |
 
-Queued prompts: none
+Queued prompts: 06264-triage-and-feedrop-on-v3.md
 
 ## Sweeps started (in order; logs/sweep-NN.txt has each table)
 
@@ -134,6 +137,10 @@ Queued prompts: none
 57. `sweep --seeds-from dev --name n-slack-steep-dlr -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.5 -g steep_step=0.20,0.25,0.30 -g dealer_lr=0.01,0.02`
 58. `sweep --seeds-from dev --name n-slack140-lr03-feewarn -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s price_lr=0.03 -s dealer_lr=0.01 -s steep_open=1.5 -g fee_warn=1.45,1.50 -g fee_step_min=20,25,30`
 59. `sweep --seeds-from dev --name n-slack-steep-ptw -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.5 -g price_target_win=0.35,0.40 -g min_supply=20,22,25`
+60. `sweep --seeds-from dev --name n-slack140-fw150-backlog -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g backlog_ratio=0.05,0.06,0.07 -g backlog_min=2,3`
+61. `sweep --seeds-from dev --name n-slack-steep-feeopen -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.5 -g fee_open=0.82,0.84,0.85 -g day_start=360,420`
+62. `sweep --seeds-from dev --name n-fw148-steep -s min_slack_min=135 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=20 -g fee_warn=1.45,1.48,1.50 -g steep_open=1.50,1.60`
+63. `sweep --seeds-from dev --name n-slack130-steep15 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.50 -g min_slack_min=130,135,140 -g slack_per_drive=0.75,0.80`
 
 ## Every evaluation since the night began
 
@@ -449,4 +456,28 @@ Champion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds 
 | 20261114-061832-n-slack-steep-ptw-price_target_win0.35-min_supply25 | 16 | 10,300 | 7,523 | 93.2% | SAFE | -229 ± 153 (t -1.5, 6/16 better) |
 | 20261114-061933-n-slack-steep-ptw-price_target_win0.40-min_supply20 | 16 | 10,679 | 7,633 | 93.8% | SAFE | +150 ± 162 (t +0.9, 10/16 better) |
 | 20261114-062044-n-slack-steep-ptw-price_target_win0.40-min_supply22 | 16 | 10,645 | 7,614 | 93.2% | SAFE | +115 ± 147 (t +0.8, 11/16 better) |
-| 20261114-062155-n-slack-steep-ptw-price_target_win0.40-min_supply25 (running) | 10 | 10,996 | 7,770 | 93.2% | no | +269 ± 204 (t +1.3, 7/10 better) |
+| 20261114-062155-n-slack-steep-ptw-price_target_win0.40-min_supply25 | 16 | 10,592 | 7,770 | 93.2% | SAFE | +63 ± 149 (t +0.4, 9/16 better) |
+| 20261114-062327-n-slack140-fw150-backlog-backlog_ratio0.05-backlog_min2 | 16 | 10,703 | 7,559 | 94.2% | SAFE | +173 ± 143 (t +1.2, 9/16 better) |
+| 20261114-062409-n-slack140-fw150-backlog-backlog_ratio0.05-backlog_min3 | 16 | 10,755 | 7,299 | 94.2% | SAFE | +226 ± 160 (t +1.4, 9/16 better) |
+| 20261114-062444-n-slack140-fw150-backlog-backlog_ratio0.06-backlog_min2 | 16 | 10,703 | 7,775 | 94.2% | SAFE | +173 ± 117 (t +1.5, 9/16 better) |
+| 20261114-062522-n-slack140-fw150-backlog-backlog_ratio0.06-backlog_min3 | 16 | 10,759 | 7,285 | 94.2% | SAFE | +229 ± 156 (t +1.5, 8/16 better) |
+| 20261114-062628-n-slack140-fw150-backlog-backlog_ratio0.07-backlog_min2 | 16 | 10,663 | 7,775 | 94.2% | SAFE | +133 ± 126 (t +1.1, 9/16 better) |
+| 20261114-062714-n-slack140-fw150-backlog-backlog_ratio0.07-backlog_min3 | 16 | 10,748 | 7,285 | 94.2% | SAFE | +218 ± 161 (t +1.4, 9/16 better) |
+| 20261114-062848-n-slack-steep-feeopen-fee_open0.82-day_start360 | 16 | 10,885 | 7,943 | 92.9% | SAFE | +356 ± 199 (t +1.8, 11/16 better) |
+| 20261114-062922-n-slack-steep-feeopen-fee_open0.82-day_start420 | 16 | 10,939 | 7,355 | 93.3% | SAFE | +410 ± 191 (t +2.1, 10/16 better) |
+| 20261114-063003-n-slack-steep-feeopen-fee_open0.84-day_start360 | 16 | 10,698 | 7,474 | 92.5% | SAFE | +169 ± 138 (t +1.2, 9/16 better) |
+| 20261114-063102-n-slack-steep-feeopen-fee_open0.84-day_start420 | 16 | 10,886 | 7,773 | 93.3% | SAFE | +356 ± 159 (t +2.2, 11/16 better) |
+| 20261114-063154-n-slack-steep-feeopen-fee_open0.85-day_start360 | 16 | 10,928 | 7,925 | 94.1% | SAFE | +399 ± 142 (t +2.8, 11/16 better) |
+| 20261114-063236-n-slack-steep-feeopen-fee_open0.85-day_start420 | 16 | 10,645 | 7,614 | 93.2% | SAFE | +115 ± 147 (t +0.8, 11/16 better) |
+| 20261114-063408-n-fw148-steep-fee_warn1.45-steep_open1.50 | 16 | 10,888 | 7,929 | 92.1% | SAFE | +358 ± 124 (t +2.9, 12/16 better) |
+| 20261114-063439-n-fw148-steep-fee_warn1.45-steep_open1.60 | 16 | 10,838 | 8,028 | 91.8% | no | +308 ± 136 (t +2.3, 12/16 better) |
+| 20261114-063510-n-fw148-steep-fee_warn1.48-steep_open1.50 | 16 | 10,869 | 7,634 | 93.8% | SAFE | +340 ± 202 (t +1.7, 11/16 better) |
+| 20261114-063546-n-fw148-steep-fee_warn1.48-steep_open1.60 | 16 | 10,766 | 7,569 | 93.4% | SAFE | +237 ± 144 (t +1.6, 10/16 better) |
+| 20261114-063618-n-fw148-steep-fee_warn1.50-steep_open1.50 | 16 | 10,776 | 7,533 | 93.5% | SAFE | +247 ± 168 (t +1.5, 9/16 better) |
+| 20261114-063652-n-fw148-steep-fee_warn1.50-steep_open1.60 | 16 | 10,822 | 7,477 | 93.8% | SAFE | +293 ± 175 (t +1.7, 11/16 better) |
+| 20261114-063828-n-slack130-steep15-min_slack_min130-slack_per_drive0.75 | 16 | 10,862 | 7,614 | 93.4% | SAFE | +333 ± 174 (t +1.9, 10/16 better) |
+| 20261114-063905-n-slack130-steep15-min_slack_min130-slack_per_drive0.80 | 16 | 10,668 | 7,614 | 93.8% | SAFE | +139 ± 166 (t +0.8, 8/16 better) |
+| 20261114-063938-n-slack130-steep15-min_slack_min135-slack_per_drive0.75 | 16 | 10,798 | 7,614 | 93.8% | SAFE | +269 ± 155 (t +1.7, 10/16 better) |
+| 20261114-064018-n-slack130-steep15-min_slack_min135-slack_per_drive0.80 | 16 | 10,738 | 7,614 | 93.8% | SAFE | +209 ± 153 (t +1.4, 10/16 better) |
+| 20261114-064056-n-slack130-steep15-min_slack_min140-slack_per_drive0.75 | 16 | 10,622 | 7,614 | 93.7% | SAFE | +92 ± 161 (t +0.6, 8/16 better) |
+| 20261114-064158-n-slack130-steep15-min_slack_min140-slack_per_drive0.80 (running) | 10 | 11,012 | 7,614 | 92.5% | no | +230 ± 212 (t +1.1, 7/10 better) |

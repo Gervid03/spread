@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-slack140-fw150-backlog -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g backlog_ratio=0.05,0.06,0.07 -g backlog_min=2,3
+# started 2026-11-14T06:23:27Z
+
+=== backlog_ratio=0.05,backlog_min=2
+  mean margin €10,702.64  (median €10,364.52, min €7,559.39)  ranked 16/16  on time min 94.2% mean 97.0%  won 281  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+173.22 ± 142.64 (SE) t=1.21  better on 9, worse on 7  Δon-time -0.16%
+
+=== backlog_ratio=0.05,backlog_min=3
+  mean margin €10,755.25  (median €10,364.52, min €7,299.49)  ranked 16/16  on time min 94.2% mean 97.0%  won 282  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+225.83 ± 159.83 (SE) t=1.41  better on 9, worse on 7  Δon-time -0.12%
+
+=== backlog_ratio=0.06,backlog_min=2
+  mean margin €10,702.57  (median €10,531.35, min €7,775.26)  ranked 16/16  on time min 94.2% mean 96.9%  won 282  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+173.15 ± 116.89 (SE) t=1.48  better on 9, worse on 7  Δon-time -0.30%
+
+=== backlog_ratio=0.06,backlog_min=3
+  mean margin €10,758.50  (median €10,544.25, min €7,284.92)  ranked 16/16  on time min 94.2% mean 97.0%  won 282  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+229.09 ± 156.48 (SE) t=1.46  better on 8, worse on 8  Δon-time -0.16%
+
+=== backlog_ratio=0.07,backlog_min=2
+  mean margin €10,662.79  (median €10,349.08, min €7,775.26)  ranked 16/16  on time min 94.2% mean 96.9%  won 283  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+133.38 ± 126.29 (SE) t=1.06  better on 9, worse on 7  Δon-time -0.28%
+
+=== backlog_ratio=0.07,backlog_min=3
+  mean margin €10,747.61  (median €10,349.08, min €7,284.92)  ranked 16/16  on time min 94.2% mean 97.0%  won 283  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+218.19 ± 160.72 (SE) t=1.36  better on 9, worse on 7  Δon-time -0.20%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  backlog_ratio=0.06,backlog_min=3                   €    10,758  on-time min 94.2%  SAFE  Δ €+229±156  20261114-062522-n-slack140-fw150-backlog-backlog_ratio0.06-backlog_min3
+  backlog_ratio=0.05,backlog_min=3                   €    10,755  on-time min 94.2%  SAFE  Δ €+226±160  20261114-062409-n-slack140-fw150-backlog-backlog_ratio0.05-backlog_min3
+  backlog_ratio=0.07,backlog_min=3                   €    10,748  on-time min 94.2%  SAFE  Δ €+218±161  20261114-062714-n-slack140-fw150-backlog-backlog_ratio0.07-backlog_min3
+  backlog_ratio=0.05,backlog_min=2                   €    10,703  on-time min 94.2%  SAFE  Δ €+173±143  20261114-062327-n-slack140-fw150-backlog-backlog_ratio0.05-backlog_min2
+  backlog_ratio=0.06,backlog_min=2                   €    10,703  on-time min 94.2%  SAFE  Δ €+173±117  20261114-062444-n-slack140-fw150-backlog-backlog_ratio0.06-backlog_min2
+  backlog_ratio=0.07,backlog_min=2                   €    10,663  on-time min 94.2%  SAFE  Δ €+133±126  20261114-062628-n-slack140-fw150-backlog-backlog_ratio0.07-backlog_min2
+# exit 0 at 2026-11-14T06:28:22Z

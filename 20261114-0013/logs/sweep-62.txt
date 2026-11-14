@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-fw148-steep -s min_slack_min=135 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=20 -g fee_warn=1.45,1.48,1.50 -g steep_open=1.50,1.60
+# started 2026-11-14T06:34:08Z
+
+=== fee_warn=1.45,steep_open=1.50
+  mean margin €10,887.52  (median €10,415.15, min €7,928.73)  ranked 16/16  on time min 92.1% mean 96.5%  won 282  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+358.11 ± 123.61 (SE) t=2.9  better on 12, worse on 4  Δon-time -0.61%
+
+=== fee_warn=1.45,steep_open=1.60
+  mean margin €10,837.53  (median €10,464.35, min €8,027.95)  ranked 16/16  on time min 91.8% mean 96.6%  won 283  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €+308.12 ± 136.02 (SE) t=2.27  better on 12, worse on 4  Δon-time -0.58%
+
+=== fee_warn=1.48,steep_open=1.50
+  mean margin €10,869.41  (median €10,373.98, min €7,634.10)  ranked 16/16  on time min 93.8% mean 96.8%  won 283  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+340.00 ± 201.83 (SE) t=1.68  better on 11, worse on 5  Δon-time -0.33%
+
+=== fee_warn=1.48,steep_open=1.60
+  mean margin €10,766.15  (median €10,771.57, min €7,568.53)  ranked 16/16  on time min 93.4% mean 96.8%  won 282  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+236.73 ± 144.49 (SE) t=1.64  better on 10, worse on 6  Δon-time -0.38%
+
+=== fee_warn=1.50,steep_open=1.50
+  mean margin €10,776.36  (median €10,178.05, min €7,532.86)  ranked 16/16  on time min 93.5% mean 96.7%  won 281  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+246.94 ± 168.17 (SE) t=1.47  better on 9, worse on 7  Δon-time -0.47%
+
+=== fee_warn=1.50,steep_open=1.60
+  mean margin €10,822.28  (median €10,259.80, min €7,476.84)  ranked 16/16  on time min 93.8% mean 96.7%  won 280  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+292.86 ± 174.76 (SE) t=1.68  better on 11, worse on 5  Δon-time -0.42%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  fee_warn=1.45,steep_open=1.50                      €    10,888  on-time min 92.1%  SAFE  Δ €+358±124  20261114-063408-n-fw148-steep-fee_warn1.45-steep_open1.50
+  fee_warn=1.48,steep_open=1.50                      €    10,869  on-time min 93.8%  SAFE  Δ €+340±202  20261114-063510-n-fw148-steep-fee_warn1.48-steep_open1.50
+  fee_warn=1.45,steep_open=1.60                      €    10,838  on-time min 91.8%  unsafe  Δ €+308±136  20261114-063439-n-fw148-steep-fee_warn1.45-steep_open1.60
+  fee_warn=1.50,steep_open=1.60                      €    10,822  on-time min 93.8%  SAFE  Δ €+293±175  20261114-063652-n-fw148-steep-fee_warn1.50-steep_open1.60
+  fee_warn=1.50,steep_open=1.50                      €    10,776  on-time min 93.5%  SAFE  Δ €+247±168  20261114-063618-n-fw148-steep-fee_warn1.50-steep_open1.50
+  fee_warn=1.48,steep_open=1.60                      €    10,766  on-time min 93.4%  SAFE  Δ €+237±144  20261114-063546-n-fw148-steep-fee_warn1.48-steep_open1.60
+# exit 0 at 2026-11-14T06:37:35Z

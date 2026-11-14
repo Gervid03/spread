@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-slack-steep-feeopen -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.5 -g fee_open=0.82,0.84,0.85 -g day_start=360,420
+# started 2026-11-14T06:28:47Z
+
+=== fee_open=0.82,day_start=360
+  mean margin €10,885.49  (median €9,964.90, min €7,943.24)  ranked 16/16  on time min 92.9% mean 96.9%  won 279  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+356.07 ± 199.30 (SE) t=1.79  better on 11, worse on 5  Δon-time -0.23%
+
+=== fee_open=0.82,day_start=420
+  mean margin €10,939.31  (median €10,764.33, min €7,354.56)  ranked 16/16  on time min 93.3% mean 96.5%  won 279  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+409.90 ± 191.25 (SE) t=2.14  better on 10, worse on 6  Δon-time -0.62%
+
+=== fee_open=0.84,day_start=360
+  mean margin €10,698.39  (median €10,314.41, min €7,473.95)  ranked 16/16  on time min 92.5% mean 96.6%  won 280  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+168.97 ± 138.38 (SE) t=1.22  better on 9, worse on 7  Δon-time -0.58%
+
+=== fee_open=0.84,day_start=420
+  mean margin €10,885.56  (median €10,137.74, min €7,773.15)  ranked 16/16  on time min 93.3% mean 96.9%  won 280  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+356.15 ± 159.31 (SE) t=2.24  better on 11, worse on 5  Δon-time -0.29%
+
+=== fee_open=0.85,day_start=360
+  mean margin €10,928.37  (median €10,176.79, min €7,924.71)  ranked 16/16  on time min 94.1% mean 96.9%  won 281  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+398.95 ± 141.98 (SE) t=2.81  better on 11, worse on 5  Δon-time -0.28%
+
+=== fee_open=0.85,day_start=420
+  mean margin €10,644.87  (median €10,037.60, min €7,614.17)  ranked 16/16  on time min 93.2% mean 96.7%  won 280  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+115.45 ± 146.73 (SE) t=0.79  better on 11, worse on 5  Δon-time -0.46%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  fee_open=0.82,day_start=420                        €    10,939  on-time min 93.3%  SAFE  Δ €+410±191  20261114-062922-n-slack-steep-feeopen-fee_open0.82-day_start420
+  fee_open=0.85,day_start=360                        €    10,928  on-time min 94.1%  SAFE  Δ €+399±142  20261114-063154-n-slack-steep-feeopen-fee_open0.85-day_start360
+  fee_open=0.84,day_start=420                        €    10,886  on-time min 93.3%  SAFE  Δ €+356±159  20261114-063102-n-slack-steep-feeopen-fee_open0.84-day_start420
+  fee_open=0.82,day_start=360                        €    10,885  on-time min 92.9%  SAFE  Δ €+356±199  20261114-062848-n-slack-steep-feeopen-fee_open0.82-day_start360
+  fee_open=0.84,day_start=360                        €    10,698  on-time min 92.5%  SAFE  Δ €+169±138  20261114-063003-n-slack-steep-feeopen-fee_open0.84-day_start360
+  fee_open=0.85,day_start=420                        €    10,645  on-time min 93.2%  SAFE  Δ €+115±147  20261114-063236-n-slack-steep-feeopen-fee_open0.85-day_start420
+# exit 0 at 2026-11-14T06:33:08Z

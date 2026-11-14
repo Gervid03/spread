@@ -216,3 +216,14 @@
 06:17:59 worker n14-05165-research-volume finished after 21 min
 06:17:59 worker n14-06044-friday-on-a started (pid 60881)
 06:18:21 lead tick started (pid 61034)
+06:22:27 published to night/20261114
+06:23:27 sweep 60 started: sweep --seeds-from dev --name n-slack140-fw150-backlog -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g backlog_ratio=0.05,0.06,0.07 -g backlog_min=2,3
+06:26:27 worker n14-06041-capacity-steps finished after 21 min
+06:27:27 worker n14-06261-hours-on-v3 started (pid 63267)
+06:28:47 sweep 61 started: sweep --seeds-from dev --name n-slack-steep-feeopen -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.5 -g fee_open=0.82,0.84,0.85 -g day_start=360,420
+06:33:48 worker n14-05166-quota finished after 36 min
+06:33:48 worker n14-06262-signals-on-v3 started (pid 63988)
+06:34:08 sweep 62 started: sweep --seeds-from dev --name n-fw148-steep -s min_slack_min=135 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=20 -g fee_warn=1.45,1.48,1.50 -g steep_open=1.50,1.60
+06:35:08 worker n14-06042-costprice-on-a finished after 28 min
+06:35:08 worker n14-06263-snow-and-hitch-research started (pid 64337)
+06:38:28 sweep 63 started: sweep --seeds-from dev --name n-slack130-steep15 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.50 -g min_slack_min=130,135,140 -g slack_per_drive=0.75,0.80

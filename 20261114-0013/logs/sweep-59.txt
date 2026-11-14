@@ -22,3 +22,14 @@
   vs champion on 16 paired seeds: Δmargin €+115.45 ± 146.73 (SE) t=0.79  better on 11, worse on 5  Δon-time -0.46%
 
 === price_target_win=0.40,min_supply=25
+  mean margin €10,592.38  (median €9,744.80, min €7,769.90)  ranked 16/16  on time min 93.2% mean 96.7%  won 275  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+62.96 ± 148.71 (SE) t=0.42  better on 9, worse on 7  Δon-time -0.46%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  price_target_win=0.40,min_supply=20                €    10,679  on-time min 93.8%  SAFE  Δ €+150±162  20261114-061933-n-slack-steep-ptw-price_target_win0.40-min_supply20
+  price_target_win=0.40,min_supply=22                €    10,645  on-time min 93.2%  SAFE  Δ €+115±147  20261114-062044-n-slack-steep-ptw-price_target_win0.40-min_supply22
+  price_target_win=0.40,min_supply=25                €    10,592  on-time min 93.2%  SAFE  Δ €+63±149  20261114-062155-n-slack-steep-ptw-price_target_win0.40-min_supply25
+  price_target_win=0.35,min_supply=20                €    10,462  on-time min 93.2%  SAFE  Δ €-67±101  20261114-061659-n-slack-steep-ptw-price_target_win0.35-min_supply20
+  price_target_win=0.35,min_supply=22                €    10,445  on-time min 93.2%  SAFE  Δ €-85±149  20261114-061746-n-slack-steep-ptw-price_target_win0.35-min_supply22
+  price_target_win=0.35,min_supply=25                €    10,300  on-time min 93.2%  SAFE  Δ €-229±153  20261114-061832-n-slack-steep-ptw-price_target_win0.35-min_supply25
+# exit 0 at 2026-11-14T06:22:36Z
