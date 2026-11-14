@@ -20,6 +20,15 @@ A turn is a JSON object; its keys combine:
     "probe": {"<request id prefix>": [lo, hi]}                    binary-search, on forks, the highest multiple
                                      of list price that still wins each waiting quote (the dealer's real limit)
     "note": "text"                   logged with the turn (say what you are testing and why)
+    "tour": [["<order prefix>", ...], 0.55]  (or a list of them)   post those won cars, in that order, as one flat
+                                     multi-car gig at 0.55x their summed typical fee (needs a tour desk, see `new`)
+    "tourprobe": [["<order prefix>", ...], lo, hi, minutes]       the lowest flat multiple of the summed typical
+                                     fee at which a driver books that tour within the minutes, bisected on forks;
+                                     logged to ~/.spread-lab/coplay/tour-fees.jsonl. No move made.
+
+    new <game> --seed dev-05 --policy spread_lab.policies.sunday_tours:Desk -s sunday_tours=true -s tour_dynamic=true
+                                     a game on another policy, with Params overrides on top of the champion's
+The state shows a "Cycles" section: closed tours of 2-4 won cars without a driver (scripts/coplay_cycles.py).
 
 Policy code comes from the checkout you run in, so a mechanism you add (as a Params flag with a neutral default)
 can be switched on with "set". Games live in ~/.spread-lab/coplay/<game>/ (log.json, state.md, history.jsonl).
@@ -43,6 +52,8 @@ from spread_lab.env import lab_home, load_dotenv
 from spread_lab.geo import Geo, load_map
 from spread_lab.lab import CountingClient, Slot, champion, champion_results, create_world, load_policy, register
 from spread_lab.runner import DAY, HOUR, URGENT, busy, clock
+
+from coplay_cycles import apply_tour, cycles_text, tour_probe
 
 WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"]
 _geo_lock = threading.Lock()
@@ -84,6 +95,7 @@ class Game:
         self.pnl = defaultdict(Counter)
         self.record = False
         self.seen, self.turn_reqs, self.booked, self.sent = Counter(), [], [], {}
+        self.msgs: list[str] = []
 
     def __enter__(self):
         self.slot = Slot().__enter__()
@@ -169,6 +181,11 @@ class Game:
             for oid in list(desk.orders):
                 if oid.startswith(prefix):
                     desk.raise_fees(oid)
+        tours = moves.get("tour") or []
+        if tours and isinstance(tours[0], list) and tours[0] and isinstance(tours[0][0], str):
+            tours = [tours]
+        for prefixes, mult in tours:
+            self.msgs.append(apply_tour(desk, prefixes, float(mult)))
 
     def replay(self, upto=None):
         """Plays the log's pauses and moves, up to the game's current minute (or `upto`)."""
@@ -297,6 +314,7 @@ def state_text(g: Game, turn: int, extra: list[str]):
         for k, v in sorted(g.pnl.items(), key=lambda kv: -sum(kv[1].values()))[:12]:
             rev, fee = v.get("revenue", 0), v.get("driver_fee", 0)
             lines.append(f"- {k:<16} {eur(rev):>8} {eur(fee):>8} {eur(sum(v.values()) - rev - fee):>7} {eur(sum(v.values())):>8}")
+    lines += cycles_text(desk, names)
     changed = {k: v for p in g.log["pauses"] for k, v in p.get("set", {}).items()}
     lines.append(f"\nParams you changed: {changed or 'none'}")
     return "\n".join(lines + extra) + "\n"
@@ -316,7 +334,11 @@ def cmd_new(a):
     h.mkdir(parents=True)
     champ = champion()
     row = next((r for r in champion_results() if r.get("seed") == a.seed and r.get("level") == 8), None)
-    log = {"game": a.game, "seed": a.seed, "policy": champ["policy"], "params": champ["params"], "pauses": [], "now": 7 * 60,
+    params = dict(champ["params"])
+    for kv in a.s or []:
+        k, v = kv.split("=", 1)
+        params[k] = json.loads(v.lower()) if v.lower() in ("true", "false") else (json.loads(v) if re.fullmatch(r"-?[0-9.]+", v) else v)
+    log = {"game": a.game, "seed": a.seed, "policy": a.policy or champ["policy"], "params": params, "pauses": [], "now": 7 * 60,
            "turn": 0, "champion": {k: row[k] for k in ("margin", "won", "on_time")} if row else None, "best": None, "projected": None}
     save_log(a.game, log)
     print(f"New game {a.game} on {a.seed}; it starts on Monday 07:00 at your first turn. "
@@ -327,7 +349,7 @@ def cmd_turn(a):
     h = home(a.game)
     log = json.loads((h / "log.json").read_text(encoding="utf-8"))
     cmd = json.loads(a.cmd)
-    moves = {k: cmd[k] for k in ("set", "quote", "raise") if k in cmd}
+    moves = {k: cmd[k] for k in ("set", "quote", "raise", "tour") if k in cmd}
     extra = []
     whatif = None
     if cmd.get("whatif"):
@@ -349,9 +371,21 @@ def cmd_turn(a):
             log["best"] = {**best[1], "variant": best[0], "at": clock(log["now"]), "moves": cmd["whatif"].get(best[0])}
     with Game(log) as g:
         g.replay()
+        g.msgs = []
         if moves:
             g.apply(moves)
             log["pauses"].append({"at": g.desk.now, **moves})
+            extra += ["\n## Moves"] + [f"- {m}" for m in g.msgs]
+        if cmd.get("tourprobe"):
+            tp = cmd["tourprobe"]
+            tps = [tp] if isinstance(tp[0], list) and tp[0] and isinstance(tp[0][0], str) else tp
+            extra.append("\n## Tour probes (the lowest flat multiple of the summed typical fee that a driver books within the minutes):")
+            for prefixes, lo, hi, within in tps:
+                r = tour_probe(g, prefixes, float(lo), float(hi), int(within))
+                extra.append(f"- {r.get('cars', '?')} cars {'→'.join(r.get('towns', []))} (Σ ref €{r.get('ref_eur', 0):.0f}, "
+                             f"road {(r.get('road_min') or 0) / 60:.1f} h, start drivers {r.get('start_supply')}): "
+                             f"min {r.get('min_mult')} = €{r.get('fee_eur', '-')} ({r.get('eur_per_road_h', '-')} €/road h)"
+                             + (f" ERROR {r['error']}" if r.get("error") else ""))
         if cmd.get("probe"):
             extra.append("\n## Probes (the highest multiple of list that still wins; searched on forks):")
             for prefix, (lo, hi) in cmd["probe"].items():
@@ -368,7 +402,7 @@ def cmd_turn(a):
         elif "advance" in cmd:
             target = g.desk.now + int(cmd["advance"])
         else:
-            target = g.desk.now if (whatif or cmd.get("probe")) and not moves else g.desk.now + 30
+            target = g.desk.now if (whatif or cmd.get("probe") or cmd.get("tourprobe")) and not moves else g.desk.now + 30
         g.record = True
         g.play_to(target)
         log["now"] = g.desk.now
@@ -412,6 +446,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest="c", required=True)
     s = sub.add_parser("new"); s.add_argument("game"); s.add_argument("--seed", required=True)
+    s.add_argument("--policy", help="module:Class, default the champion's"); s.add_argument("-s", action="append", help="key=value on top of the champion's params")
     s = sub.add_parser("turn"); s.add_argument("game"); s.add_argument("cmd", nargs="?", default='{"advance": 30}')
     s = sub.add_parser("show"); s.add_argument("game")
     sub.add_parser("board")
