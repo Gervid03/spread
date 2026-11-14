@@ -200,7 +200,8 @@ class Params:
     r4v_lead_benign_notes: bool = False  # allow benign notes in try_pair_lead_car
     r4v_lead_cross_slow: bool = False    # allow next_day + within_3_days cross-day pairing in try_pair_lead_car
     r4v_guard_return_hub: bool = False   # snap return_hub/ext_ring back to 200/180/220 when _r4v_surge_safe is False
-    r4v_cyc_unblock: bool = False        # exclude cyc_held and staged_orders from maybe_supervise and backlog_near
+    r4v_cyc_unblock: bool = False        # exclude cyc_held and staged_orders from 08:00 maybe_supervise
+    r4v_cyc_unblock_backlog: bool = False  # also exclude cyc_held and staged_orders from backlog_near
     r4v_cyc_closer: bool = False         # 1-to-1 verified cycle-closer floor/nudge against cyc_held & staged_orders
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
@@ -1025,8 +1026,8 @@ class Desk:
     def backlog_near(self, place: str, include_in_flight: bool = True) -> float:
         """Won orders without a driver for every undelivered car, picked up within the radius of `place`."""
         p, radius, n = self.p, self.p.supply_radius_km, 0.0
-        held_cyc = getattr(self, "cyc_held", ()) if p.r4v_cyc_unblock else ()
-        held_stg = getattr(self, "staged_orders", ()) if p.r4v_cyc_unblock else ()
+        held_cyc = getattr(self, "cyc_held", ()) if p.r4v_cyc_unblock_backlog else ()
+        held_stg = getattr(self, "staged_orders", ()) if p.r4v_cyc_unblock_backlog else ()
         for order in self.orders.values():
             if order["id"] in self.r4v_staged or order["id"] in held_cyc or order["id"] in held_stg:
                 continue
