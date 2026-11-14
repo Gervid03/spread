@@ -219,7 +219,7 @@ class Params:
     lim_lane_comp_slope: float = 2.2  # target-win slope compensation in learn() so lane_mult induces zero mult drift
     lim_inb_fee_mult: float = 1.08    # expected_fee_mult for non-hub -> hub (supply>=200) floor when fleet has surplus
     lim_inb_max_unstaffed: int = 16   # max active unstaffed orders to allow inbound lane/floor discounting
-    lim_inb_max_daily_pace: float = 65.5  # max won-orders/day pace (after Mon) to allow inbound volume discounting
+    lim_inb_max_daily_pace: float = 62.0  # max Tue-Fri won-orders/day pace (+20 Mon offset, cur_day>=2) for inbound discounting
     lim_inb_min_ot: float = 0.945     # min projected_on_time to allow inbound lane/floor discounting
     lim_floored_sd_prem: float = 0.10 # min (same_day / next_day - 1) spread when quote hits margin floor
     # --- practice runner ----------------------------------------------------------------------------
@@ -926,9 +926,9 @@ class Desk:
                 else p.lim_inb_max_unstaffed
             )
             pace_ok = True
-            if p.lim_inb_max_daily_pace > 0 and cur_day >= 1:
+            if p.lim_inb_max_daily_pace > 0 and cur_day >= 2:
                 day_frac = clamp((cur_tod - 8 * HOUR) / (10.0 * HOUR), 0.0, 1.0)
-                pace_ok = len(self.orders) <= p.lim_inb_max_daily_pace * (cur_day + day_frac)
+                pace_ok = len(self.orders) <= 20.0 + p.lim_inb_max_daily_pace * (cur_day + day_frac)
             inb_surplus_ok = (
                 tight == 0.0
                 and pace_ok
