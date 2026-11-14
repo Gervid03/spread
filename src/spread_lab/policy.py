@@ -217,7 +217,7 @@ class Params:
     lim_lane_neg_w: float = 0.55      # weight on negative lane_eff (inbound) when fleet has surplus capacity
     lim_cong_pos_w: float = 0.0       # weight on positive lane_eff (outbound) when fleet is congested
     lim_lane_comp_slope: float = 1.85 # balanced slope compensation so lane_mult induces zero mult drift
-    lim_inb_fee_mult: float = 1.08    # expected_fee_mult for non-hub -> hub (supply>=200) floor when fleet has surplus
+    lim_inb_fee_mult: float = 1.12    # expected_fee_mult for non-hub -> hub (supply>=200) floor when fleet has surplus
     lim_inb_max_unstaffed: int = 16   # max active unstaffed orders (excl held/staged tours) for inbound discounting
     lim_inb_max_daily_pace: float = 0.0   # optional max won-orders/day pace for solo-desk inbound discounting (0 = off)
     lim_inb_min_ot: float = 0.945     # min projected_on_time to allow inbound lane/floor discounting
