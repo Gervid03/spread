@@ -120,6 +120,23 @@ class Params:
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
+    # --- buffer spender & buffer-steered selection/slack --------------------------------------------
+    buffer_hi: float = 0.955          # spend on-time buffer while projected_on_time() >= this
+    buffer_target_win: float = 0.0    # 0 = off; target win rate in learn() while projected_on_time() >= buffer_hi
+    buffer_discount: float = 0.0      # 0 = off; price discount on <2%-late easy buffer options
+    buffer_comp_slope: float = 0.0    # 0 = skip learn() on discounted quotes; >0 = shift target by comp_slope*discount
+    buffer_fee_mult: float = 0.0      # 0 = off; expected_fee_mult override on slow <2%-late buffer options
+    buffer_scope: str = "cap_in"      # "cap_in" (dl_supply>=200 + w3d), "ring_in", "c3", or "default"
+    buffer_gates: bool = False        # open safe Capital-return, ext-ring, and w3d/mid-hub slow gates while >= buffer_hi
+    buffer_ret_max_drive: int = 300   # max drive min for slow return to supply >= 200 under buffer_gates
+    buffer_midhub_max_drive: int = 0  # max drive min for slow return to supply >= 100 under buffer_gates
+    buffer_ext_min_supply: int = 30   # min 70km supply for slow ext_ring under buffer_gates
+    buffer_ext_max_drive: int = 280   # max drive min for slow ext_ring under buffer_gates
+    buffer_w3d_max_drive: int = 0     # max drive min for within_3_days-only when 70km supply >= 12 under buffer_gates
+    buffer_hub_sd_max_drive: int = 0  # max drive min for Mon-Thu <13:00 same_day to Capital under buffer_gates
+    buffer_slack: bool = False        # relax slack on single-option hub same_day when >= buffer_hi
+    buffer_lo: float = 0.0            # 0 = off; below this projected_on_time(), tighten slack and non-hub selection
+    buffer_low_slack_add: int = 60    # extra min_slack_min on non-ballast options when projected_on_time() < buffer_lo
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -169,13 +186,17 @@ class Desk:
         self.supply = geo.supply(roster, params.supply_radius_km)
         r = params.gate_radius_km if params.gate_radius_km > 0 else params.supply_radius_km
         self.gate_supply = geo.supply(roster, r)
-        self.ext_supply = geo.supply(roster, params.ext_ring_radius_km) if params.ext_ring_min_supply > 0 else {}
+        self.ext_supply = geo.supply(roster, params.ext_ring_radius_km) if (params.ext_ring_min_supply > 0 or params.buffer_gates) else {}
         self.last_view: dict[str, int] = {}          # driver id -> minute of their last view of our gigs
         self.offers_sent: Counter = Counter()        # (driver id, day) -> direct offers sent
         self.stats: Counter = Counter()
         self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
         self.ring_hub_same_day: set[str] = set()     # request/order ids where ring_to_hub_same_day_min allowed same_day
         self.ext_ring_reqs: set[str] = set()         # request/order ids admitted via pass_ext_ring or pass_return_hub
+        self.buf_reqs: set[str] = set()              # request/order ids modified or admitted by buffer spender
+        self.buf_gate_reqs: set[str] = set()         # request/order ids admitted specifically via buffer_gates
+        self.buf_disc_amt: dict[str, float] = {}     # request id -> realized fractional price discount on unfloored options
+        self._last_buf_now: int = now
         self.lost: set[str] = set()                  # orders that can no longer be on time
         self.late_reposted: set[str] = set()         # orders already reposted in tick() upon becoming lost
         self.ends_at: int = 14280                    # second Wednesday 22:00
@@ -253,27 +274,42 @@ class Desk:
             self.last_view[event["driverId"]] = event["at"]
         elif kind == "ledger":
             line = event["line"]
-            order = self.orders.get(line.get("orderId", "")) if line.get("orderId") else None
-            dealer = self.requests[line["orderId"]]["dealerId"] if line.get("orderId") and line["orderId"] in self.requests else None
+            oid_line = line.get("orderId")
+            order = self.orders.get(oid_line, None) if oid_line else None
+            dealer = self.requests[oid_line]["dealerId"] if oid_line and oid_line in self.requests else None
             is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
             is_ext_ring = order and self.gate_supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
             if is_ring:
                 self.stats["margin_ring_cents"] += line["cents"]
             if is_ext_ring:
                 self.stats["margin_ext_ring_cents"] += line["cents"]
-            if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
-                if line["orderId"] not in self.late:
+            if oid_line and oid_line in self.buf_reqs and oid_line in self.orders:
+                self.stats["buf_margin_cents"] += line["cents"]
+            elif not oid_line and line.get("gigId") and line["gigId"] in self.posts and self.buf_reqs:
+                g_oids = [o for o in order_ids_of(self.posts[line["gigId"]]) if o in self.requests]
+                if any(o in self.buf_reqs and o in self.orders for o in g_oids):
+                    ref_tot = sum(self.requests[o]["referenceFeeCents"] for o in g_oids)
+                    if ref_tot > 0:
+                        for o in g_oids:
+                            if o in self.buf_reqs and o in self.orders:
+                                self.stats["buf_margin_cents"] += round(line["cents"] * self.requests[o]["referenceFeeCents"] / ref_tot)
+            if line["kind"] in ("late_refund", "undelivered_penalty") and oid_line:
+                if oid_line not in self.late:
                     if is_ring:
                         self.stats["late_ring"] += 1
-                    if order and order["option"] == "same_day" and line["orderId"] in self.ring_hub_same_day:
+                    if order and order["option"] == "same_day" and oid_line in self.ring_hub_same_day:
                         self.stats["late_ring_hub_same_day"] += 1
                     if is_ext_ring:
                         self.stats["late_ext_ring"] += 1
-                self.late.add(line["orderId"])
+                    if oid_line in self.buf_reqs:
+                        self.stats["buf_late"] += 1
+                    if oid_line in self.buf_gate_reqs:
+                        self.stats["buf_gate_late"] += 1
+                self.late.add(oid_line)
                 if dealer:
                     self.dealer_trust[dealer] //= 2
-            elif line["kind"] == "revenue" and line["orderId"]:
-                if dealer and line["orderId"] not in self.late:
+            elif line["kind"] == "revenue" and oid_line:
+                if dealer and oid_line not in self.late:
                     if order and self.now <= order["deadline"]:
                         self.dealer_trust[dealer] = min(25, self.dealer_trust[dealer] + 1)
         elif kind == "offer_answered":
@@ -294,8 +330,22 @@ class Desk:
                         else:
                             self.stats["late_more"] += 1
 
+    def buffer_enabled(self) -> bool:
+        p = self.p
+        return p.buffer_target_win > 0 or p.buffer_discount > 0 or p.buffer_fee_mult > 0 or p.buffer_gates or p.buffer_slack or p.buffer_lo > 0
+
     def tick(self) -> None:
         """Called after every step (practice) or event (live)."""
+        if self.buffer_enabled():
+            dt = max(0, self.now - self._last_buf_now)
+            self._last_buf_now = self.now
+            proj = self.projected_on_time()
+            if proj >= self.p.buffer_hi:
+                self.stats["buf_open_min"] += dt
+            if self.p.buffer_lo > 0 and proj < self.p.buffer_lo:
+                self.stats["buf_low_min"] += dt
+            n_ord = len(self.orders)
+            self.stats["end_on_time"] = round(1.0 - len(self.late) / n_ord, 4) if n_ord > 0 else 1.0
         day = self.now // DAY
         if not hasattr(self, "_last_day"):
             self._last_day = day
@@ -348,8 +398,10 @@ class Desk:
         """The prices to quote, and "quote", "floor" (a price raised to keep the margin) or "decline"."""
         p, legs = self.p, request["legs"]
         extra_days = 0
+        pn_unsure = False
         if p.notes_v2 and request["note"]:
             pn = parse_note_v2(request["note"], request["arrivedAt"])
+            pn_unsure = pn.unsure
             if pn.has_info:
                 self.stats["notes_read"] += 1
             if pn.unsure:
@@ -362,15 +414,28 @@ class Desk:
                     default=0,
                 )
         pickup = legs[0]["pickup"]["placeId"]
+        dl_place = legs[-1]["delivery"]["placeId"]
         supply = self.supply.get(pickup, 0)
         gate_supply = self.gate_supply.get(pickup, 0)
+        dl_supply = self.supply.get(dl_place, 0)
+        dl_gate_supply = self.gate_supply.get(dl_place, 0)
+
+        buf_on = self.buffer_enabled()
+        proj = self.projected_on_time() if buf_on else 1.0
+        buf_open = buf_on and proj >= p.buffer_hi
+        buf_low = p.buffer_lo > 0 and proj < p.buffer_lo
+
         tight = self.tightening()
         gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
+        if buf_low and dl_gate_supply < 200:
+            gate_min = max(gate_min, p.min_supply * 1.4)
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
         pass_ext_ring = False
         pass_return_hub = False
+        pass_buf_gate = False
+        pass_buf_w3d = False
         if gate_supply < gate_min:
             pass_ext_ring = (
                 p.ext_ring_min_supply > 0
@@ -379,10 +444,25 @@ class Desk:
             )
             pass_return_hub = (
                 p.return_hub_min_supply > 0
-                and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= p.return_hub_min_supply
+                and dl_supply >= p.return_hub_min_supply
                 and drive <= p.return_hub_max_drive_min
             )
-            if not (pass_ext_ring or pass_return_hub):
+            if p.buffer_gates and buf_open:
+                if not self.ext_supply:
+                    self.ext_supply = self.geo.supply(list(self.drivers.values()), p.ext_ring_radius_km)
+                ext_sup = self.ext_supply.get(pickup, 0)
+                pass_buf_gate = (
+                    (dl_supply >= 200 and drive <= p.buffer_ret_max_drive)
+                    or (p.buffer_midhub_max_drive > 0 and dl_supply >= 100 and drive <= p.buffer_midhub_max_drive)
+                    or (ext_sup >= p.buffer_ext_min_supply and drive <= p.buffer_ext_max_drive)
+                )
+                if not (pass_ext_ring or pass_return_hub or pass_buf_gate) and p.buffer_w3d_max_drive > 0:
+                    pass_buf_w3d = (
+                        ext_sup >= 12
+                        and drive <= p.buffer_w3d_max_drive
+                        and any(o["kind"] == "within_3_days" for o in request["options"])
+                    )
+            if not (pass_ext_ring or pass_return_hub or pass_buf_gate or pass_buf_w3d):
                 return {}, "decline"
             if self.backlog_near(pickup) + 1e-9 >= p.backlog_min:
                 self.stats["declined_backlog"] += 1
@@ -397,6 +477,7 @@ class Desk:
                     self.stats["in_flight_blocked"] += 1
                 return {}, "decline"
         is_ring = supply < gate_min
+        only_buf_gate = (pass_buf_gate or pass_buf_w3d) and not (pass_ext_ring or pass_return_hub)
 
         if p.trust_guard and self.dealer_trust[request["dealerId"]] >= 13:
             has_same_day = any(o["kind"] == "same_day" for o in request["options"])
@@ -429,17 +510,45 @@ class Desk:
             top3 = sorted(self.dealer_request_count.keys(), key=lambda d: self.dealer_request_count[d], reverse=True)[:3]
             is_invest = request["dealerId"] in top3
 
+        has_note = bool(request.get("note"))
+        note_ok_sure = (not has_note) or (p.notes_v2 and not pn_unsure)
+
         prices: dict[str, int] = {}
         floored = False
+        used_buf = only_buf_gate
+        used_buf_gate = only_buf_gate
+        realized_disc_max = 0.0
         for option in request["options"]:
+            okind = option["kind"]
             ring_hub_sd = False
-            if (pass_ext_ring or pass_return_hub) and option["kind"] == "same_day":
+            buf_hub_sd = False
+            if pass_buf_w3d and okind != "within_3_days":
                 continue
-            if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
-                if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
+            if (pass_ext_ring or pass_return_hub or pass_buf_gate) and okind == "same_day":
+                continue
+            if (
+                okind == "same_day"
+                and p.buffer_gates
+                and buf_open
+                and dl_supply >= 200
+                and drive <= p.buffer_hub_sd_max_drive
+                and (ready // DAY) < 4
+                and (ready % DAY) < 13 * HOUR
+                and not has_note
+            ):
+                buf_hub_sd = True
+            if is_ring and p.far_options == "slow" and okind == "same_day":
+                if p.ring_to_hub_same_day_min > 0 and dl_supply >= 200 and drive <= p.ring_to_hub_same_day_min:
                     ring_hub_sd = True
+                elif buf_hub_sd:
+                    ring_hub_sd = True
+                    used_buf = True
+                    used_buf_gate = True
                 else:
                     continue
+            if buf_low and okind == "same_day" and not (supply >= 200 and dl_supply >= 200 and (ready % DAY) < 12 * HOUR and not has_note):
+                self.stats["dropped_buf_low_sd"] += 1
+                continue
             deadline = option["deadline"]
             if p.notes_v2:
                 base_dl = shift_business_days(deadline, extra_days)
@@ -460,22 +569,52 @@ class Desk:
                     continue
             if p.thin_long_next_day_supply > 0 and not is_ring and supply < p.thin_long_next_day_supply and drive > p.long_drive_min:
                 if deadline // DAY <= ready // DAY + 1:
-                    self.stats["dropped_thin_long_next_day"] += 1
-                    continue
-            if p.fri_same_day_max_drive > 0 and ready // DAY >= 4 and option["kind"] == "same_day" and drive >= p.fri_same_day_max_drive:
+                    if p.buffer_gates and buf_open and dl_supply >= 200 and drive <= p.buffer_ret_max_drive:
+                        used_buf = True
+                        used_buf_gate = True
+                    else:
+                        self.stats["dropped_thin_long_next_day"] += 1
+                        continue
+            if p.fri_same_day_max_drive > 0 and ready // DAY >= 4 and okind == "same_day" and drive >= p.fri_same_day_max_drive:
                 self.stats["dropped_fri_same_day"] += 1
                 continue
             if p.long_drive_min > 0 and drive > p.long_drive_min:
                 if deadline // DAY <= ready // DAY:
                     self.stats["dropped_long_drive"] += 1
                     continue
-            if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply and not ring_hub_sd:
-                self.stats["dropped_same_day_supply"] += 1
-                continue
+            if okind == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply and not ring_hub_sd:
+                if buf_hub_sd:
+                    used_buf = True
+                    used_buf_gate = True
+                else:
+                    self.stats["dropped_same_day_supply"] += 1
+                    continue
             slack = deadline - ready - drive
-            if slack < p.min_slack_min + p.slack_per_drive * drive:
+            min_sl = p.min_slack_min
+            sl_per_d = p.slack_per_drive
+            if (
+                p.buffer_slack
+                and buf_open
+                and len(request["options"]) == 1
+                and okind == "same_day"
+                and drive <= 180
+                and not has_note
+                and (supply >= 100 or dl_supply >= 200)
+            ):
+                min_sl = min(min_sl, 105)
+                sl_per_d = min(sl_per_d, 0.40)
+            if buf_low:
+                is_ballast = (okind == "within_3_days" and drive <= 300 and note_ok_sure) or (
+                    okind == "next_day" and drive <= 240 and not has_note and (dl_supply >= 200 or supply >= 200)
+                )
+                if not is_ballast:
+                    min_sl += p.buffer_low_slack_add
+            if slack < min_sl + sl_per_d * drive:
                 self.stats["dropped_slack"] += 1
                 continue
+            if slack < p.min_slack_min + p.slack_per_drive * drive:
+                used_buf = True
+                used_buf_gate = True
             if ring_hub_sd:
                 self.stats["quoted_ring_hub_same_day"] += 1
                 self.ring_hub_same_day.add(request["id"])
@@ -486,26 +625,96 @@ class Desk:
             if p.return_hub_discount > 0 and pass_return_hub and not pass_ext_ring:
                 option_mult *= (1.0 - p.return_hub_discount)
 
-            price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            floor = fee / (1 - p.min_margin_frac)
-            if price < floor:
-                price, floored = floor, True
-            prices[option["kind"]] = int(price + 0.5)
+            disc_elig = False
+            floor_elig = False
+            if buf_open and (p.buffer_discount > 0 or p.buffer_fee_mult > 0):
+                if p.buffer_scope == "cap_in":
+                    disc_elig = (
+                        (okind == "within_3_days" and drive <= 300 and note_ok_sure and (dl_supply >= 200 or supply < 200))
+                        or (okind == "next_day" and drive <= 320 and not has_note and dl_supply >= 200 and supply < 200)
+                        or (okind == "same_day" and drive <= 110 and (ready // DAY) < 4 and (ready % DAY) < 13 * HOUR and not has_note and dl_supply >= 200 and supply < 200)
+                    )
+                    floor_elig = (
+                        (okind == "within_3_days" and drive <= 300 and note_ok_sure)
+                        or (okind == "next_day" and drive <= 320 and not has_note and dl_supply >= 200)
+                    )
+                elif p.buffer_scope == "ring_in":
+                    disc_elig = (
+                        (okind == "within_3_days" and drive <= 300 and note_ok_sure and (dl_gate_supply >= 200 or supply < 200))
+                        or (okind == "next_day" and drive <= 300 and not has_note and dl_gate_supply >= 200 and supply < 200)
+                        or (okind == "same_day" and drive <= 120 and (ready // DAY) < 4 and (ready % DAY) < 13 * HOUR and not has_note and dl_supply >= 200 and supply < 200)
+                    )
+                    floor_elig = (
+                        (okind == "within_3_days" and drive <= 300 and note_ok_sure)
+                        or (okind == "next_day" and drive <= 300 and not has_note and dl_gate_supply >= 200)
+                    )
+                elif p.buffer_scope == "c3":
+                    disc_elig = (
+                        (okind == "within_3_days" and drive < 300 and note_ok_sure)
+                        or (okind == "next_day" and drive < 300 and not has_note and (supply >= 200 or dl_gate_supply >= 200 or 60 <= drive < 180))
+                        or (okind == "same_day" and drive < 180 and not has_note and (ready // DAY) < 4 and (ready % DAY) < 13 * HOUR and (supply >= 200 or dl_supply >= 200))
+                    )
+                    floor_elig = disc_elig and okind != "same_day"
+                else:  # "default" heuristic from c4 brief
+                    disc_elig = (
+                        supply >= 100
+                        and drive <= 120
+                        and not (okind == "same_day" and (ready % DAY) >= 13 * HOUR)
+                        and note_ok_sure
+                    )
+                    floor_elig = disc_elig and okind != "same_day"
+
+            undisc_price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if okind == "same_day" else 1)
+            if buf_open and p.buffer_discount > 0 and disc_elig:
+                option_mult *= (1.0 - p.buffer_discount)
+
+            raw_price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if okind == "same_day" else 1)
+            normal_floor = fee / (1 - p.min_margin_frac)
+            eff_floor = normal_floor
+            if buf_open and p.buffer_fee_mult > 0 and floor_elig:
+                eff_floor = (request["referenceFeeCents"] * p.buffer_fee_mult) / (1 - p.min_margin_frac)
+            price = raw_price
+            if price < eff_floor:
+                price = eff_floor
+            if undisc_price < normal_floor:
+                floored = True
+                if eff_floor < normal_floor and int(price + 0.5) < int(normal_floor + 0.5):
+                    used_buf = True
+                    self.stats["buf_unfloored"] += 1
+            elif price < undisc_price - 0.5 and undisc_price > 0:
+                used_buf = True
+                realized_disc_max = max(realized_disc_max, (undisc_price - price) / undisc_price)
+            prices[okind] = int(price + 0.5)
         if not prices:
             return {}, "decline"
-        if pass_ext_ring or pass_return_hub:
+        if pass_ext_ring or pass_return_hub or pass_buf_gate or pass_buf_w3d:
             self.ext_ring_reqs.add(request["id"])
             self.stats["quoted_ext_ring"] += 1
             if pass_return_hub:
                 self.stats["quoted_return_hub"] += 1
+        if used_buf:
+            self.buf_reqs.add(request["id"])
+            self.stats["buf_quoted"] += 1
+            if used_buf_gate:
+                self.buf_gate_reqs.add(request["id"])
+                self.stats["buf_gate_quoted"] += 1
+            if realized_disc_max > 0:
+                self.buf_disc_amt[request["id"]] = realized_disc_max
         return prices, "floor" if floored else "quote"
 
     def learn(self, request_id: str, won: bool) -> None:
         """Moves the multiplier towards the price that wins `price_target_win` of the normal quotes."""
+        if request_id in self.buf_gate_reqs:
+            self.stats["buf_skipped_learn"] += 1
+            return
         if self.decided.get(request_id) != "quote":
             return
         if self.p.ext_ring_neutral_learn and request_id in self.ext_ring_reqs:
             self.stats["ext_ring_skipped_learn"] += 1
+            return
+        disc_amt = self.buf_disc_amt.get(request_id, 0.0)
+        if disc_amt > 0 and self.p.buffer_comp_slope <= 0:
+            self.stats["buf_skipped_learn"] += 1
             return
         if self.p.ext_ring_no_learn and not won and request_id in self.ext_ring_reqs:
             return
@@ -513,7 +722,10 @@ class Desk:
         if day != self.streak_day:
             self.loss_streak, self.streak_day = 0, day
         self.loss_streak = 0 if won else self.loss_streak + 1
-        step = (1 - p.price_target_win) if won else -p.price_target_win
+        target = p.buffer_target_win if (p.buffer_target_win > 0 and self.projected_on_time() >= p.buffer_hi) else p.price_target_win
+        if disc_amt > 0 and p.buffer_comp_slope > 0:
+            target = min(0.85, target + p.buffer_comp_slope * disc_amt)
+        step = (1 - target) if won else -target
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
@@ -579,6 +791,10 @@ class Desk:
                 self.stats["won_ext_ring"] += 1
                 if self.p.return_hub_min_supply > 0 and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply:
                     self.stats["won_return_hub"] += 1
+            if order["id"] in self.buf_reqs:
+                self.stats["buf_won"] += 1
+            if order["id"] in self.buf_gate_reqs:
+                self.stats["buf_gate_won"] += 1
             self.stats[f"won_{order['option']}"] += 1
             self.post(order, undelivered(order))
 
@@ -991,11 +1207,19 @@ class Desk:
                             order = self.orders.get(order_id)
                             if order and order["lastPickupAt"] - e["at"] <= self.p.drop_urgent_margin_min:
                                 self.urgent.add(order_id)
+        self._last_buf_now = self.now
         ratios = []  # the price level of the latest wins, so a restarted desk does not relearn from the prior
         for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"])[-30:]:
-            option = next((o for o in self.requests[order["id"]]["options"] if o["kind"] == order["option"]), None)
+            req = self.requests[order["id"]]
+            option = next((o for o in req["options"] if o["kind"] == order["option"]), None)
             if option:
-                ratios.append(order["priceCents"] / option["listPriceCents"])
+                r_mult = order["priceCents"] / option["listPriceCents"]
+                if self.p.buffer_discount > 0:
+                    pk = req["legs"][0]["pickup"]["placeId"]
+                    dl = req["legs"][-1]["delivery"]["placeId"]
+                    if self.gate_supply.get(dl, 0) >= 200 and self.supply.get(pk, 0) < 200:
+                        r_mult /= (1.0 - self.p.buffer_discount)
+                ratios.append(r_mult)
         if ratios:
             self.mult = clamp(median(ratios), self.p.price_mult_min, self.p.price_mult_max)
         for order in self.orders.values():
