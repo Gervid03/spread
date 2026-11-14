@@ -26,7 +26,9 @@ from spread.types import DeskEvent, DeskSnapshot, DriverProfile, Order, PriceReq
 
 from ..geo import Geo
 from ..lab import champion
-from ..notes import parse_note_v2
+from collections import Counter
+
+from ..notes import note_flags, parse_note_v2
 from ..policy import DAY, daytime_minutes_between, order_ids_of, undelivered
 from .sunday_tours import Desk as SundayDesk, Params as SundayParams
 from .tas_routes import Desk as TasRoutesDesk
@@ -52,6 +54,13 @@ class Params(SundayParams):
     cyc_rotate_min: int = 0           # an unbooked cycle is reposted from its next town after this many daytime minutes
                                       # (a car can be in one live gig only, so the rotations take turns; 0 = off)
     cyc_min_on_time: float = 0.0      # hold cars only while the projected on-time share is at least this (0 = always)
+    # the user's rules, Sat 18:20: cycles only for cars that any driver can take, with time to spare
+    cyc_no_premium: bool = False      # premium cars (experienced drivers only, ~8% of the pool) stay out of cycles
+    cyc_no_manual: bool = False       # cars whose note asks for a manual licence stay out of cycles
+    cyc_min_lead_min: int = 0         # a car joins a cycle only with at least this long before its last pickup
+    cyc_quote_cap_day: int = 0        # at most this many cycle-closing quotes a day (0 = no cap)
+    cyc_quote_floor: float = 0.0      # a cycle-closing quote is at least this x the typical fee / (1 - margin) (0 = the old floor)
+    cyc_quote_on_time: float = 0.0    # quote closers only while projected on-time is at least this (0 = always)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Params":
@@ -70,6 +79,8 @@ class Desk(SundayDesk):
         self.cyc_dirty = False
         self.cyc_last_search = -10**9
         self.cyc_rots: dict[frozenset, dict[str, Any]] = {}   # a posted cycle's feasible rotations and whose turn it is
+        self.cyc_quotes_day: Counter = Counter()
+        self.cyc_quoted_reqs: set[str] = set()
 
     # --- the pool -----------------------------------------------------------------------------------
     def _ends(self, x: str) -> tuple[str, str]:
@@ -82,8 +93,17 @@ class Desk(SundayDesk):
             return False
         if o["option"] == "same_day" and not self.p.cyc_same_day:
             return False
+        if self.p.cyc_no_premium and any(leg["car"]["premium"] for leg in o["legs"]):
+            return False
+        if self.p.cyc_min_lead_min and o["lastPickupAt"] - self.now < self.p.cyc_min_lead_min:
+            return False
         req = self.requests.get(oid)
-        return not (req and req.get("note") and parse_note_v2(req["note"], req["arrivedAt"]).unsure)
+        if req and req.get("note"):
+            if parse_note_v2(req["note"], req["arrivedAt"]).unsure:
+                return False
+            if self.p.cyc_no_manual and note_flags(req["note"], v2=True).manual:
+                return False
+        return True
 
     def _pool(self) -> list[str]:
         pool = [oid for oid in self.cyc_held if self._clean(oid)]
@@ -281,6 +301,8 @@ class Desk(SundayDesk):
         super().win(order)
         if self.p.cyc:
             self.cyc_dirty = True
+            if order["id"] in self.cyc_quoted_reqs:
+                self.stats["cyc_closer_won"] += 1
 
     def price(self, request: PriceRequest) -> tuple[dict[str, int], str]:
         prices, decision = super().price(request)
@@ -288,19 +310,35 @@ class Desk(SundayDesk):
             return prices, decision
         if request.get("note") and parse_note_v2(request["note"], request["arrivedAt"]).unsure:
             return prices, decision
+        if self.p.cyc_no_premium and any(leg["car"]["premium"] for leg in request["legs"]):
+            return prices, decision
+        if self.p.cyc_no_manual and request.get("note") and note_flags(request["note"], v2=True).manual:
+            return prices, decision
+        day = self.now // DAY
+        if self.p.cyc_quote_cap_day and self.cyc_quotes_day[day] >= self.p.cyc_quote_cap_day:
+            return prices, decision
+        if self.p.cyc_quote_on_time and self.projected_on_time() < self.p.cyc_quote_on_time:
+            return prices, decision
         pool = self._pool()
         if not pool or not self._cycles(pool + [request["id"]], must=request["id"]):
             return prices, decision
-        floor = request["referenceFeeCents"] * (self.p.cyc_mult_3 + 0.10) / max(0.01, 1 - self.p.min_margin_frac)
+        f = self.p.cyc_quote_floor if self.p.cyc_quote_floor > 0 else self.p.cyc_mult_3 + 0.10
+        floor = request["referenceFeeCents"] * f / max(0.01, 1 - self.p.min_margin_frac)
+        leg0 = request["legs"][0]
+        drive = self.geo.minutes(leg0["pickup"]["placeId"], leg0["delivery"]["placeId"])
         out: dict[str, int] = {}
         for opt in request["options"]:
             if opt["kind"] == "same_day" and not self.p.cyc_same_day:
+                continue
+            if self.p.cyc_min_lead_min and opt["deadline"] - drive - self.now < self.p.cyc_min_lead_min:
                 continue
             cap = opt["listPriceCents"] * self.p.cyc_quote_mult
             cur = prices.get(opt["kind"]) if decision != "decline" else None
             out[opt["kind"]] = int(max(floor, min(cur, cap) if cur else cap) + 0.5)
         if not out:
             return prices, decision
+        self.cyc_quotes_day[day] += 1
+        self.cyc_quoted_reqs.add(request["id"])
         self.stats["cyc_quoted"] += 1
         return out, "quote"
 
