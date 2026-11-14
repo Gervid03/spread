@@ -1,5 +1,21 @@
 # Handoff: where the lab stands
 
+## Sat 14 Nov, 09:30 Helsinki (the laptop lead): two Carbons instead of the swarm
+The user's call: we use ~1% of Google's limits and practice worlds are the bottleneck, so fewer, stronger agents
+that test sparingly. The night run is over (stopped 09:22). Running on the swarm VM now:
+- `c14-network-routes` (gemini-4-carbon, 300 turns): idea 31, the user's route network
+  (`experiments/prompts/carbon/c1-network-routes.md`).
+- `c14-census-then-return-offer` (gemini-4-carbon, 300 turns): R15 census (slot-free, feeds c1), then the hitch return
+  offer (`carbon/c2-census-then-return-offer.md`).
+- `n14-06591-final-champion` (Argon), **resumed**: the lead's `pkill -f "lab sweep"` at 09:22 also killed the four
+  running Argon workers (their prompts contain "lab sweep"). Never pkill by a pattern that prompts can contain. The study
+  keeps its finished runs (v3, v3A done; v3T dev done) and promotes only a tail-safe winner via promote.sh.
+- A ranking-round loop (`runs/board-loop.txt`): `lab board --auto --yes` every 30 min until Sun 06:30.
+
+Both Carbons follow `experiments/prompts/carbon/_protocol.md`: neutral flags, smoke, then 8 dev worlds, then 16, then
+fresh worlds only for a candidate. **Not done yet: 6b, the 14-minute capacity re-baseline (+61% worlds an hour).** It
+shifts the champion's baseline, so run it only between the Carbons' measurements, or after them.
+
 ## Sat 14 Nov, 07:15 Helsinki (the cloud lead, night shift)
 Read this, then the directive at the top of `experiments/IDEAS.md`, then `docs/OPERATIONS.md`.
 
