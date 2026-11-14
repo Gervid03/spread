@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-ptw-minsup -g price_target_win=0.30,0.40,0.45 -g min_supply=20,30
+# started 2026-11-14T00:14:57Z
+
+=== price_target_win=0.30,min_supply=20
+  mean margin €8,974.86  (median €8,296.76, min €5,747.08)  ranked 16/16  on time min 94.1% mean 97.1%  won 210  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-15.45 ± 218.29 (SE) t=-0.07  better on 9, worse on 7  Δon-time +0.36%
+
+=== price_target_win=0.30,min_supply=30
+  mean margin €8,711.69  (median €8,094.39, min €5,936.83)  ranked 16/16  on time min 94.1% mean 96.8%  won 198  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-278.61 ± 176.68 (SE) t=-1.58  better on 6, worse on 10  Δon-time +0.08%
+
+=== price_target_win=0.40,min_supply=20
+  mean margin €9,200.51  (median €8,579.67, min €6,419.59)  ranked 16/16  on time min 92.4% mean 96.3%  won 269  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+210.21 ± 264.81 (SE) t=0.79  better on 11, worse on 5  Δon-time -0.43%
+
+=== price_target_win=0.40,min_supply=30
+  mean margin €9,049.70  (median €8,473.81, min €6,606.64)  ranked 16/16  on time min 92.4% mean 96.4%  won 254  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+59.39 ± 218.13 (SE) t=0.27  better on 10, worse on 6  Δon-time -0.33%
+
+=== price_target_win=0.45,min_supply=20
+  mean margin €8,987.76  (median €9,026.45, min €6,355.61)  ranked 16/16  on time min 91.3% mean 95.9%  won 291  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €-2.54 ± 316.37 (SE) t=-0.01  better on 9, worse on 7  Δon-time -0.85%
+
+=== price_target_win=0.45,min_supply=30
+  mean margin €9,061.48  (median €8,461.03, min €6,105.04)  ranked 16/16  on time min 91.3% mean 96.2%  won 278  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €+71.18 ± 305.80 (SE) t=0.23  better on 10, worse on 6  Δon-time -0.55%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  price_target_win=0.40,min_supply=20                €     9,201  on-time min 92.4%  SAFE  Δ €+210±265  20261114-001620-n-ptw-minsup-price_target_win0.40-min_supply20
+  price_target_win=0.45,min_supply=30                €     9,061  on-time min 91.3%  unsafe  Δ €+71±306  20261114-001842-n-ptw-minsup-price_target_win0.45-min_supply30
+  price_target_win=0.40,min_supply=30                €     9,050  on-time min 92.4%  SAFE  Δ €+59±218  20261114-001702-n-ptw-minsup-price_target_win0.40-min_supply30
+  price_target_win=0.45,min_supply=20                €     8,988  on-time min 91.3%  unsafe  Δ €-3±316  20261114-001749-n-ptw-minsup-price_target_win0.45-min_supply20
+  price_target_win=0.30,min_supply=20                €     8,975  on-time min 94.1%  SAFE  Δ €-15±218  20261114-001458-n-ptw-minsup-price_target_win0.30-min_supply20
+  price_target_win=0.30,min_supply=30                €     8,712  on-time min 94.1%  SAFE  Δ €-279±177  20261114-001539-n-ptw-minsup-price_target_win0.30-min_supply30
+# exit 0 at 2026-11-14T00:19:49Z

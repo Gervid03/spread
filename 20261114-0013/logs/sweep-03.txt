@@ -1,0 +1,25 @@
+# uv run lab sweep --seeds-from dev --name n-feewarn -g fee_warn=1.40,1.80 -g fee_step_min=20,45
+# started 2026-11-14T00:23:58Z
+
+=== fee_warn=1.40,fee_step_min=20
+  mean margin €9,123.75  (median €8,707.13, min €6,944.47)  ranked 16/16  on time min 92.3% mean 96.4%  won 227  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+133.44 ± 200.40 (SE) t=0.67  better on 9, worse on 7  Δon-time -0.33%
+
+=== fee_warn=1.40,fee_step_min=45
+  mean margin €9,075.66  (median €8,416.25, min €6,666.89)  ranked 16/16  on time min 90.0% mean 96.2%  won 228  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €+85.35 ± 208.33 (SE) t=0.41  better on 9, worse on 7  Δon-time -0.52%
+
+=== fee_warn=1.80,fee_step_min=20
+  mean margin €8,579.53  (median €8,146.18, min €5,776.24)  ranked 16/16  on time min 94.1% mean 97.1%  won 227  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-410.78 ± 156.74 (SE) t=-2.62  better on 7, worse on 9  Δon-time +0.32%
+
+=== fee_warn=1.80,fee_step_min=45
+  mean margin €8,497.61  (median €7,880.25, min €6,107.61)  ranked 16/16  on time min 94.5% mean 97.2%  won 228  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-492.70 ± 118.89 (SE) t=-4.14  better on 2, worse on 14  Δon-time +0.41%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  fee_warn=1.40,fee_step_min=20                      €     9,124  on-time min 92.3%  SAFE  Δ €+133±200  20261114-002358-n-feewarn-fee_warn1.40-fee_step_min20
+  fee_warn=1.40,fee_step_min=45                      €     9,076  on-time min 90.0%  unsafe  Δ €+85±208  20261114-002447-n-feewarn-fee_warn1.40-fee_step_min45
+  fee_warn=1.80,fee_step_min=20                      €     8,580  on-time min 94.1%  SAFE  Δ €-411±157  20261114-002537-n-feewarn-fee_warn1.80-fee_step_min20
+  fee_warn=1.80,fee_step_min=45                      €     8,498  on-time min 94.5%  SAFE  Δ €-493±119  20261114-002625-n-feewarn-fee_warn1.80-fee_step_min45
+# exit 0 at 2026-11-14T00:27:14Z

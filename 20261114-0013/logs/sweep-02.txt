@@ -1,0 +1,20 @@
+# uv run lab sweep --seeds-from dev --name n-feeopen -g fee_open=0.70,0.75,0.80
+# started 2026-11-14T00:19:58Z
+
+=== fee_open=0.70
+  mean margin €7,996.54  (median €7,441.85, min €5,914.70)  ranked 16/16  on time min 92.5% mean 96.6%  won 225  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-993.76 ± 314.91 (SE) t=-3.16  better on 3, worse on 13  Δon-time -0.11%
+
+=== fee_open=0.75
+  mean margin €8,456.51  (median €8,162.96, min €5,953.22)  ranked 16/16  on time min 93.8% mean 96.4%  won 226  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-533.79 ± 214.05 (SE) t=-2.49  better on 4, worse on 12  Δon-time -0.36%
+
+=== fee_open=0.80
+  mean margin €8,816.23  (median €8,001.57, min €6,165.52)  ranked 16/16  on time min 90.7% mean 96.2%  won 226  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €-174.07 ± 221.65 (SE) t=-0.79  better on 7, worse on 9  Δon-time -0.60%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  fee_open=0.80                                      €     8,816  on-time min 90.7%  unsafe  Δ €-174±222  20261114-002210-n-feeopen-fee_open0.80
+  fee_open=0.75                                      €     8,457  on-time min 93.8%  SAFE  Δ €-534±214  20261114-002120-n-feeopen-fee_open0.75
+  fee_open=0.70                                      €     7,997  on-time min 92.5%  SAFE  Δ €-994±315  20261114-001958-n-feeopen-fee_open0.70
+# exit 0 at 2026-11-14T00:23:25Z

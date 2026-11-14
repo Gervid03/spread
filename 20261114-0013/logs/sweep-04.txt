@@ -1,0 +1,39 @@
+# uv run lab eval --seeds night-01,night-02,night-03,night-04,night-05,night-06,night-07,night-08,night-09,night-10,night-11,night-12,night-13,night-14,night-15,night-16,night-17,night-18,night-19,night-20,night-21,night-22,night-23,night-24,night-25,night-26,night-27,night-28,night-29,night-30,night-31,night-32 --vs none --name n-champ-fresh32
+# started 2026-11-14T00:28:38Z
+Evaluating spread_lab.policy:Desk on 32 seeds at level 8, 7 at a time. Overrides: {'backlog_ratio': 0.06, 'price_target_win': 0.35, 'min_supply': 30, 'gate_radius_km': 55.0, 'far_options': 'slow', 'same_day_min_supply': 100, 'slack_per_drive': 0.5, 'long_drive_min': 300, 'fee_open': 0.85, 'price_lr': 0.05, 'offers_per_warning': 0, 'min_slack_min': 180}
+  night-06   margin €  4,463.98  won  199  on time  94.0%  req   636     16s
+  night-02   margin € 11,809.67  won  277  on time  96.8%  req   635     18s
+  night-08   margin €  8,296.32  won  208  on time  96.2%  req   634     18s
+  night-01   margin €  7,532.01  won  246  on time  95.5%  req   634     20s
+  night-03   margin €  7,597.59  won  246  on time  98.8%  req   624     20s
+  night-05   margin € 10,773.64  won  239  on time  97.9%  req   629     17s
+  night-07   margin € 14,217.64  won  295  on time  98.6%  req   619     16s
+  night-09   margin €  9,953.30  won  229  on time  98.3%  req   621     18s
+  night-10   margin € 10,004.53  won  237  on time  99.2%  req   620     16s
+  night-11   margin €  5,024.56  won  199  on time  90.5%  req   637     16s
+  night-12   margin € 11,047.79  won  279  on time  94.6%  req   638     18s
+  night-13   margin €  7,284.50  won  243  on time  97.5%  req   635     17s
+  night-14   margin €  5,461.50  won  186  on time  97.8%  req   628     19s
+  night-04   margin € 10,607.44  won  230  on time  97.8%  req   624     17s
+  night-15   margin € 14,814.76  won  273  on time  91.9%  req   641     20s
+  night-16   margin €  7,659.90  won  239  on time  99.2%  req   634     19s
+  night-17   margin € 12,940.34  won  259  on time  97.7%  req   636     20s
+  night-18   margin €  9,741.71  won  229  on time  98.3%  req   616     17s
+  night-19   margin €  8,452.09  won  215  on time  99.5%  req   621     18s
+  night-20   margin €  4,987.47  won  196  on time  98.5%  req   630     17s
+  night-21   margin € 13,629.67  won  278  on time  96.8%  req   632     17s
+  night-22   margin €  5,827.20  won  174  on time  98.3%  req   624     18s
+  night-23   margin €  9,555.77  won  271  on time  96.3%  req   631     20s
+  night-24   margin € 11,037.08  won  275  on time  95.6%  req   632     20s
+  night-25   margin €  7,304.10  won  236  on time  98.3%  req   631     18s
+  night-26   margin € 11,642.90  won  267  on time  93.6%  req   641     18s
+  night-27   margin €  8,503.31  won  229  on time  99.1%  req   622     18s
+  night-28   margin €  9,304.53  won  275  on time  96.7%  req   634     17s
+  night-29   margin €  9,862.96  won  266  on time  98.1%  req   622     16s
+  night-30   margin €  3,434.00  won  300  on time  91.0%  req   654     13s
+  night-31   margin € 12,517.68  won  273  on time  97.8%  req   626     11s
+  night-32   margin €  8,894.04  won  276  on time  93.5%  req   629     11s
+
+/home/lab/spread/runs/20261114-002838-n-champ-fresh32
+  mean margin €9,193.25  (median €9,430.15, min €3,434.00)  ranked 32/32  on time min 90.5% mean 96.7%  won 245  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+# exit 0 at 2026-11-14T00:30:46Z
