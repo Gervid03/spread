@@ -50,3 +50,14 @@
 01:34:32 worker n14-11-class-table finished after 31 min
 01:34:32 worker n14-01154-trust-refined-and-guard started (pid 18180)
 01:34:54 lead tick started (pid 18317)
+01:35:58 published to night/20261114
+01:36:58 worker n14-01151-lane-return-pricing finished after 18 min
+01:39:58 worker n14-01391-class-table-gates started (pid 19111)
+01:40:18 worker n14-01392-margin-xray-v2 started (pid 19199)
+01:40:38 sweep 19 started: sweep --seeds-from dev --name n-slack-sdsup-dlr -s min_slack_min=150 -s slack_per_drive=0.75 -g same_day_min_supply=50,75,100 -g dealer_lr=0.01,0.02
+01:45:38 worker n14-01153-stack-trust-slack-budget finished after 12 min
+01:45:38 worker n14-01393-option-spread-and-d01-cap started (pid 19721)
+01:49:58 sweep 20 started: sweep --seeds-from dev --name n-feewarn-fine -g fee_warn=1.40,1.45,1.50 -g fee_step_min=20,25
+01:51:58 worker n14-01154-trust-refined-and-guard finished after 17 min
+01:51:58 worker n14-01394-stack-trust-notes-slack started (pid 20330)
+01:55:20 lead tick started (pid 20649)

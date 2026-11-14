@@ -1,0 +1,6 @@
+# n14-01393-option-spread-and-d01-cap
+tool calls 29; result {}
+
+## Its last words
+
+I will merge `origin/exp/gemini-n14-02-trust-v2` onto the current branch to incorporate the ledger trust tracking implementation.I will now run the smoke evaluation with default parameters (`--name trust-cap-slope-noop`) to verify that the changes reproduce the champion v2 baseline with a paired delta of +0.00 on all 4 smoke seeds.I will now run the first smoke evaluation with `-s trust_invest=0.05 -s trust_cap_boost=0.20`.I will now run the second smoke evaluation with `-s trust_invest=0.05 -s trust_cap_boost=0.30`.I will now run the third smoke evaluation with `-s trust_invest=0.05 -s drive_price_slope=0.05`.I will now run the fourth smoke evaluation combining `-s trust_invest=0.05 -s trust_cap_boost=0.25 -s drive_price_slope=0.05`.I will inspect the stats from the smoke runs to understand how often `dealer_cap_boosted` triggered and how `trust_cap_boost` and `drive_price_slope` behaved.I will run a 5th smoke evaluation with `-s trust_invest=0.05 -s trust_cap_boost=0.20 -s drive_price_slope=0.02` to see if a gentler long-haul slope avoids the loss on dev-03 while still combining both flags.I will now run the first dev evaluation (`trust-cap-slope-dev`) with the best setting found on smoke: `-s trust_invest=0.05 -s trust_cap_boost=0.20` (`drive_price_slope=0.0`).

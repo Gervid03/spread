@@ -1,0 +1,20 @@
+# uv run lab sweep --seeds-from dev --name n-feewarn-fine -g fee_warn=1.40,1.45,1.50 -g fee_step_min=20,25
+# started 2026-11-14T01:49:58Z
+
+=== fee_warn=1.40,fee_step_min=20
+  mean margin €9,123.75  (median €8,707.13, min €6,944.47)  ranked 16/16  on time min 92.3% mean 96.4%  won 227  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+133.44 ± 200.40 (SE) t=0.67  better on 9, worse on 7  Δon-time -0.33%
+
+=== fee_warn=1.40,fee_step_min=25
+  mean margin €9,228.98  (median €8,506.76, min €7,351.08)  ranked 16/16  on time min 93.0% mean 96.3%  won 227  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+238.67 ± 178.82 (SE) t=1.33  better on 9, worse on 7  Δon-time -0.49%
+
+=== fee_warn=1.45,fee_step_min=20
+  mean margin €9,197.87  (median €8,633.20, min €6,708.17)  ranked 16/16  on time min 92.9% mean 96.7%  won 228  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+207.57 ± 195.33 (SE) t=1.06  better on 10, worse on 6  Δon-time -0.03%
+
+=== fee_warn=1.45,fee_step_min=25
+  mean margin €9,094.24  (median €8,612.76, min €6,566.25)  ranked 16/16  on time min 92.4% mean 96.5%  won 229  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+103.93 ± 164.05 (SE) t=0.63  better on 9, worse on 7  Δon-time -0.23%
+
+=== fee_warn=1.50,fee_step_min=20

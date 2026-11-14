@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-slack-sdsup-dlr -s min_slack_min=150 -s slack_per_drive=0.75 -g same_day_min_supply=50,75,100 -g dealer_lr=0.01,0.02
+# started 2026-11-14T01:40:38Z
+
+=== same_day_min_supply=50,dealer_lr=0.01
+  mean margin €9,165.82  (median €8,953.26, min €6,680.32)  ranked 16/16  on time min 94.1% mean 96.7%  won 236  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+175.51 ± 126.25 (SE) t=1.39  better on 11, worse on 5  Δon-time -0.07%
+
+=== same_day_min_supply=50,dealer_lr=0.02
+  mean margin €9,278.81  (median €8,736.79, min €6,279.10)  ranked 16/16  on time min 94.4% mean 96.8%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+288.50 ± 146.49 (SE) t=1.97  better on 12, worse on 3  Δon-time +0.01%
+
+=== same_day_min_supply=75,dealer_lr=0.01
+  mean margin €9,226.06  (median €8,953.26, min €6,518.96)  ranked 16/16  on time min 94.1% mean 97.0%  won 233  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+235.76 ± 132.42 (SE) t=1.78  better on 11, worse on 5  Δon-time +0.29%
+
+=== same_day_min_supply=75,dealer_lr=0.02
+  mean margin €9,126.67  (median €8,736.79, min €6,279.10)  ranked 16/16  on time min 94.4% mean 97.1%  won 231  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+136.37 ± 107.96 (SE) t=1.26  better on 11, worse on 4  Δon-time +0.32%
+
+=== same_day_min_supply=100,dealer_lr=0.01
+  mean margin €9,078.14  (median €8,585.15, min €6,518.96)  ranked 16/16  on time min 94.5% mean 97.0%  won 230  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+87.83 ± 118.78 (SE) t=0.74  better on 8, worse on 8  Δon-time +0.23%
+
+=== same_day_min_supply=100,dealer_lr=0.02
+  mean margin €9,125.62  (median €8,721.39, min €6,279.10)  ranked 16/16  on time min 93.8% mean 96.8%  won 229  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+135.31 ± 58.66 (SE) t=2.31  better on 11, worse on 3  Δon-time +0.08%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  same_day_min_supply=50,dealer_lr=0.02              €     9,279  on-time min 94.4%  SAFE  Δ €+288±146  20261114-014255-n-slack-sdsup-dlr-same_day_min_supply50-dealer_lr0.02
+  same_day_min_supply=75,dealer_lr=0.01              €     9,226  on-time min 94.1%  SAFE  Δ €+236±132  20261114-014417-n-slack-sdsup-dlr-same_day_min_supply75-dealer_lr0.01
+  same_day_min_supply=50,dealer_lr=0.01              €     9,166  on-time min 94.1%  SAFE  Δ €+176±126  20261114-014038-n-slack-sdsup-dlr-same_day_min_supply50-dealer_lr0.01
+  same_day_min_supply=75,dealer_lr=0.02              €     9,127  on-time min 94.4%  SAFE  Δ €+136±108  20261114-014553-n-slack-sdsup-dlr-same_day_min_supply75-dealer_lr0.02
+  same_day_min_supply=100,dealer_lr=0.02             €     9,126  on-time min 93.8%  SAFE  Δ €+135±59  20261114-014815-n-slack-sdsup-dlr-same_day_min_supply100-dealer_lr0.02
+  same_day_min_supply=100,dealer_lr=0.01             €     9,078  on-time min 94.5%  SAFE  Δ €+88±119  20261114-014719-n-slack-sdsup-dlr-same_day_min_supply100-dealer_lr0.01
+# exit 0 at 2026-11-14T01:49:33Z

@@ -1,0 +1,15 @@
+{
+  "n": 16,
+  "failed": 0,
+  "margin_mean": 9123.75,
+  "margin_median": 8707.13,
+  "margin_min": 6944.47,
+  "margin_sum": 145979.92,
+  "ranked": 16,
+  "on_time_min": 0.9227,
+  "on_time_mean": 0.9641,
+  "won_mean": 227.2,
+  "requests_mean": 629,
+  "safe": true,
+  "seconds": 103.7
+}
