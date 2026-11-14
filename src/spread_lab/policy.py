@@ -697,9 +697,8 @@ class Desk:
         tod = self.now % DAY
         if not (7 * HOUR <= tod < 21 * HOUR):
             return
-        # Flush newly queued posts so newly won on-network orders get gig IDs immediately
         if p.net_offer and any(a["type"] == "post" for a in self.outbox):
-            self.send()
+            self._flush_non_quotes()
 
         day = self.now // DAY
         dd_counts = self._driver_gigs_on_day()
@@ -750,14 +749,16 @@ class Desk:
             # 1) Finishing-driver network offers
             if p.net_offer:
                 allow_now = True
-                if p.net_offer_max_supply > 0 and sup30 >= p.net_offer_max_supply and not is_urgent:
-                    if p.net_offer_min_age <= 0 or age < p.net_offer_min_age:
+                if not is_urgent:
+                    if p.net_offer_max_supply > 0 and sup30 >= p.net_offer_max_supply:
+                        allow_now = False
+                    elif p.net_offer_min_age > 0 and self.gate_supply.get(pickup, 0) >= p.min_supply and age < p.net_offer_min_age:
                         allow_now = False
                 if allow_now:
                     cands: list[tuple[int, float, float, str, bool, str]] = []
                     seen_cands: set[str] = set()
                     for pe in self.pos_ledger.values():
-                        if pe.done and self.now > pe.planned_finish:
+                        if pe.done and (p.net_lead_min > 0 or self.now > pe.planned_finish):
                             continue
                         if not pe.started and not pe.done:
                             if not p.net_offer_on_book or pe.planned_finish // DAY != self.now // DAY:
@@ -1728,13 +1729,7 @@ class Desk:
         return None
 
     def _has_live_booked_net_sponsor(self, oid: str) -> bool:
-        if oid not in self.net_thin_reqs or not self.p.net_offer:
-            return False
-        sgid = self.net_sponsor_gig.get(oid)
-        if sgid is None:
-            return False
-        pe = self.pos_ledger.get(sgid)
-        return pe is not None and not (pe.done and self.now > pe.planned_finish)
+        return False
 
     def _waiting_single_orders(self) -> list[tuple[str, Optional[str]]]:
         res: list[tuple[str, Optional[str]]] = []
@@ -1949,7 +1944,7 @@ class Desk:
             post_action: PostAction = {"type": "post", "stops": stops_a + stops_b, "audience": audience, "schedule": sched}
             self.outbox.append(post_action)
             self.stats["posts"] += 1
-            self.send()
+            self._flush_non_quotes()
             gigs_a = self.gigs_of(oid_a)
             gigs_b = self.gigs_of(oid_b)
             if len(gigs_a) == 1 and gigs_a == gigs_b:
@@ -2185,6 +2180,13 @@ class Desk:
     def send_post_of(self, order_id: str) -> None:
         if any(a["type"] == "post" and any(s["orderId"] == order_id for s in a["stops"]) for a in self.outbox):
             self.send()
+
+    def _flush_non_quotes(self) -> None:
+        quotes = [a for a in self.outbox if a["type"] == "quote"]
+        others = [a for a in self.outbox if a["type"] != "quote"]
+        self.outbox = quotes
+        if others:
+            self.read_results(others, self.world.act(others))
 
     def send(self) -> None:
         """Sends the outbox now (live mode always; practice only when the desk needs a gig id at once)."""
