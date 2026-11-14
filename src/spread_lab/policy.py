@@ -121,6 +121,7 @@ class Params:
     return_offer_lead_min: int = 45       # send offer this many min before planned outbound delivery
     return_offer_on_win: bool = False     # also send a daytime offer on order_won while driver holds outbound gig
     return_toward_home: bool = False      # only match outbound drivers for whom delivery moves closer to home (or <=30km)
+    return_min_deliv_supply: int = 0      # if > 0, require delivery 30km supply >= this (or <=30km of outbound driver home)
     return_max_wait_min: int = 0          # if > 0, max wait minutes from planned outbound delivery to return pickup
     # --- handling rules -----------------------------------------------------------------------------
     charge_min_km: float = 200.0      # rule 3: an EV under 30% charge needs a charging stop on a route over this
@@ -1229,6 +1230,9 @@ class Desk:
                 continue
             if p.return_toward_home and not self.is_toward_home(drv_id, pickup, deliv_place):
                 continue
+            is_homebound = self.geo.line_km(drv["homePlaceId"], deliv_place) <= 30.0
+            if p.return_min_deliv_supply > 0 and self.supply.get(deliv_place, 0) < p.return_min_deliv_supply and not is_homebound:
+                continue
             if planned_at > pickup_close:
                 continue
             reach_pickup = max(self.now, ready, planned_at + self.geo.minutes(d_place, pickup))
@@ -1240,7 +1244,7 @@ class Desk:
                 continue
             if deadline - reach_pickup - drive < p.min_slack_min:
                 continue
-            home_prio = 0 if self.geo.line_km(drv["homePlaceId"], deliv_place) <= 30.0 else 1
+            home_prio = 0 if is_homebound else 1
             ranked.append((home_prio, dist_km, planned_at, drv_id, out_gid))
         ranked.sort()
         return [(drv_id, out_gid, planned_at, dist_km) for _, dist_km, planned_at, drv_id, out_gid in ranked]
