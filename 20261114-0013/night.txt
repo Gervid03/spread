@@ -148,3 +148,13 @@
 04:17:56 worker n14-03322-stack-backlog-feewarn-and-v3-note finished after 44 min
 04:17:56 worker n14-04153-stack-tradein-windows-on-v7 started (pid 40774)
 04:18:16 sweep 40 started: sweep --seeds-from dev --name n-slack130-floor -s min_slack_min=130 -s slack_per_drive=0.80 -s same_day_min_supply=50 -g expected_fee_mult=1.00,1.05,1.12 -g same_day_markup=0.05,0.08
+04:19:21 published to night/20261114
+04:22:21 worker n14-03504-stack-v6-buf-alarm-backlog-lane finished after 21 min
+04:22:21 worker n14-04154-stack-v7-feedrop-buf-alarm started (pid 42240)
+04:22:41 sweep 41 started: sweep --seeds-from dev --name n-slack140-feewarn-fine -s min_slack_min=140 -s slack_per_drive=0.75 -g fee_warn=1.48,1.52,1.55 -g fee_step_min=18,22
+04:23:41 worker n14-03502-option-floor-decouple-and-twin-ladder finished after 31 min
+04:24:43 lead tick started (pid 42700)
+04:27:43 sweep 42 started: sweep --seeds-from dev --name n-slack140-fw150-sdsup-dlr -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g same_day_min_supply=50,75,100 -g dealer_lr=0.01,0.02
+04:36:44 sweep 43 started: sweep --seeds-from dev --name n-slack-ultra-fw150 -s fee_warn=1.50 -s fee_step_min=20 -g min_slack_min=130,135,140 -g slack_per_drive=0.75,0.80
+04:39:44 worker n14-04391-floor-learn-decouple-and-multiday-fee started (pid 44334)
+04:40:04 sweep 44 started: sweep --seeds-from dev --name n-slack140-fw150-ptw -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g price_target_win=0.36,0.38,0.40 -g min_supply=25,30

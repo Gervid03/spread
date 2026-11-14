@@ -1,0 +1,4 @@
+# uv run lab sweep --seeds-from dev --name n-slack140-fw150-ptw -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g price_target_win=0.36,0.38,0.40 -g min_supply=25,30
+# started 2026-11-14T04:40:04Z
+
+=== price_target_win=0.36,min_supply=25
