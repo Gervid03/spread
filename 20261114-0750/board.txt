@@ -1,0 +1,5 @@
+2026-11-14 07:21  round 5 (Saturday 09:00)  w0480247878149d87ccf3  End: margin €6,092.66  won 231  on time 97.4%  ranked True
+2026-11-14 07:21  round 5 (Saturday 09:00)  w67b5f8a6847aef0e3269  End: margin €10,626.56  won 267  on time 99.3%  ranked True
+2026-11-14 07:21  round 5 (Saturday 09:00)  wb90647a09468665afa8a  End: margin €9,051.63  won 252  on time 98.4%  ranked True
+2026-11-14 07:22  round 5 (Saturday 09:00)  wd96e2888c2b0ffc18d40  End: margin €13,781.82  won 368  on time 96.5%  ranked True
+2026-11-14 07:22  round 5 (Saturday 09:00)  w06d05ecdfefceb8f0fc4  End: margin €8,274.26  won 282  on time 98.2%  ranked True
