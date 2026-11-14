@@ -44,6 +44,8 @@ class TasStateParams(Params):
     tas_event_plan: bool = False       # Lever 3: Outage 80km harvest, War floor, Snow/Flu guard, Bulk cherry-pick
     tas_late_edge: bool = False        # Lever 4: >=90% ranked edge allowance on zero-downstream-trust orders
     tas_dp_select: bool = False        # Full Lagrangian DP foresight order & option selection (for `limits --apply`)
+    tas_ranked_v5_gate: bool = False   # Tape-ranked v5 corridor gate + competitor <30%/<70%/100% + trust/event steering
+    tas_day_cap: int = 72              # Daily fleet target for tas_ranked_v5_gate (Mon..Thu; 1.18x on Fri slow)
     # Tunable capacity & margin dials for DP selection
     tas_pool_rate: float = 0.122       # base daily solo orders per local pool driver in Lagrangian DP (Mon..Wed)
     tas_sd_share_cap: float = 0.32     # max fraction of a pool's daily capacity usable by same_day orders
@@ -189,14 +191,18 @@ class TasStateDesk(Desk):
                 params.tas_event_plan,
                 params.tas_late_edge,
                 params.tas_dp_select,
+                params.tas_ranked_v5_gate,
                 params.tas_flat_fees,
             ]
         )
         self.dlr_day_total: dict[tuple[str, int], int] = Counter()
         self.dlr_day_cap: dict[tuple[str, int], int] = {}
         self.dlr_day_won_or_open: dict[tuple[str, int], set[str]] = defaultdict(set)
+        self.day_won_or_open: dict[int, set[str]] = defaultdict(set)
+        self.sd_day_won_or_open: dict[int, set[str]] = defaultdict(set)
         self.dlr_future_reqs: dict[str, list[tuple[int, float]]] = defaultdict(list)
         self.req_plan: dict[str, dict[str, Any]] = {}
+        self.ranked_v5_plan: dict[str, dict[str, Any]] = {}
         self.dlr_day_ranked_rids: dict[tuple[str, int], list[str]] = defaultdict(list)
         self.events_info: dict[str, Any] = {"snow": [], "flu_day": None, "war_day": None, "outage": None}
         self.early_warned: set[str] = set()
@@ -204,6 +210,8 @@ class TasStateDesk(Desk):
 
         if self.tas_active and (params.tas_seed or params.tas_tape_path):
             self._build_foresight_plan(roster)
+            if params.tas_ranked_v5_gate:
+                self._build_ranked_v5_plan(roster)
 
     # --- Offline Foresight & Lagrangian DP Planner ----------------------------------------------------
     def _load_tape(self) -> Optional[dict[str, Any]]:
@@ -615,6 +623,112 @@ class TasStateDesk(Desk):
                 chosen_map[item["rid"]] = item
         return {"chosen": chosen_map, "day_caps": day_caps, "day_ranked": day_ranked}
 
+    def _build_ranked_v5_plan(self, roster: list[DriverProfile]) -> None:
+        tape = self._load_tape()
+        if not tape:
+            return
+        reqs = tape["requests"]
+        s30 = self.geo.supply(roster, 30.0)
+        base_vars = {k: getattr(self.p, k) for k in Params.__dataclass_fields__}
+        base_vars["backlog_ratio"] = 1.0
+        shadow = Desk(world=None, params=Params(**base_vars), level=self.level, geo=self.geo, roster=roster, now=0)  # type: ignore[arg-type]
+
+        tue_fri_tot: Counter[str] = Counter()
+        for r in reqs:
+            if r["arrivedAt"] // DAY >= 1:
+                tue_fri_tot[r["dealerId"]] += 1
+
+        cands_by_day: dict[int, list[dict[str, Any]]] = defaultdict(list)
+        for r in reqs:
+            rid = r["id"]
+            dlr = r["dealerId"]
+            d, tod = r["arrivedAt"] // DAY, r["arrivedAt"] % DAY
+            if d >= 5:
+                continue
+            shadow.now = r["arrivedAt"]
+            prices, _ = shadow.price(r)
+            if not prices:
+                continue
+            p0 = r["legs"][0]["pickup"]["placeId"]
+            d0 = r["legs"][-1]["delivery"]["placeId"]
+            drv = self.geo.minutes(p0, d0)
+            ps, ds = s30.get(p0, 0), s30.get(d0, 0)
+            ref_e = r["referenceFeeCents"] / 100.0
+            in_snow = any(
+                p0 in sw["places"] and not (r["arrivedAt"] >= sw["to"] or r["arrivedAt"] + 12 * HOUR <= sw["from"])
+                for sw in self.events_info["snow"]
+            )
+            in_flu = self.events_info["flu_day"] == d
+            in_war = bool(8 * HOUR <= tod <= 18 * HOUR and self.events_info["war_day"] == d)
+            in_outage = bool(
+                8 * HOUR <= tod <= 18 * HOUR
+                and self.events_info["outage"] is not None
+                and self.events_info["outage"][0] == d
+                and self.geo.line_km(self.events_info["outage"][1], p0) <= 80.0
+            )
+
+            if "same_day" in prices and d <= 1 and tod <= 11 * HOUR + 30 and ps >= 180 and drv <= 150 and not (in_snow or in_flu or in_war):
+                chosen_k = "same_day"
+            elif "within_3_days" in prices and d == 4:
+                chosen_k = "within_3_days"
+            elif "next_day" in prices:
+                chosen_k = "next_day"
+            elif "within_3_days" in prices:
+                chosen_k = "within_3_days"
+            else:
+                if (d == 4 and tod > 11 * HOUR and not self.sp.tas_late_edge) or in_snow or in_flu or in_war:
+                    continue
+                chosen_k = "same_day"
+
+            list_e = next(o["listPriceCents"] for o in r["options"] if o["kind"] == chosen_k) / 100.0
+            est_x = 1.82 if in_outage else (1.18 if in_war else (1.24 if (ps < 150 and ds >= 180) else 1.50))
+            if d >= 2 and tue_fri_tot[dlr] >= 40:
+                est_x *= 1.22
+            est_f = ref_e * (
+                (0.78 if ds >= 150 else 0.88)
+                + (0.24 * max(0, drv - 120) / 120.0 if ds < 140 else 0.0)
+                + (0.10 if chosen_k == "same_day" else 0.0)
+            )
+            est_m = list_e * est_x - est_f
+            if est_m < 13.0:
+                continue
+            rank_score = est_m - 0.08 * drv
+            floor_c = int(round((est_f + self.sp.tas_min_profit_eur) * 100.0))
+            cands_by_day[d].append(
+                {
+                    "rid": rid,
+                    "dlr": dlr,
+                    "day": d,
+                    "kind": chosen_k,
+                    "rank_score": rank_score,
+                    "est_m": est_m,
+                    "floor_cents": floor_c,
+                    "in_outage": in_outage,
+                }
+            )
+
+        dlr_day_cands: dict[tuple[str, int], list[dict[str, Any]]] = defaultdict(list)
+        for d in range(5):
+            ranked = sorted(cands_by_day[d], key=lambda x: -x["rank_score"])
+            for idx, item in enumerate(ranked):
+                dlr_day_cands[(item["dlr"], d)].append(item)
+                self.ranked_v5_plan[item["rid"]] = {"day_rank": idx, **item}
+
+        for (dlr, d), items in dlr_day_cands.items():
+            self.dlr_day_ranked_rids[(dlr, d)] = [it["rid"] for it in items]
+            for r_idx, it in enumerate(items):
+                self.ranked_v5_plan[it["rid"]]["rank"] = r_idx
+                self.req_plan[it["rid"]] = self.ranked_v5_plan[it["rid"]]
+
+        if self.sp.tas_comp_steer:
+            for (dlr, d), tot_d in self.dlr_day_total.items():
+                if tot_d < 10 or d == 4:
+                    self.dlr_day_cap[(dlr, d)] = tot_d
+                elif d == 0 and tue_fri_tot[dlr] >= 45:
+                    self.dlr_day_cap[(dlr, d)] = max(1, math.ceil(0.30 * tot_d) - 1)
+                else:
+                    self.dlr_day_cap[(dlr, d)] = max(1, math.ceil(0.70 * tot_d) - 1)
+
     # --- Live Event & Outcome Tracking -----------------------------------------------------------------
     def handle(self, event: dict[str, Any]) -> None:
         kind = event["kind"]
@@ -624,12 +738,14 @@ class TasStateDesk(Desk):
             if req is not None:
                 d = req["arrivedAt"] // DAY
                 self.dlr_day_won_or_open[(req["dealerId"], d)].discard(rid)
+                self.day_won_or_open[d].discard(rid)
+                self.sd_day_won_or_open[d].discard(rid)
         super().handle(event)
 
     # --- Early Rescue & Flat-Fee Hooks -----------------------------------------------------------------
     def tick(self) -> None:
         super().tick()
-        if not self.tas_active or not self.sp.tas_trust_farm:
+        if not self.tas_active or not self.sp.tas_trust_farm or self.sp.tas_early_warn_h <= 0:
             return
         # Rescue open unbooked orders of dealers who still have high remaining future tape value!
         early_m = int(self.sp.tas_early_warn_h * HOUR)
@@ -684,7 +800,54 @@ class TasStateDesk(Desk):
                     self.stats["tas_comp_reserve_declined"] += 1
                     return {}, "tas_comp_reserve"
 
-        # 2. Full Lagrangian DP Selection Mode (`tas_dp_select=True`, designed for `tas.py limits --mode won --apply`)
+        # 2a. Tape-Ranked Champion-Gate Mode (`tas_ranked_v5_gate=True`)
+        if self.sp.tas_ranked_v5_gate:
+            vinfo = self.ranked_v5_plan.get(rid)
+            if vinfo is None:
+                return {}, "tas_v5_unranked"
+            day_target = int(self.sp.tas_day_cap * (1.18 if d == 4 else (0.62 if self.events_info["flu_day"] == d else 1.0)))
+            if len(self.day_won_or_open[d]) >= day_target:
+                return {}, "tas_day_cap"
+            # Reserve daily fleet slots for strictly higher-ranked arrivals later today (with 1.15x buffer for War/floor losses)
+            better_day_ahead = sum(
+                1
+                for oid2, inf2 in self.ranked_v5_plan.items()
+                if inf2["day"] == d and inf2["day_rank"] < vinfo["day_rank"] and oid2 not in self.requests
+            )
+            if len(self.day_won_or_open[d]) + int(0.86 * better_day_ahead) >= day_target:
+                return {}, "tas_day_reserve"
+
+            chosen_k = vinfo["kind"]
+            if chosen_k == "same_day" and len(self.sd_day_won_or_open[d]) >= (18 if self.sp.tas_late_edge else 14):
+                return {}, "tas_sd_cap"
+
+            guard_t = 0.908 if self.sp.tas_late_edge else 0.935
+            won_n = max(len(self.orders), 28)
+            risk_n = sum(
+                0.5
+                for oid in self.urgent
+                if oid in self.orders and oid not in self.late and undelivered(self.orders[oid]) and not self.staffed(self.orders[oid])
+            )
+            if 1.0 - (len(self.late) + risk_n) / won_n < guard_t:
+                return {}, "tas_guard"
+
+            pickup = request["legs"][0]["pickup"]["placeId"]
+            gate_sup = max(self.gate_supply.get(pickup, 0), self.supply.get(pickup, 0))
+            b_mult = self.sp.tas_backlog_mult * (1.45 if d == 4 and chosen_k != "same_day" else 1.0)
+            if vinfo.get("in_outage"):
+                b_mult *= 1.25
+            b_cap = max(self.p.backlog_min + 1, self.p.backlog_ratio * b_mult * gate_sup)
+            if self.backlog_near(pickup) >= b_cap:
+                return {}, "tas_backlog"
+
+            self.dlr_day_won_or_open[(dlr, d)].add(rid)
+            self.day_won_or_open[d].add(rid)
+            if chosen_k == "same_day":
+                self.sd_day_won_or_open[d].add(rid)
+            self.stats["tas_ranked_v5_selected"] += 1
+            return {chosen_k: vinfo["floor_cents"]}, "tas_ranked_v5"
+
+        # 2b. Full Lagrangian DP Selection Mode (`tas_dp_select=True`, designed for `tas.py limits --mode won --apply`)
         if self.sp.tas_dp_select:
             plan_info = self.req_plan.get(rid)
             if plan_info is None:

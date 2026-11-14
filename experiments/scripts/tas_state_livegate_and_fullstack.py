@@ -43,11 +43,13 @@ def run_livegate_world(tas_mod, seed: str, edge: bool = False, iters: int = 7) -
     sets = [
         f"tas_seed={seed}",
         f"tas_tape_path={tape_path}",
+        "tas_ranked_v5_gate=true",
         "tas_trust_farm=true",
         "tas_comp_steer=true",
         "tas_event_plan=true",
         "tas_early_warn_h=0.0",
-        f"tas_backlog_mult={'1.95' if edge else '1.45'}",
+        f"tas_day_cap={'82' if edge else '72'}",
+        f"tas_backlog_mult={'2.40' if edge else '2.00'}",
     ]
     if edge:
         sets.append("tas_late_edge=true")
@@ -178,10 +180,24 @@ def run_driftproof_fullstack(
 
 
 def pick_best_steered_tour_plan(sdir: Path) -> tuple[Optional[Path], Optional[Path]]:
-    # Prefer push540 on dev-12 if available & >=92% OT, otherwise steered440!
-    for tag in ("tas-routes-push540", "tas-routes-steered440", "tas-routes-clean400"):
-        b = sdir / f"book-{tag}.json"
-        t = sdir / f"tours-{tag}.json"
+    rp = sdir / "runs.jsonl"
+    best_tag: Optional[str] = None
+    best_m = -1e9
+    candidates = ("tas-routes-elite", "tas-routes-push540", "tas-routes-steered440", "tas-routes-clean400")
+    if rp.exists():
+        for line in rp.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            r = json.loads(line)
+            for tag in candidates:
+                if r.get("name") == f"limits-{tag}" and r.get("on_time", 0) >= 0.92:
+                    if r["margin"] > best_m and (sdir / f"book-{tag}.json").exists() and (sdir / f"tours-{tag}.json").exists():
+                        best_m = r["margin"]
+                        best_tag = tag
+    if best_tag:
+        return sdir / f"book-{best_tag}.json", sdir / f"tours-{best_tag}.json"
+    for tag in candidates:
+        b, t = sdir / f"book-{tag}.json", sdir / f"tours-{tag}.json"
         if b.exists() and t.exists():
             return b, t
     return None, None
@@ -218,11 +234,11 @@ def main() -> None:
             sdir / "book-tas-state-livegate-safe.json",
             None,
             "spread_lab.policies.tas_state:TasStateDesk",
-            {"tas_seed": seed, "tas_tape_path": str(sdir / "tape.json"), "tas_trust_farm": True, "tas_comp_steer": True, "tas_event_plan": True},
+            {"tas_seed": seed, "tas_tape_path": str(sdir / "tape.json"), "tas_ranked_v5_gate": True, "tas_trust_farm": True, "tas_comp_steer": True, "tas_event_plan": True, "tas_day_cap": 72, "tas_backlog_mult": 2.00},
             "tas-state-livegate-plus-fees",
             fee_iters=4,
         )
-        print(f"SELFTEST OK: livegate=€{r1['margin']:,.2f} -> +exact_fees=€{r2['margin']:,.2f} (won={r2['won']}, OT={r2['on_time']:.2%})")
+        print(f"SELFTEST OK: livegate=€{r1['margin']:,.2f} (won={r1['won']}) -> +exact_fees=€{r2['margin']:,.2f} (won={r2['won']}, OT={r2['on_time']:.2%})")
         return
 
     import tas
@@ -240,7 +256,7 @@ def main() -> None:
                 sdir / "book-tas-state-livegate-safe.json",
                 None,
                 "spread_lab.policies.tas_state:TasStateDesk",
-                {"tas_seed": s, "tas_tape_path": str(sdir / "tape.json"), "tas_trust_farm": True, "tas_comp_steer": True, "tas_event_plan": True, "tas_backlog_mult": 1.45},
+                {"tas_seed": s, "tas_tape_path": str(sdir / "tape.json"), "tas_ranked_v5_gate": True, "tas_trust_farm": True, "tas_comp_steer": True, "tas_event_plan": True, "tas_day_cap": 72, "tas_backlog_mult": 2.00},
                 "tas-state-livegate-plus-fees",
                 fee_iters=6,
             )
@@ -248,6 +264,38 @@ def main() -> None:
     if args.mode in ("fullstack", "both"):
         for s in seed_list:
             sdir = tas.home(s)
+            # Step 2 (Drift-proof Prices + Exact Fees on Champion v5's won orders)
+            b_l1 = sdir / "book-won-apply.json"
+            if b_l1.exists():
+                print()
+                print(f">>> [{s}] Running Drift-Proof Step 2 (Champion + Prices + Exact Fees) ...", flush=True)
+                run_driftproof_fullstack(
+                    tas,
+                    s,
+                    b_l1,
+                    None,
+                    "spread_lab.policy:Desk",
+                    {},
+                    "tas-step2-prices-plus-fees",
+                    fee_iters=6,
+                )
+            # Step 3 (Drift-proof Unsteered Tours + Prices + Exact Fees on clean400)
+            b_c4 = sdir / "book-tas-routes-clean400.json"
+            t_c4 = sdir / "tours-tas-routes-clean400.json"
+            if b_c4.exists() and t_c4.exists():
+                print()
+                print(f">>> [{s}] Running Drift-Proof Step 3 (Prices + Exact Fees + Unsteered Tours) ...", flush=True)
+                run_driftproof_fullstack(
+                    tas,
+                    s,
+                    b_c4,
+                    t_c4,
+                    "spread_lab.policies.tas_routes_compat:Desk",
+                    {"tour_dynamic": True, "relay_offers": True},
+                    "tas-step3-tours-plus-fees",
+                    fee_iters=6,
+                )
+            # Step 4 / Full 5-Layer Ceiling (Prices + Exact Fees + Foresight Tours + Steered State!)
             bpath, tpath = pick_best_steered_tour_plan(sdir)
             if bpath and tpath:
                 print()
