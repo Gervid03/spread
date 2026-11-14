@@ -28,7 +28,7 @@ from ..geo import Geo
 from ..lab import champion
 from ..notes import parse_note_v2
 from ..policy import DAY, daytime_minutes_between, order_ids_of, undelivered
-from .sunday_tours import Desk as SundayDesk, Params as SundayParams
+from .sunday_tours import V6_BASE_PARAMS, Desk as SundayDesk, Params as SundayParams
 from .tas_routes import Desk as TasRoutesDesk
 
 KM = 30.0
@@ -55,7 +55,8 @@ class Params(SundayParams):
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Params":
-        base = dict(champion().get("params", {}))
+        base = dict(V6_BASE_PARAMS)
+        base.update(champion().get("params", {}))
         base.update(raw)
         return super().from_dict(base)
 

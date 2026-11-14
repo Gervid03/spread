@@ -200,6 +200,8 @@ class Params:
     r4v_lead_benign_notes: bool = False  # allow benign notes in try_pair_lead_car
     r4v_lead_cross_slow: bool = False    # allow next_day + within_3_days cross-day pairing in try_pair_lead_car
     r4v_guard_return_hub: bool = False   # snap return_hub/ext_ring back to 200/180/220 when _r4v_surge_safe is False
+    r4v_cyc_unblock: bool = False        # exclude cyc_held and staged_orders from maybe_supervise and backlog_near
+    r4v_cyc_closer: bool = False         # 1-to-1 verified cycle-closer floor/nudge against cyc_held & staged_orders
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -510,7 +512,13 @@ class Desk:
         self.day_open_mult[day] = self.mult
 
         proj_ot = self.projected_on_time()
-        unstaffed_orders = [o for o in self.orders.values() if o["id"] not in self.r4v_staged and undelivered(o) and not self.staffed(o)]
+        held_cyc = getattr(self, "cyc_held", ()) if p.r4v_cyc_unblock else ()
+        held_stg = getattr(self, "staged_orders", ()) if p.r4v_cyc_unblock else ()
+        unstaffed_orders = [
+            o
+            for o in self.orders.values()
+            if o["id"] not in self.r4v_staged and o["id"] not in held_cyc and o["id"] not in held_stg and undelivered(o) and not self.staffed(o)
+        ]
         unstaffed_all = len(unstaffed_orders)
         unstaffed_soon = sum(1 for o in unstaffed_orders if o["lastPickupAt"] - self.now <= 24 * HOUR)
         busy_gigs = sum(
@@ -746,7 +754,7 @@ class Desk:
                 and drive <= eff_ret_drive
             )
             if not (pass_ext_ring or pass_return_hub):
-                if p.r4v_tours and p.r4v_sponsor_quote and self._r4v_surge_safe() and self.r4v_sponsor_wins_day[self.now // DAY] < p.r4v_sponsor_cap_day:
+                if (p.r4v_tours or p.r4v_cyc_closer) and p.r4v_sponsor_quote and self._r4v_surge_safe() and self.r4v_sponsor_wins_day[self.now // DAY] < p.r4v_sponsor_cap_day:
                     sponsor_group = self._r4v_find_verified_closer(request)
                     if sponsor_group is not None:
                         pass_r4v_sponsor = True
@@ -771,7 +779,7 @@ class Desk:
                         self.stats["in_flight_blocked"] += 1
                     return {}, "decline"
         is_ring = supply < gate_min
-        if p.r4v_tours and sponsor_group is None and (p.r4v_return_floor_mult > 0 or p.r4v_return_disc > 0) and unstressed:
+        if (p.r4v_tours or p.r4v_cyc_closer) and sponsor_group is None and (p.r4v_return_floor_mult > 0 or p.r4v_return_disc > 0) and unstressed:
             closing_group = self._r4v_find_verified_closer(request)
 
         if p.trust_guard and self.dealer_trust[request["dealerId"]] >= 13:
@@ -1017,8 +1025,10 @@ class Desk:
     def backlog_near(self, place: str, include_in_flight: bool = True) -> float:
         """Won orders without a driver for every undelivered car, picked up within the radius of `place`."""
         p, radius, n = self.p, self.p.supply_radius_km, 0.0
+        held_cyc = getattr(self, "cyc_held", ()) if p.r4v_cyc_unblock else ()
+        held_stg = getattr(self, "staged_orders", ()) if p.r4v_cyc_unblock else ()
         for order in self.orders.values():
-            if order["id"] in self.r4v_staged:
+            if order["id"] in self.r4v_staged or order["id"] in held_cyc or order["id"] in held_stg:
                 continue
             if self.geo.line_km(order["legs"][0]["pickup"]["placeId"], place) <= radius and not self.staffed(order):
                 if p.backlog_multiday_weight != 1.0 and order["deadline"] // DAY > self.now // DAY and order["id"] not in self.urgent:
@@ -1905,8 +1915,15 @@ class Desk:
             if self._r4v_order_tour_clean(oid):
                 pool.append(oid)
                 seen.add(oid)
+        if self.p.r4v_cyc_closer:
+            for hdict in (getattr(self, "cyc_held", {}), getattr(self, "staged_orders", {})):
+                for oid in hdict:
+                    if oid not in seen and self._r4v_order_tour_clean(oid):
+                        pool.append(oid)
+                        seen.add(oid)
+        ext_tours = getattr(self, "tour_gigs", {})
         for gid, post in self.posts.items():
-            if gid in self.booked or gid in self.r4v_tour_gigs or len(post["stops"]) != 2:
+            if gid in self.booked or gid in self.r4v_tour_gigs or gid in ext_tours or len(post["stops"]) != 2:
                 continue
             oid = post["stops"][0]["orderId"]
             if oid not in seen and self.leg_gigs.get(oid, {}).get(0) == gid and self._r4v_order_tour_clean(oid):
