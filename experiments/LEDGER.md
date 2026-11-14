@@ -5,6 +5,30 @@ against the champion of the time, on the 16 dev worlds unless a set is named (±
 32 unseen worlds (`night-01..32`). The detail is in each branch's note (`experiments/<date>-gemini-<slug>.md`).
 Promotions are in [PROMOTIONS.md](PROMOTIONS.md); round 3 (ideas 15–30) is in `docs/HANDOFF.md`.
 
+## Update Sat 18:10 Helsinki (laptop lead with the user): v7 = the cycle desk (closed 2-4 car tours)
+- **Champion v7** (73fc729, `spread_lab.policies.cycles:Desk`, note `experiments/20261114-1845-claude-cycle-desk.md`):
+  **dev +€247 ± 82 (t 3.01, 12/16), holdout +€410 ± 126 (t 3.25, 13/16), holdout on-time min 94.4%.** The user's idea:
+  a driver who lives anywhere on a closed cycle (A->B, B->C, C->A) drives all of it and ends at home, so the trip home
+  is paid once. On tas-routes' `sunday_tours`/`tas_routes` desks: hold won cars up to 120 daytime min for partners,
+  post closed 2-4 car cycles flat at 0.48/0.44/0.42x the summed typical fee, **rotate an unbooked cycle through its
+  towns every 15 min** (a car can be in ONE live gig only: tested, "already in a live gig"; a post notifies drivers near
+  its first pickup), and stop holding while projected on-time < 97.5%.
+- **The road there (all vs v6):** sunday_tours alone +€217 (8 dev, t 1.1); + hold 120 + cycles at 0.60/0.55/0.52x: +€161
+  (16 dev, t 1.3, refused); + quotes to win cycle closers at 1.35x, 50 km: -€255, a world under 90% (buying closers
+  cheaply breaks on-time); hold 240: -€2,673; **cheaper tours (0.48/0.44/0.42x): +€246 t 2.53** but holdout min 94.0%
+  (refused); + rotation: +€216 t 2.74; + brake 0.965: +€220 t 2.82, holdout +€413 but min 93.8% on hold-14 (refused);
+  brake 0.975: promoted.
+- **Driver prices for multi-car gigs** (tas-routes' 79 fork bisections, dev-12): closed 2-4 car tours 0.31-0.43x the
+  summed typical fee (~€10 a road hour); single cars 0.78-0.84x (€19-41/h); open chains 0.65-0.80x; a 79-min loop
+  0.54x; a Lahti start 0.43x. Before the cheaper openings our tours booked at 0.68x on average.
+- **Why the gain is modest (and where the rest is):** we win ~25% of requests, so all legs of a cycle are rarely ours:
+  over 8 worlds the desk found cycles for ~7% of held cars, ~13% of won cars went in tours (108 x2, 29 x3, 1 x4), and
+  the tours that form are mostly short capital loops (typical fee €33 a car). The oracle's +€2,228 on dev-12 came from a
+  cycle-rich SELECTION of 400 orders. Next: win the closers selectively (the reverse request of a held corridor car,
+  slow options with slack, capped a day), and hold only on corridors where a partner is likely.
+- **cp-routes on v6** (exp/stack-v7): dev +€400 (t 3.98), holdout +€678 (t 4.88) but refused: hold-12 at 91.9%. With
+  r4-tune. Any new candidate is now measured against v7 (`lab eval` uses the champion's policy and params).
+
 ## Update Sat 16:55 Helsinki (laptop lead): round 4, the stack, the live clock
 - **The finals are live and fast** (the organisers on Discord, 15:21): the 20:00 test final and the Sun final play the
   whole week from Monday in ~34 wall minutes, ~7 game minutes a wall second; a 15-minute quote window is ~2 wall
