@@ -49,6 +49,9 @@ class Params(SundayParams):
     cyc_quote_mult: float = 1.20      # at most this x list on a cycle-closing quote
     cyc_search_every_min: int = 5     # search at most this often (game minutes), and when the pool changed
     cyc_km: float = 30.0              # a car's delivery this close (straight line) to the next pickup, and back home
+    cyc_rotate_min: int = 0           # an unbooked cycle is reposted from its next town after this many daytime minutes
+                                      # (a car can be in one live gig only, so the rotations take turns; 0 = off)
+    cyc_min_on_time: float = 0.0      # hold cars only while the projected on-time share is at least this (0 = always)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Params":
@@ -66,6 +69,7 @@ class Desk(SundayDesk):
         self.cyc_done: set[str] = set()          # held once already, or in a cycle: never held again
         self.cyc_dirty = False
         self.cyc_last_search = -10**9
+        self.cyc_rots: dict[frozenset, dict[str, Any]] = {}   # a posted cycle's feasible rotations and whose turn it is
 
     # --- the pool -----------------------------------------------------------------------------------
     def _ends(self, x: str) -> tuple[str, str]:
@@ -115,7 +119,7 @@ class Desk(SundayDesk):
         return self.p.cyc_mult_2 if n == 2 else self.p.cyc_mult_3 if n == 3 else self.p.cyc_mult_4
 
     # --- posting cycles -------------------------------------------------------------------------------
-    def _post_cycle(self, rot: list[str]) -> bool:
+    def _post_cycle(self, rot: list[str], rots: Optional[list[list[str]]] = None) -> bool:
         for oid in rot:
             for gid, post in list(self.posts.items()):
                 if gid in self.booked:
@@ -140,6 +144,7 @@ class Desk(SundayDesk):
             self.cyc_done.add(oid)
         if ok:
             self.stats[f"cyc_posted_{len(rot)}"] += 1
+            self.cyc_rots[frozenset(rot)] = {"rots": rots or [rot], "i": 0, "last": self.now}
         else:
             self.stats["cyc_post_refused"] += 1
             for oid in rot:
@@ -155,30 +160,72 @@ class Desk(SundayDesk):
         cands = []
         for c in self._cycles(pool):
             ref = sum(self.requests[x]["referenceFeeCents"] for x in c)
-            best = None
+            feas = []
             for i in range(len(c)):
                 rot = c[i:] + c[:i]
-                start = self._ends(rot[0])[0]
-                sup = self.supply.get(start, 0)
-                if sup < self.p.cyc_min_supply:
+                sup = self.supply.get(self._ends(rot[0])[0], 0)
+                if sup < self.p.cyc_min_supply or self.can_chain_orders_live(rot) is None:
                     continue
-                if self.can_chain_orders_live(rot) is None:
-                    continue
-                if best is None or sup > best[0]:
-                    best = (sup, rot)
-            if best:
+                feas.append((sup, rot))
+            if feas:
+                feas.sort(key=lambda t: -t[0])
                 saving = ref * (0.85 - self._mult(len(c)))
-                cands.append((saving, len(c), best[1]))
+                cands.append((saving, len(c), [r for _, r in feas]))
         used: set[str] = set()
-        for saving, n, rot in sorted(cands, key=lambda t: (-t[0], -t[1])):
-            if used & set(rot):
+        for saving, n, rots in sorted(cands, key=lambda t: (-t[0], -t[1])):
+            if used & set(rots[0]):
                 continue
-            if self._post_cycle(rot):
-                used |= set(rot)
+            if self._post_cycle(rots[0], rots):
+                used |= set(rots[0])
+
+    def _rotate(self) -> None:
+        """An unbooked cycle takes turns in the app from each town on it: a car can be in one live gig only, and a
+        post notifies the drivers near its first pickup. The patience clock and the fee step carry over."""
+        for gid, tinfo in list(self.tour_gigs.items()):
+            if gid in self.booked:
+                continue
+            post = self.posts.get(gid)
+            if post is None:
+                continue
+            oids = order_ids_of(post)
+            st = self.cyc_rots.get(frozenset(oids))
+            if not st or len(st["rots"]) < 2:
+                continue
+            if not all(self.leg_gigs.get(o, {}).get(0) == gid for o in oids):
+                continue
+            if daytime_minutes_between(st["last"], self.now, self.p.day_start, self.p.day_end) < self.p.cyc_rotate_min:
+                continue
+            st["last"] = self.now
+            j = (st["i"] + 1) % len(st["rots"])
+            rot = st["rots"][j]
+            if self.can_chain_orders_live(rot) is None:
+                continue
+            self.outbox.append({"type": "withdraw", "gigId": gid})
+            for s in post["stops"]:
+                self.leg_gigs.get(s["orderId"], {}).pop(s["leg"], None)
+            self.tour_gigs.pop(gid, None)
+            mult = tinfo["mult"]
+            self.tour_open_mult = lambda *a, **k: mult
+            try:
+                ok = self.post_tour_orders(rot, tid="cycrot")
+            finally:
+                del self.tour_open_mult
+            if ok:
+                meta = self._pending_tour_meta.get(tuple(rot))
+                if meta:
+                    meta["posted_at"], meta["last_step_at"] = tinfo["posted_at"], tinfo["last_step_at"]
+                st["i"] = j
+                self.stats["cyc_rotated"] += 1
+            else:
+                for oid in oids:
+                    o = self.orders.get(oid)
+                    if o and undelivered(o) and not self.gigs_of(oid):
+                        super(TasRoutesDesk, self).post(o, undelivered(o))
 
     # --- holding ------------------------------------------------------------------------------------
     def _hold_fresh_posts(self) -> None:
         keep = []
+        tight: Optional[bool] = None
         for a in self.outbox:
             if a["type"] == "post":
                 oids = order_ids_of(a)
@@ -187,6 +234,13 @@ class Desk(SundayDesk):
                     o = self.orders.get(oid)
                     if (oid not in self.cyc_done and oid not in self.cyc_held and self._clean(oid)
                             and o["lastPickupAt"] - self.now >= self.p.cyc_hold_slack_min):
+                        if tight is None:
+                            tight = bool(self.p.cyc_min_on_time) and self.projected_on_time() < self.p.cyc_min_on_time
+                        if tight:
+                            self.stats["cyc_not_held_tight"] += 1
+                            self.cyc_done.add(oid)
+                            keep.append(a)
+                            continue
                         self.cyc_held[oid] = self.now
                         self.stats["cyc_held"] += 1
                         self.cyc_dirty = True
@@ -215,6 +269,8 @@ class Desk(SundayDesk):
         if not self.p.cyc:
             return
         self._hold_fresh_posts()
+        if self.p.cyc_rotate_min > 0:
+            self._rotate()
         if self.cyc_dirty or self.now - self.cyc_last_search >= self.p.cyc_search_every_min:
             self.cyc_dirty = False
             self.cyc_last_search = self.now
