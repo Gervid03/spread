@@ -13,6 +13,24 @@ The user asked for everything else worth running. In `experiments/prompts/carbon
    priority for margin.
 Slots are the bottleneck: run at most one of these beside c1 and c2, in this order.
 
+## Sat 14 Nov, 11:20 Helsinki (the laptop lead): ten co-players
+- **Co-play** (`scripts/coplay.py`, on main). A game is a seed plus a log of moves; every turn replays it in a fresh
+  world (worlds are deterministic), so a game holds a practice world only for the ~15 s of a replay.
+  - What-ifs are separate replays and exact (the unchanged line reproduces the champion to the cent).
+  - `probe` binary-searches on forks for a dealer's real limit on a waiting quote.
+  - `coplay.py board` ranks every game on the machine against the champion's week on its seed.
+  - Games live in `~lab/.spread-lab/coplay/`.
+- **Running: ten Gemini 4 Carbon co-players** (`cp-routes`, `cp-chains`, `cp-demand`, `cp-fees`, `cp-supervisor`,
+  `cp-buffer`, `cp-classes`, `cp-volume`, `cp-margin`, `cp-wild`).
+  - Each has its own dev world (the ten nearest the champion's median, and dev-11, its weakest) and a focus, including
+    the user's briefs.
+  - Briefs: `experiments/prompts/coplay/`. Each agent keeps a journal in its note and confirms a rule on 16 dev worlds
+    before it may run promote.sh.
+  - The day run takes no new workers (`runs/night/stop`); its last three finish.
+  - The swarm VM has all 8 slots (`SPREAD_SLOTS=8`); keep the laptop off practice.
+- **v4 is the champion** (final-champion study: v3 + `late_fee_open=1.0`, dev +€355, t 2.11), and Verda picked it
+  up by itself.
+
 ## Sat 14 Nov, 10:05 Helsinki (the laptop lead): the day run
 - **The 14-minute steps were refused** by promote.sh (`REBASE=1`): dev +€26 ± 149, but holdout −€414 ± 131 and a worst
   world of 93.6% against 94.4%. The champion stays on 10-minute steps. The fast instrument is for paired screening only,
