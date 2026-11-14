@@ -13,6 +13,40 @@ The user asked for everything else worth running. In `experiments/prompts/carbon
    priority for margin.
 Slots are the bottleneck: run at most one of these beside c1 and c2, in this order.
 
+## Sat 14 Nov, 11:20 Helsinki (the laptop lead): ten co-players
+- **Co-play** (`scripts/coplay.py`, on main). A game is a seed plus a log of moves; every turn replays it in a fresh
+  world (worlds are deterministic), so a game holds a practice world only for the ~15 s of a replay.
+  - What-ifs are separate replays and exact (the unchanged line reproduces the champion to the cent).
+  - `probe` binary-searches on forks for a dealer's real limit on a waiting quote.
+  - `coplay.py board` ranks every game on the machine against the champion's week on its seed.
+  - Games live in `~lab/.spread-lab/coplay/`.
+- **Running: ten Gemini 4 Carbon co-players** (`cp-routes`, `cp-chains`, `cp-demand`, `cp-fees`, `cp-supervisor`,
+  `cp-buffer`, `cp-classes`, `cp-volume`, `cp-margin`, `cp-wild`).
+  - Each has its own dev world (the ten nearest the champion's median, and dev-11, its weakest) and a focus, including
+    the user's briefs.
+  - Briefs: `experiments/prompts/coplay/`. Each agent keeps a journal in its note and confirms a rule on 16 dev worlds
+    before it may run promote.sh.
+  - The day run takes no new workers (`runs/night/stop`); its last three finish.
+  - The swarm VM has all 8 slots (`SPREAD_SLOTS=8`); keep the laptop off practice.
+- **v4 is the champion** (final-champion study: v3 + `late_fee_open=1.0`, dev +€355, t 2.11), and Verda picked it
+  up by itself.
+
+## Sat 14 Nov, 10:05 Helsinki (the laptop lead): the day run
+- **The 14-minute steps were refused** by promote.sh (`REBASE=1`): dev +€26 ± 149, but holdout −€414 ± 131 and a worst
+  world of 93.6% against 94.4%. The champion stays on 10-minute steps. The fast instrument is for paired screening only,
+  against its own baseline (`baselines/fast14-dev`); see the day protocol in `experiments/prompts/_common.md`.
+- **The day run** (`scripts/night.sh` with `MODEL=gemini-4-carbon MAX_AGENTS=4 SWEEPS=0 LEAD_QUEUE_LE=1
+  SEED_DIR=experiments/prompts/day TAG=d14 PUBLISH_BRANCH=day/20261114`, until Sun 04:50 Helsinki):
+  - it works through the queue of the user's briefs (hitch pairs, acceptance model, buffer spender, day supervisor, then
+    eligible supply);
+  - a Carbon lead tick refills the queue when 1 or fewer briefs are left;
+  - agents may drop their own idea briefs into `runs/night/queue/9*.md`;
+  - ranking rounds: the separate board loop.
+- **Models.** On 10 hard competition problems, Argon, Carbon and Hydrogen were all 10/10. Argon was the fastest
+  (166 s for the hard five; Carbon 401 s). Nothing stronger is on the key. Carbon 2 ended mid-task after 59 calls (it
+  announced a step and stopped), so `swarm.sh` now resumes any agent until its note is pushed (`RESUMES=3`). The
+  agents started before 10:00 run the old `swarm.sh` and get no resume.
+
 ## Sat 14 Nov, 09:30 Helsinki (the laptop lead): two Carbons instead of the swarm
 The user's call: we use ~1% of Google's limits and practice worlds are the bottleneck, so fewer, stronger agents
 that test sparingly. The night run is over (stopped 09:22). Running on the swarm VM now:

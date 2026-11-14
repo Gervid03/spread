@@ -29,5 +29,18 @@ JSON
 set -a; . "$root/.env"; set +a          # GEMINI_API_KEY and SPREAD_KEY; never committed
 : "${GEMINI_API_KEY:?GEMINI_API_KEY is not in .env}"
 text="$(cat "$root/experiments/prompts/_common.md")"$'\n'"$(cat "$prompt")"
-exec gemini -m "$model" --yolo --skip-trust -o stream-json -p "$text" \
-  > "$root/runs/swarm/$slug.jsonl" 2> "$root/runs/swarm/$slug.err"
+# An agent sometimes ends its turn mid-task ("I will now ...") and the headless session ends with it. So the
+# agent is resumed (up to RESUMES times) until its branch is pushed with a note in experiments/.
+log=$root/runs/swarm/$slug.jsonl; err=$root/runs/swarm/$slug.err
+base=$text
+for attempt in $(seq 1 $((${RESUMES:-3} + 1))); do
+  gemini -m "$model" --yolo --skip-trust -o stream-json -p "$text" >> "$log" 2>> "$err"
+  git fetch -q origin 2>/dev/null
+  if git rev-parse -q --verify "origin/$branch" > /dev/null      && [ -n "$(git diff --name-only --diff-filter=AM "origin/main...origin/$branch" -- 'experiments/*.md')" ]      && [ -z "$(git log --oneline "origin/$branch..HEAD")" ]; then
+    break
+  fi
+  echo "swarm.sh: $slug ended without a pushed note (attempt $attempt); resuming" >> "$err"
+  text="## Resume (attempt $((attempt + 1))): your previous session in this worktree ended before your note was pushed on \`$branch\`. Your code, commits and runs/ are still here: check \`git status\`, \`git log\` and runs/, and carry on from where you stopped. Don't end your turn by announcing a step: do it. Finish with your note committed and pushed."$'
+
+'"$base"
+done

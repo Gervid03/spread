@@ -90,6 +90,8 @@ class Params:
     guard_supply_mult: float = 3.0    # at full tightening min_supply is this many times higher, backlog limit 0
     # --- fees ---------------------------------------------------------------------------------------
     fee_open: float = 0.85            # opening fee, times the typical fee (v2: was 1.00)
+    hub_multiday_fee_open: float = 0.0  # if > 0, opening fee for non-same_day in supply >= 150 with >= 6h to warning
+    thin_sameday_fee_open: float = 0.0  # if > 0, opening fee for same_day in supply < 65
     fee_warn: float = 1.60            # fee reached at the deadline warning (lastPickupAt - 3 h)
     fee_step_min: int = 30            # minutes between steps of the rising schedule
     day_start: int = 7 * 60           # raises only between these minutes of the day
@@ -97,6 +99,10 @@ class Params:
     steep_open: float = 1.80          # after the deadline warning
     steep_step: float = 0.25          # added every half hour
     steep_max: float = 3.00
+    drop_urgent_margin_min: int = 0   # if > 0, gig_dropped/no_show within this many min of lastPickupAt triggers raise_fees
+    late_fee_open: float = 0.0        # if > 0, lost orders open at this x typical fee and climb to late_fee_max
+    late_fee_max: float = 1.3         # fee ceiling for lost orders at the next refund-tier boundary minus drive
+    late_repost: bool = False         # withdraw and repost without windows when an unstaffed order passes lastPickupAt
     # --- direct offers after the deadline warning ---------------------------------------------------
     offers_per_warning: int = 0       # at most 3 open offers per gig, 3 per driver per day (rules) (v2: was 3; 3 of 218 offers were accepted)
     offer_mult: float = 2.20          # offer fee, times the typical fee of the cars
@@ -211,6 +217,9 @@ class Desk:
         self.newly_won_hitch: list[str] = []
         self.hitch_order_splits: Counter = Counter()
         self.first_posted_at: dict[str, int] = {}
+        self.lost: set[str] = set()                  # orders that can no longer be on time
+        self.late_reposted: set[str] = set()         # orders already reposted in tick() upon becoming lost
+        self.ends_at: int = 14280                    # second Wednesday 22:00
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -253,6 +262,10 @@ class Desk:
             self.stats["gig_expired"] += 1
             if self.p.hitch:
                 self.single_open_since.pop(event["gigId"], None)
+            post = self.posts.get(event["gigId"])
+            if post:
+                for s in post["stops"]:
+                    self.lost.add(s["orderId"])
             self.repost(event["gigId"])
         elif kind == "deadline_close":
             self.stats["deadline_close"] += 1
@@ -279,6 +292,19 @@ class Desk:
             else:
                 if gid in self.posts and len(order_ids_of(self.posts[gid])) > 1:
                     self.stats["lead_car_booked"] += 1
+            post = self.posts.get(event["gigId"])
+            if post:
+                order_ids = list(dict.fromkeys(s["orderId"] for s in post["stops"]))
+                for order_id in order_ids:
+                    order = self.orders.get(order_id)
+                    if order and self.now > order["lastPickupAt"]:
+                        self.lost.add(order_id)
+                if any(oid in self.lost for oid in order_ids):
+                    self.stats["fee_lost_cents"] += event["feeCents"]
+                    self.stats["fee_lost_n"] += 1
+                elif any(oid in self.urgent for oid in order_ids):
+                    self.stats["fee_warned_cents"] += event["feeCents"]
+                    self.stats["fee_warned_n"] += 1
         elif kind in ("gig_dropped", "no_show"):
             gid = event["gigId"]
             self.booked.discard(gid)
@@ -298,6 +324,22 @@ class Desk:
                         self.split_hitch_gig(gid, reason="drop")
                 elif gid in self.posts and len(self.posts[gid]["stops"]) == 2 and len(order_ids_of(self.posts[gid])) == 1:
                     self.single_open_since[gid] = event["at"]
+            post = self.posts.get(event["gigId"])
+            if post:
+                for order_id in dict.fromkeys(s["orderId"] for s in post["stops"]):
+                    order = self.orders.get(order_id)
+                    if order and undelivered(order) and self.now > order["lastPickupAt"]:
+                        self.lost.add(order_id)
+            if self.p.drop_urgent_margin_min > 0:
+                if post:
+                    for order_id in dict.fromkeys(s["orderId"] for s in post["stops"]):
+                        if (
+                            order_id in self.orders
+                            and undelivered(self.orders[order_id])
+                            and self.orders[order_id]["lastPickupAt"] - self.now <= self.p.drop_urgent_margin_min
+                        ):
+                            self.stats["drop_rescued"] += 1
+                            self.raise_fees(order_id)
         elif kind == "gig_viewed":
             self.last_view[event["driverId"]] = event["at"]
         elif kind == "ledger":
@@ -346,7 +388,18 @@ class Desk:
         elif kind == "delivered":
             self.leg_gigs.get(event["orderId"], {}).pop(event["leg"], None)
             if event["orderId"] in self.orders:
-                self.orders[event["orderId"]]["deliveredAt"][event["leg"]] = event["at"]
+                order = self.orders[event["orderId"]]
+                order["deliveredAt"][event["leg"]] = event["at"]
+                if not undelivered(order):
+                    delivered_at = max(d for d in order["deliveredAt"] if d is not None)
+                    if delivered_at > order["deadline"]:
+                        lateness = delivered_at - order["deadline"]
+                        if lateness <= 2 * HOUR:
+                            self.stats["late_le_2h"] += 1
+                        elif lateness <= 24 * HOUR:
+                            self.stats["late_le_24h"] += 1
+                        else:
+                            self.stats["late_more"] += 1
 
     def tick(self) -> None:
         """Called after every step (practice) or event (live)."""
@@ -357,6 +410,22 @@ class Desk:
             if self.dealer_trust:
                 self.stats[f"top_dealer_trust_d{self._last_day}"] = max(self.dealer_trust.values())
             self._last_day = day
+        for order_id, order in list(self.orders.items()):
+            if undelivered(order) and not self.staffed(order) and self.now > order["lastPickupAt"]:
+                self.lost.add(order_id)
+                if self.p.late_repost and order_id not in self.late_reposted:
+                    self.send_post_of(order_id)
+                    gigs = self.gigs_of(order_id)
+                    if gigs and all(gig_id not in self.booked for gig_id in gigs):
+                        self.late_reposted.add(order_id)
+                        self.stats["late_reposts"] += 1
+                        self.leg_gigs.pop(order_id, None)
+                        for gig_id in gigs:
+                            self.outbox.append({"type": "withdraw", "gigId": gig_id})
+                            action = self.posts.get(gig_id)
+                            if action is not None:
+                                stops = without_windows(action["stops"], float("inf"))
+                                self.outbox.append({**action, "stops": stops, "schedule": self.fees_for(order, pickups(action), action)})
         if self.p.hitch and self.level >= 3:
             self.tick_hitch()
 
@@ -746,22 +815,45 @@ class Desk:
             self.stats["offers"] += 1
 
     def fees_for(self, order: Order, cars: int, action: Optional[PostAction] = None) -> list[FeeStep]:
+        p = self.p
         if action is not None:
             oids = order_ids_of(action)
             if len(oids) > 1:
-                base = sum(self.requests[oid]["referenceFeeCents"] for oid in oids if oid in self.requests) * self.p.lead_car_fee_mult
+                base = sum(self.requests[oid]["referenceFeeCents"] for oid in oids if oid in self.requests) * p.lead_car_fee_mult
                 if self.level == 1:
-                    return [{"at": self.now, "feeCents": max(1, int(base * self.p.fee_open + 0.5))}]
+                    return [{"at": self.now, "feeCents": max(1, int(base * p.fee_open + 0.5))}]
                 if any(oid in self.urgent for oid in oids):
                     return self.steep(base)
                 until = min((self.orders[oid]["lastPickupAt"] for oid in oids if oid in self.orders), default=order["lastPickupAt"]) - 3 * HOUR
                 return self.rising(base, until)
         base = self.requests[order["id"]]["referenceFeeCents"] * cars / len(order["legs"])
         if self.level == 1:
-            return [{"at": self.now, "feeCents": max(1, int(base * self.p.fee_open + 0.5))}]
+            return [{"at": self.now, "feeCents": max(1, int(base * p.fee_open + 0.5))}]
+        if p.late_fee_open > 0:
+            if undelivered(order) and not self.staffed(order) and self.now > order["lastPickupAt"]:
+                self.lost.add(order["id"])
+            if order["id"] in self.lost:
+                if self.ends_at - self.now <= 36 * HOUR:
+                    return self.rising(base, self.ends_at - 12 * HOUR, fee_open_override=p.late_fee_open, fee_warn_override=p.steep_max)
+                open_legs = undelivered(order) or list(range(len(order["legs"])))
+                drive = sum(self.geo.minutes(order["legs"][i]["pickup"]["placeId"], order["legs"][i]["delivery"]["placeId"]) for i in open_legs)
+                if len(open_legs) == 2:
+                    drive += self.geo.minutes(order["legs"][open_legs[0]]["delivery"]["placeId"], order["legs"][open_legs[1]]["pickup"]["placeId"])
+                t24 = order["deadline"] + 24 * HOUR - drive
+                t2b = add_business_days(order["deadline"], 2) - drive
+                until = t24 if self.now < t24 else (t2b if self.now < t2b else self.ends_at - drive)
+                return self.rising(base, until, fee_open_override=p.late_fee_open, fee_warn_override=p.late_fee_max)
         if order["id"] in self.urgent:
             return self.steep(base)
         until = order["lastPickupAt"] - 3 * HOUR
+        supply = self.supply.get(order["legs"][0]["pickup"]["placeId"], 0)
+        fee_open_override: Optional[float] = None
+        if p.hub_multiday_fee_open > 0 and order["option"] != "same_day" and supply >= 150 and until - self.now >= 6 * HOUR:
+            fee_open_override = p.hub_multiday_fee_open
+            self.stats["hub_multiday_posts"] += 1
+        elif p.thin_sameday_fee_open > 0 and order["option"] == "same_day" and supply < 65:
+            fee_open_override = p.thin_sameday_fee_open
+            self.stats["thin_sameday_posts"] += 1
         if (
             self.p.hitch
             and self.p.hitch_preserve_age
@@ -770,17 +862,25 @@ class Desk:
             and order["id"] in self.first_posted_at
             and self.first_posted_at[order["id"]] < self.now
         ):
-            return self.rising(base, until, first_at=self.first_posted_at[order["id"]])
-        return self.rising(base, until)
+            return self.rising(base, until, fee_open_override=fee_open_override, first_at=self.first_posted_at[order["id"]])
+        return self.rising(base, until, fee_open_override=fee_open_override)
 
-    def rising(self, base: float, until: int, first_at: Optional[int] = None) -> list[FeeStep]:
+    def rising(
+        self,
+        base: float,
+        until: int,
+        fee_open_override: Optional[float] = None,
+        fee_warn_override: Optional[float] = None,
+        first_at: Optional[int] = None,
+    ) -> list[FeeStep]:
         """From `fee_open` now to `fee_warn` at `until`, in daytime steps only, at most 48 steps."""
         p = self.p
-        open_mult = p.fee_open
+        fee_open = fee_open_override if fee_open_override is not None else p.fee_open
+        fee_warn = fee_warn_override if fee_warn_override is not None else p.fee_warn
         if first_at is not None and first_at < self.now:
             tot_dt = max(1, daytime_minutes(first_at, until, p.day_start, p.day_end))
             elap_dt = clamp(daytime_minutes(first_at, self.now, p.day_start, p.day_end) / tot_dt, 0.0, 1.0)
-            open_mult = p.fee_open + (p.fee_warn - p.fee_open) * elap_dt
+            fee_open = fee_open + (fee_warn - fee_open) * elap_dt
         times = [self.now]
         t = (self.now // p.fee_step_min + 1) * p.fee_step_min
         while t <= until:
@@ -791,7 +891,7 @@ class Desk:
             k = len(times) - 1
             times = [times[round(i * k / 47)] for i in range(48)]
         n = len(times)
-        return [{"at": at, "feeCents": max(1, int(base * (open_mult + (p.fee_warn - open_mult) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
+        return [{"at": at, "feeCents": max(1, int(base * (fee_open + (fee_warn - fee_open) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
                 for i, at in enumerate(times)]
 
     def steep(self, base: float) -> list[FeeStep]:
@@ -1614,7 +1714,9 @@ class Desk:
     # --- restart (live mode) --------------------------------------------------------------------------
     def rejoin(self, snapshot: DeskSnapshot, history: list[DeskEvent]) -> None:
         """Rebuilds the books from the world after a (re)start, then answers what it missed."""
+        self.ends_at = snapshot.get("endsAt", 14280)
         posted: dict[str, list[Gig]] = {}
+        gigs_by_id = {g["id"]: g for g in snapshot["gigs"]}
         self.booked = {g["id"] for g in snapshot["gigs"] if g["status"] in ("booked", "working", "done")}
         for gig in snapshot["gigs"]:
             for oid in order_ids_of(gig):
@@ -1645,12 +1747,45 @@ class Desk:
                             if len(delivered) == len(order["legs"]) and max(delivered) <= order["deadline"]:
                                 self.dealer_trust[dealer] = min(25, self.dealer_trust[dealer] + 1)
                             
+        self.late = set(_late_replay)
+        for req_id, req in self.requests.items():
+            pickup = req["legs"][0]["pickup"]["placeId"]
+            if self.gate_supply.get(pickup, 0) < self.p.min_supply:
+                self.ext_ring_reqs.add(req_id)
+            elif self.supply.get(pickup, 0) < self.p.min_supply and self.p.ring_to_hub_same_day_min > 0:
+                drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in req["legs"])
+                if len(req["legs"]) == 2:
+                    drive += self.geo.minutes(req["legs"][0]["delivery"]["placeId"], req["legs"][1]["pickup"]["placeId"])
+                if self.supply.get(req["legs"][-1]["delivery"]["placeId"], 0) >= 200 and drive <= self.p.ring_to_hub_same_day_min:
+                    self.ring_hub_same_day.add(req_id)
+
         for e in history:
             if e["kind"] == "gig_viewed":
                 self.last_view[e["driverId"]] = e["at"]
             elif e["kind"] == "offer_answered":
                 self.offers_sent[(e["driverId"], e["at"] // DAY)] += 1
         self.orders = {o["id"]: o for o in snapshot["orders"] if o["id"] in self.requests and o["status"] != "cancelled"}
+        for e in history:
+            if e["kind"] == "gig_expired":
+                g = gigs_by_id.get(e["gigId"])
+                if g:
+                    for s in g["stops"]:
+                        self.lost.add(s["orderId"])
+        for order_id, order in self.orders.items():
+            if undelivered(order) and not self.staffed(order) and self.now > order["lastPickupAt"]:
+                self.lost.add(order_id)
+        for order_id, g_list in posted.items():
+            if any(g["status"] == "withdrawn" for g in g_list):
+                self.late_reposted.add(order_id)
+        if self.p.drop_urgent_margin_min > 0:
+            for e in history:
+                if e["kind"] in ("gig_dropped", "no_show"):
+                    post = self.posts.get(e["gigId"])
+                    if post:
+                        for order_id in dict.fromkeys(s["orderId"] for s in post["stops"]):
+                            order = self.orders.get(order_id)
+                            if order and order["lastPickupAt"] - e["at"] <= self.p.drop_urgent_margin_min:
+                                self.urgent.add(order_id)
         if self.p.hitch or self.p.hitch_quote:
             self.rejoin_hitch(snapshot, history)
         ratios = []  # the price level of the latest wins, so a restarted desk does not relearn from the prior
@@ -1730,6 +1865,16 @@ def next_dealer_open_at(stop_place: StopPlace, t: int, limit_t: int) -> Optional
             continue
         return cand if cand <= limit_t else None
     return None
+def add_business_days(t: int, days: int) -> int:
+    d = t // DAY
+    tod = t % DAY
+    for _ in range(days):
+        d += 1
+        while d % 7 in (5, 6):
+            d += 1
+    return d * DAY + tod
+
+
 def retry_from(order: Order, request: PriceRequest, leg: int, now: int) -> int:
     promised = next((o["deadline"] for o in request["options"] if o["kind"] == order["option"]), order["deadline"])
     delay = max(0, order["deadline"] - promised)
