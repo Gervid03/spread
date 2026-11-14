@@ -76,6 +76,14 @@ worlds each. It promotes one arm only if it beats v3 without a worse tail. (`cap
 14-minute steps and event-driven evenings make practice worlds 20–40% cheaper without changing what they measure.
 Practice slots are the lab's bottleneck, so this is the cheapest capacity there is.
 
+**6a. Chains are the day's volume bet. Queue both briefs at your next tick, ahead of your own:**
+`experiments/prompts/night2/hitch-return-offer-on-v3.md` and `experiments/prompts/night2/hitch-pairs-on-v3.md`. R11
+(`n14-06263`) found 94 disjoint chains a week among requests we decline, and thin-town quoting without chains lost
+because it took drivers from the other orders. The two briefs are different routes to the same volume (a direct
+offer to our own driver after booking, or a paired gig before booking), run side by side. Also worth keeping:
+idea 17 (`slack_by_hours=True`, `min_slack_min` 120, `n14-06261`) was margin-neutral with 29% fewer warnings and
+fewer late orders, a safety lever for the final's tail.
+
 **6b. Faster practice, once the final-champion study is done.** When INPUT.md shows the `final-champion` worker
 finished, copy `experiments/prompts/night2/rebase-capacity.md` into `night-queue/`, once. It re-baselines the champion
 on 14-minute steps with event-driven evenings: neutral on margin (+€26 ± 149), +61% worlds per hour (n14-06041). Don't
