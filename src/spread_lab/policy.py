@@ -718,7 +718,7 @@ class Desk:
         dest_sup = self.supply.get(dest_place, 0)
         has_sd_menu = p.sd_menu_slow_disc > 0 and any(o["kind"] == "same_day" for o in request["options"])
         is_closer = False
-        if p.closer_slow_disc > 0 and len(legs) == 1 and self.projected_on_time() >= 0.965:
+        if p.closer_slow_disc > 0 and len(legs) == 1 and self.projected_on_time() >= 0.945:
             fwd_n, rev_n = 0, 0
             for ord_o in self.orders.values():
                 if (
@@ -795,22 +795,25 @@ class Desk:
                 option_mult *= (1 - p.trust_invest)
             if p.return_hub_discount > 0 and pass_return_hub and not pass_ext_ring:
                 option_mult *= (1.0 - p.return_hub_discount)
-            if p.dest_thin_markup > 0 and dest_sup < 30:
+            if p.dest_thin_markup > 0 and dest_sup < 30 and not is_closer:
                 option_mult *= (1.0 + p.dest_thin_markup)
                 self.stats["tas_dest_thin_n"] += 1
             if option["kind"] != "same_day":
+                slow_disc = 0.0
                 if p.dest_hub_slow_disc > 0 and dest_sup >= 150:
-                    option_mult *= (1.0 - p.dest_hub_slow_disc)
+                    slow_disc = max(slow_disc, p.dest_hub_slow_disc)
                     self.stats["tas_dest_hub_slow_n"] += 1
                 if p.dest_hub_floor_fee_mult > 0 and dest_sup >= 150:
                     opt_fee = min(opt_fee, request["referenceFeeCents"] * p.dest_hub_floor_fee_mult)
                 if has_sd_menu:
-                    option_mult *= (1.0 - p.sd_menu_slow_disc)
+                    slow_disc = max(slow_disc, p.sd_menu_slow_disc)
                     self.stats["tas_sd_menu_slow_n"] += 1
                 if is_closer and slack >= 240:
-                    option_mult *= (1.0 - p.closer_slow_disc)
+                    slow_disc = max(slow_disc, p.closer_slow_disc)
                     opt_fee = min(opt_fee, request["referenceFeeCents"] * 0.75)
                     self.stats["tas_closer_disc_n"] += 1
+                if slow_disc > 0:
+                    option_mult *= (1.0 - slow_disc)
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
             floor = opt_fee / (1 - p.min_margin_frac)
