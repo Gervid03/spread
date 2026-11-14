@@ -31,10 +31,16 @@ Check the paths with `uv run lab runs | grep fee-drop`. If a path is gone, run A
 **2. Stacking tonight's mechanisms has stopped paying.** A, 03111, 03501, 03503, 03504 and the v7 stacks all
 make €10.4–10.6k on dev, within one SE of each other, so no more stacking workers. The next gain is structural.
 
+**2b. The gap that matters is volume.** On the public level-8 board ("Saturday 00:00", 151 teams, 63 ranked) we
+are 35th with €54.2k for 5 worlds; the top 10 need ~€75.5k, and House best has €71.8k. The leaders win 410–460
+orders a week at 96–98% on time, and their margin per order (~€40) is the same as ours. We win ~270. So the next
+€4–5k a week is volume. The margin x-ray (`origin/exp/gemini-n14-01392-margin-xray-v2`) shows where it is: the thin
+class (under 30 drivers within 55 km) is 287 requests a week, all declined, and same_day from mid towns and the
+ring is all declined too. Ideas that open these classes safely (25, 24, 20, 21, 26) come before price and fee polish.
+
 **3. Fable's round 3 (ideas 15–30 below) is untested.** It was written at 01:30, before the night began, and
-never reached the queue. It gets the worker slots, in this order: 15 triage, 19 thermostat, 16 fee clock,
-20 quota, 21 (a)+(b), 17 hours, 25 price what we decline, 24 inbound, 23 signals, then 26 (after R11) and 22
-(after R7). The briefs are in `experiments/prompts/gemini-<name>.md`. They were written for v2, so adapt each to A
+never reached the queue. It gets the worker slots, in this order: 25 + 24 (in `02-thin-volume`), 15 triage, 19 thermostat, 20 quota,
+21 (a)+(b), 26 hitch (R11 first), 16 fee clock, 17 hours, 23 signals, then 22 (after R7). The briefs are in `experiments/prompts/gemini-<name>.md`. They were written for v2, so adapt each to A
 in the worker prompt (merge A, A's flags, A's runs). Research briefs (R6–R14) cost almost no practice slots
 (reveals are one request each), so one research worker can run beside the others at any time.
 
@@ -49,10 +55,11 @@ final's live parity)** and S17. S16 is in `01-validate-top`.
 **5. No more sweep lines.** The sweep track runs in the root checkout, that is v2's code, so it can't measure
 anything on A. Leave `night-queue/sweeps.txt` unwritten, and the slots go to the workers.
 
-**6. The cloud lead's prompts sit in `night-queue/`** (`01-validate-top`, `02-triage`, `03-thermostat`,
-`04-feeclock`). Main brings them back at every tick, so: leave a file in place unless INPUT.md already lists a
+**6. The cloud lead's prompts sit in `night-queue/`** (`01-validate-top`, `02-thin-volume`, `03-triage`,
+`04-thermostat`). Main brings them back at every tick, so: leave a file in place unless INPUT.md already lists a
 worker or a queued prompt with its name, and in that case `rm` it from `night-queue/`. Write at most two prompts
-of your own while those four are still unstarted.
+of your own while those four are still unstarted. A brief for idea 16 already adapted to A is waiting in
+`experiments/prompts/night2/feeclock-on-a.md`: copy it into `night-queue/` when a slot frees.
 
 **7. Promotion.** `01-validate-top` runs A, 03111, 03501 and the best v7 stack on holdout plus 32 fresh worlds,
 checks a restart and `step_min=3`, and leaves a promotion branch. The cloud lead promotes from there. Nobody
