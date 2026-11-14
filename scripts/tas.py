@@ -20,6 +20,12 @@ desk steps the world exactly as `play_practice` does, and its files live in ~/.s
         --until "Tue 07:00"     stop there (a cheap first look)
     uv run python scripts/tas.py run    --seed dev-12 --book <file>   the week again with a price book
                                                           (re-recording: no forks, one normal world)
+    uv run python scripts/tas.py whatif --seed dev-12 --at "Tue 07:00" --variants '{"low fees": {"set": {"fee_open": 0.7}}}'
+                                                          your ideas compared on forks: the desk plays to that
+                                                          minute, then each variant and an unchanged control play
+                                                          a copy of the world to the week's end (--until for less)
+        --at "Mon 08:00,Tue 07:00,Wed 07:00" --pick       at each time, apply the best variant to the main line
+                                                          and play on: a week steered by lookahead
     uv run python scripts/tas.py show   --seed dev-12     what is measured for the seed so far
 
 Every command takes `-s key=value` (Params overrides on top of the champion's), `--policy module:Class` (a Desk
@@ -32,9 +38,16 @@ replays without them. `limits --book <file> --apply` plays a book at the dealers
 only the option ({"option": "next_day"}), and the oracle finds its price. That is how a plan is played: the
 cars to win by option, "*": "decline", and one pass.
 
-For your own oracles, import this module: `Tas` is the game with a hook on every batch of actions before it
-reaches the world (`Tas(seed, forks=True)` for a game that forks), `on_fork` is the savestate, `probe_prices`
-the batch bisection.
+For your own oracles and experiments, import this module: `Tas` is the game with a hook on every batch of actions
+before it reaches the world (`Tas(seed, forks=True)` for a game that forks); `on_fork(game, actions, to)` tries
+raw actions on a copy; `branch(game, variants, until)` plays whole ideas on copies, desk and all, against a
+control (a variant can be a function that rewires the copy's desk); `forked(game)` is the bare copy;
+`probe_prices` is the batch bisection. A sketch:
+
+    with Tas("dev-12", forks=True) as g:
+        g.play_to(minute_of("Tue 07:00"))
+        table = branch(g, {"my idea": lambda sub: setattr(sub.desk.p, "fee_open", 0.7)})
+        print(branch_text(g.desk.now, table))
 
 Slots: a game that forks holds two of the team's eight practice slots while it runs (its world, and one copy at
 a time). Only TAS_LANES (default 2) such games run at once on a machine; the next one waits before it takes a
@@ -43,13 +56,15 @@ world. A plain `run` or `tape` is one ordinary world and does not wait.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import re
 import statistics
 import sys
 import time
-from collections import Counter
+from collections import Counter, defaultdict
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Callable, Optional
 
@@ -151,6 +166,12 @@ class Tas(coplay.Game):
         except BaseException:
             self.lane.release()
             raise
+        self._wire()
+        return self
+
+    def _wire(self) -> None:
+        """Puts the hook between the desk and `self.world`: the desk's own `send()` goes through `act`, the runner
+        through `advance`."""
         world = self.world
         act0, advance0 = world.act, world.advance
 
@@ -162,8 +183,7 @@ class Tas(coplay.Game):
             self.outcome.update(outcomes(step["events"]))
             return step
 
-        world.act, world.advance = act, advance   # the desk's own `send()` goes through `act`, the runner through `advance`
-        return self
+        world.act, world.advance = act, advance
 
     def _through(self, actions: list) -> list:
         fresh = [i for i, a in enumerate(actions) if a["type"] == "quote" and a["requestId"] not in self.quoted]
@@ -208,6 +228,13 @@ def on_fork(g: Tas, actions: list, to: int) -> dict:
     """Copies the world at this minute, applies `actions` on the copy, plays the copy to minute `to` and deletes
     it. Returns the copy's answer: `results` of the actions and the `events` that are new on the copy. The main
     world does not move. A copy holds a practice slot for its lifetime (a second or so)."""
+    with forked(g) as copy:
+        return copy.advance(to=min(g.ends_at, to), actions=actions)
+
+
+@contextmanager
+def forked(g: Tas):
+    """A copy of the game's world at this minute, deleted when the block ends. It holds a practice slot meanwhile."""
     g.lane.take()   # at once when the game said `forks=True`; else it waits here, holding its world
     with Slot():
         copy = None
@@ -227,13 +254,62 @@ def on_fork(g: Tas, actions: list, to: int) -> dict:
             g.forks += 1
             if g.forks % 200 == 0:   # a sign of life: a world day can take many minutes of forks
                 print(f"  … {clock(g.desk.now)}, {g.forks} forks", flush=True)
-            return copy.advance(to=min(g.ends_at, to), actions=actions)
+            yield copy
         finally:
             try:
                 copy.delete()
             except Exception:
                 pass
             entry.unlink(missing_ok=True)
+
+
+# --- ideas compared on forks --------------------------------------------------------------------------------------
+def branch(g: Tas, variants: dict, until: Optional[int] = None) -> dict[str, dict]:
+    """Compares ideas on forks, from this minute, on the same future.
+
+    Each variant plays a copy of the world with a copy of the desk (its books, its waiting actions, its Params) to
+    `until` (default: the end of the week). So does "control", the desk unchanged. The main world and the main
+    desk do not move, so you can branch again later, or apply the winner with `g.apply(moves)` and play on.
+    A variant is one of:
+      * co-play moves: {"set": {"fee_open": 0.7}, "quote": {"<request id prefix>": 1.2 | "decline"}, "raise": [...]}
+      * a function `f(sub)`: `sub` is the copy's game. Change anything: `sub.desk.p`, `sub.desk.outbox`, the desk's
+        books, `sub.hook` (a price book, an oracle), or replace methods of `sub.desk`.
+      * None or {}: nothing (a second control).
+    Returns name -> {margin, revenue, won, on_time, ranked, ledger, stats, delta}: `delta` is the margin against
+    control. Compare with control, not with the main line: a copied desk may walk its sets in another order, so a
+    copy can drift from the main line by itself. Each variant costs what the rest of the week costs (one fork)."""
+    end = g.ends_at if until is None else min(until, g.ends_at)
+    out: dict[str, dict] = {}
+    for name, variant in {"control": None, **variants}.items():
+        with forked(g) as world:
+            sub = copy.copy(g)
+            sub.world = world
+            sub.desk = copy.deepcopy(g.desk, {id(g.world): world, id(g.geo): g.geo, id(g): sub, id(g.client): g.client})
+            sub.ledger, sub.pnl = Counter(g.ledger), defaultdict(Counter, {k: Counter(v) for k, v in g.pnl.items()})
+            sub.quoted, sub.outcome, sub.expect, sub.sent = dict(g.quoted), dict(g.outcome), {}, dict(g.sent)
+            sub.seen, sub.turn_reqs, sub.booked, sub.record, sub.forks = Counter(), [], [], False, 0
+            sub._wire()
+            if callable(variant):
+                variant(sub)
+            elif variant:
+                sub.apply(variant)
+            sub.play_to(end)
+            score = world.score()
+            g.forks += sub.forks
+            out[name] = {"margin": score["marginCents"] / 100, "revenue": score["revenueCents"] / 100, "won": score["wonOrders"],
+                         "on_time": score["onTimeShare"], "ranked": score["ranked"], "until": clock(sub.desk.now),
+                         "ledger": {k: v / 100 for k, v in sorted(sub.ledger.items())}, "stats": dict(sorted(sub.desk.stats.items()))}
+    for row in out.values():
+        row["delta"] = round(row["margin"] - out["control"]["margin"], 2)
+    return out
+
+
+def branch_text(at: int, table: dict[str, dict]) -> str:
+    lines = [f"From {clock(at)}, each played to {next(iter(table.values()))['until']} on the same future:"]
+    for name, r in table.items():
+        lines.append(f"  {name:<28} €{r['margin']:>10,.2f} ({r['delta']:+,.2f})  won {r['won']:>4}  on time {r['on_time']:6.1%}"
+                     + ("" if r["ranked"] else "  NOT RANKED"))
+    return "\n".join(lines)
 
 
 # --- the price oracle ---------------------------------------------------------------------------------------------
@@ -525,6 +601,35 @@ def cmd_run(a) -> None:
     report(a.seed, f"run-{name}", result, {"book": a.book, "params": a.set or [], "quotes_won": won, "quotes_lost": lost})
 
 
+def cmd_whatif(a) -> None:
+    text = a.variants
+    variants = json.loads(Path(text[1:]).read_text(encoding="utf-8") if text.startswith("@") else text)
+    name = a.name or "whatif"
+    times = sorted(minute_of(t) for t in a.at.split(","))
+    until = minute_of(a.until) if a.until else None
+    picks = []
+    with open(home(a.seed) / f"whatif-{name}.jsonl", "a", encoding="utf-8") as f, Tas(a.seed, params_of(a), a.policy, name, forks=True) as g:
+        if a.book:
+            g.hook = book_hook(json.loads(Path(a.book).read_text(encoding="utf-8")))
+        for t in times:
+            g.play_to(t)
+            table = branch(g, variants, until)
+            print(branch_text(g.desk.now, table), flush=True)
+            ok = {n: r for n, r in table.items() if r["ranked"] and r["on_time"] >= a.min_on_time}
+            best = max(ok, key=lambda n: ok[n]["margin"]) if ok else "control"
+            f.write(json.dumps({"at": clock(g.desk.now), "variants": variants, "table": table, "picked": best if a.pick else None}) + "\n")
+            f.flush()
+            if a.pick:
+                if best != "control":
+                    g.apply(variants[best])   # the winner's moves, on the main line, from here on
+                picks.append((clock(g.desk.now), best, table[best]["delta"]))
+                print(f"  picked: {best}", flush=True)
+        result = g.finish() if a.pick else None
+    if result:
+        report(a.seed, f"whatif-{name}", result, {"picks": picks, "params": a.set or [], "book": a.book})
+        print("Picks: " + "; ".join(f"{at} {n} ({d:+,.0f})" for at, n, d in picks))
+
+
 def cmd_show(a) -> None:
     h = home(a.seed)
     tape = h / "tape.json"
@@ -569,9 +674,14 @@ def main() -> None:
     p.add_argument("--hi", type=float, default=2.6)
     p.add_argument("--book", help="a price book that chooses what to quote; the oracle prices it")
     p = sub.add_parser("run"); common(p); p.add_argument("--book")
+    p = sub.add_parser("whatif"); common(p); p.add_argument("--book")
+    p.add_argument("--at", required=True, help="when to branch, e.g. 'Tue 07:00' or 'Mon 08:00,Tue 07:00,Wed 07:00'")
+    p.add_argument("--variants", required=True, help="JSON {name: {\"set\": {...}, \"quote\": {...}, \"raise\": [...]}}, or @file")
+    p.add_argument("--pick", action="store_true", help="apply the best variant at each time and play the week to its end")
+    p.add_argument("--min-on-time", type=float, default=0.92, help="a variant below this on-time share is not picked")
     p = sub.add_parser("show"); common(p, world=False)
     a = ap.parse_args()
-    {"tape": cmd_tape, "limits": cmd_limits, "run": cmd_run, "show": cmd_show}[a.c](a)
+    {"tape": cmd_tape, "limits": cmd_limits, "run": cmd_run, "whatif": cmd_whatif, "show": cmd_show}[a.c](a)
 
 
 if __name__ == "__main__":

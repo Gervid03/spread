@@ -1,6 +1,7 @@
-## Your layer: `tas-routes`, the travelling salesman (tours planned with the whole week known)
+## Where you start: `tas-routes`, the travelling salesman (tours planned with the whole week known)
 Branch `exp/gemini-tas-routes`. World: **dev-12** first. Steps 1 and 3 need no forks: start there. Read
-`~/.spread-lab/tas/STATUS.md` (from `tas-price`) before your first fork-heavy run.
+`~/.spread-lab/tas/STATUS.md` (from `tas-price`) before your first fork-heavy run. The steps are a first path, and
+you have a free hand (see above): if another formulation of the routing problem looks better to you, build that one.
 
 **The idea.** A car is an arc: a driver takes it from its pickup to its delivery, and is then on foot. The typical fee
 pays a driver for the drive, the trip to the pickup and the trip home, and the trip home is the dear one (a ticket
@@ -54,3 +55,10 @@ same world.
 tapes: on which lanes does a return car arrive within a few hours on most days (part of a lane "is almost the same in
 every world")? A table "after A→B is won, a B→A request comes within H hours with probability p" lets the live desk
 price A→B knowing its return, and hold the gig for it.
+
+**And your own ideas.** The plan above is one way to use foresight on routes; there are others, and forks can
+compare them. Some to start you off; yours will be better. Chains by direct offer to the driver who is about to
+finish nearby, instead of one long gig (no 12-hour limit, and the driver is known to work today). Tours built around
+one driver's home and day rather than around cars. Relays, where a long car changes drivers at a hub. Positioning: a
+cheap car won only because it takes a driver to where three dear cars wait tomorrow. The bulk order as a shuttle.
+Which of these beats the plain plan on the same week? Test what you think of, and write down what you find.

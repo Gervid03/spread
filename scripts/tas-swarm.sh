@@ -2,6 +2,8 @@
 # Starts the TAS co-players (Gemini 4 Carbon) on the swarm host. Run it from the root checkout (~/spread):
 #   bash scripts/tas-swarm.sh               all four: tas-price tas-fees tas-routes tas-state
 #   bash scripts/tas-swarm.sh tas-price     one of them (start tas-price first if you start them one by one)
+#   bash scripts/tas-swarm.sh --restart     stop the running ones and start them again with the briefs as they are
+#                                           now on $SRC (their worktrees, commits and notes stay)
 # The briefs (experiments/prompts/tas/) and the instrument (scripts/tas.py) live on the branch $SRC. It need not
 # be merged into main: each agent's worktree and branch (exp/gemini-<slug>) start from it.
 # Env: SRC (default ccr-d190704c-pxvoeg), MODEL (gemini-4-carbon), TURNS (300), RESUMES (3).
@@ -11,6 +13,8 @@ set -euo pipefail
 root=$(git rev-parse --show-toplevel)
 SRC=${SRC:-ccr-d190704c-pxvoeg}
 MODEL=${MODEL:-gemini-4-carbon}
+restart=0
+if [ "${1:-}" = "--restart" ]; then restart=1; shift; fi
 git -C "$root" fetch -q origin "$SRC"
 ref="origin/$SRC"
 [ $# -gt 0 ] || set -- tas-price tas-fees tas-routes tas-state
@@ -18,13 +22,21 @@ mkdir -p "$root/runs/swarm"
 for slug in "$@"; do
   pidfile="$root/runs/swarm/$slug.pid"
   if [ -f "$pidfile" ] && kill -0 "$(cat "$pidfile")" 2>/dev/null; then
-    echo "$slug: already running (pid $(cat "$pidfile"))"; continue
+    if [ "$restart" = 0 ]; then echo "$slug: already running (pid $(cat "$pidfile")); --restart starts it again"; continue; fi
+    pid=$(cat "$pidfile")
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true    # the agent's own process group, by its pid file
+    for _ in 1 2 3 4 5 6 7 8 9 10; do kill -0 "$pid" 2>/dev/null || break; sleep 1; done
+    kill -KILL -- "-$pid" 2>/dev/null || true
+    echo "$slug: stopped (pid $pid)"
   fi
   if ! git -C "$root" cat-file -e "$ref:experiments/prompts/tas/$slug.md" 2>/dev/null; then
     echo "$slug: no brief experiments/prompts/tas/$slug.md on $ref"; continue
   fi
   wt="$root/../spread-wt/$slug"
   branch="exp/gemini-$slug"
+  if [ -d "$wt" ]; then      # a second start: bring the tools and briefs of $SRC into the agent's branch
+    git -C "$wt" merge -q --no-edit "$ref" > /dev/null 2>&1 || { git -C "$wt" merge --abort 2>/dev/null; echo "$slug: could not merge $ref into its worktree (the agent can: git merge $ref)"; }
+  fi
   if [ ! -d "$wt" ]; then
     if git -C "$root" rev-parse -q --verify "refs/heads/$branch" > /dev/null; then
       git -C "$root" worktree add -q "$wt" "$branch"          # a second start: keep the agent's work

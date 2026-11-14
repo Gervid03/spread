@@ -1,5 +1,6 @@
-## Your layer: `tas-price`, the price oracle (every order at its dealer's limit)
-Branch `exp/gemini-tas-price`. World: **dev-12** first. You go first: the other three wait for your `STATUS.md`.
+## Where you start: `tas-price`, the price oracle (every order at its dealer's limit)
+Branch `exp/gemini-tas-price`. World: **dev-12** first. You go first: the other three wait for your `STATUS.md`, so
+do step 0 before anything else. After that the steps are a first path, and you have a free hand (see above).
 
 **Why.** The desk prices with one multiplier that tracks a win rate, and floors 341 of 837 quotes on dev-12. It never
 learns what a dealer would have paid, only won or lost. A fork tells: quote, advance to `respondBy`, read the answer,
@@ -47,3 +48,10 @@ chosen request at its limit in one pass), or a Desk subclass with `--policy`. Ea
 **4. The rule for Sunday.** Where is the desk's price furthest below the limit: which class, day, trust count,
 dealer? Is the limit ÷ list of a lane stable across the four worlds (a lane table for Monday morning, idea 28)? Would
 a price that follows trust (+1% a count) have taken part of it (`trust_gain` exists as a flag)?
+
+**And your own ideas.** The oracle answers any question about dealers that you can put as a fork. Some we have not
+looked at, to start you off; yours will be better. Does a dealer take a dearer `same_day` over a cheaper `next_day`
+when both are quoted, and can a second option be used as a decoy? Do requests of one `batchId` decide together? Does a
+quote sent in the last minute before `respondBy` meet a different limit than one sent at once? What does a lost quote
+or a declined request do to that dealer's next limit? Is there a price the competitor's morning reaction cannot see?
+Test what you think of, on forks, and write down what you find.

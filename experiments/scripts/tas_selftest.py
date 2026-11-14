@@ -105,5 +105,20 @@ planned = runs()[-1]
 lines = [json.loads(line) for line in (tas.home(SEED) / "limits-plan-won-apply.jsonl").read_text(encoding="utf-8").splitlines()]
 check(planned["won"] == 12 and sorted(l["rid"] for l in lines) == sorted(won_base) and all(l["x"] > 1 for l in lines),
       "a plan (the cars to win by option, the rest declined) is played at the dealers' limits in one pass")
+with tas.Tas(SEED, forks=True) as g:
+    g.play_to(tas.minute_of("Tue 07:00"))
+    table = tas.branch(g, {"same": {}, "dear fees": {"set": {"fee_open": 1.5}},
+                           "by function": lambda sub: setattr(sub.desk.p, "fee_open", 1.5)})
+    after = g.finish(say=lambda line: None)
+check(table["same"]["margin"] == table["control"]["margin"] and table["same"]["won"] == table["control"]["won"],
+      "two copies with the same desk play the same week (ideas are compared on the same future)")
+check(table["dear fees"]["delta"] != 0 and table["by function"]["margin"] == table["dear fees"]["margin"],
+      f"a variant, as moves or as a function, changes the copy's week (Δ €{table['dear fees']['delta']:+,.0f})")
+check(after["margin"] == base["margin"] and after["won"] == base["won"], "and the main line plays on untouched after branching")
+
+tas.cmd_whatif(Namespace(**{**args, "name": "steer"}, at="Mon 12:00,Wed 07:00", variants=json.dumps({"dear fees": {"set": {"fee_open": 1.5}},
+               "low fees": {"set": {"fee_open": 0.6}}}), pick=True, min_on_time=0.92))
+steered = runs()[-1]
+check(len(steered["picks"]) == 2 and steered["margin"] >= base["margin"], f"whatif --pick steers the week by lookahead (picks: {[p[1] for p in steered['picks']]})")
 check(all(w.deleted for w in worlds if w.s["now"] < w.s["ends_at"]), "every fork and every stopped world was deleted")
 print("All TAS self-tests pass (plumbing only: the toy world is not the game).")

@@ -14,6 +14,14 @@ layer the rule a desk without forks could use on Sunday.
   It starts `tas-price`, `tas-fees`, `tas-routes` and `tas-state` (gemini-4-carbon, 300 turns, resumed until a note is
   pushed), each on `exp/gemini-<slug>`. To start fewer, name them at the end (`... bash /tmp/tas-swarm.sh tas-price
   tas-routes`); `tas-price` validates the instrument, so it goes first.
+- **The agents have a free hand** (the user, 12:37: "a wide range of freedom to test their own ideas and compare
+  them on forks. I trust them"). The layers below are where each starts, not a fence: they may drop steps, follow
+  their own ideas, leave their layer and extend the tools. What stays fixed: the conduct rules, honest numbers, the
+  fork lanes, and `STATUS.md` so they know of each other. For this, `tas.py whatif` and `branch()` play any idea
+  on forks against an unchanged control on the same future (`--pick` steers a week by lookahead).
+- If they were started before a change to the briefs, `bash /tmp/tas-swarm.sh --restart` (after the same fetch and
+  `git show` as above) stops them by their pid files, merges this branch into their worktrees and starts them again
+  with the current briefs; their commits and notes stay.
 - **The four layers** (briefs: `experiments/prompts/tas/`, the shared part is `_tas.md`):
   1. `tas-price`: every order at its dealer's limit, bisected on forks. The competitor learns only won or lost and
      drivers never see a price, so the champion's week at perfect prices is the same week: an exact first step.
@@ -23,7 +31,8 @@ layer the rule a desk without forks could use on Sunday.
   4. `tas-state`: trust farmed, the competitor steered, the price war and outage days planned around, the 10%
      lateness allowance spent; it also assembles the full table.
   Worlds: dev-12 first, then dev-01, dev-08, dev-07.
-- **The instrument: `scripts/tas.py`** (`tape`, `limits`, `run`, `show`; its files are in `~lab/.spread-lab/tas/`).
+- **The instrument: `scripts/tas.py`** (`tape`, `limits`, `run`, `whatif`, `show`; its files are in
+  `~lab/.spread-lab/tas/`).
   It builds on co-play's engine. **It was written without the team key and tested only on a toy world**
   (`uv run python experiments/scripts/tas_selftest.py`, no network): the first job of `tas-price` is to check on the
   real server that `tas.py run --seed dev-12` gives the champion's week to the cent and that forks do not move the

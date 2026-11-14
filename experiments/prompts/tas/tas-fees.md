@@ -1,6 +1,7 @@
-## Your layer: `tas-fees`, the fee oracle (every car at the lowest fee a driver would have taken)
+## Where you start: `tas-fees`, the fee oracle (every car at the lowest fee a driver would have taken)
 Branch `exp/gemini-tas-fees`. World: **dev-12** first. Read `~/.spread-lab/tas/STATUS.md` (from `tas-price`) before
-your first fork-heavy run; until it is there, do step 1 and build on the toy world.
+your first fork-heavy run; until it is there, do step 1 and build on the toy world. The steps are a first path, and
+you have a free hand (see above).
 
 **Why.** Driver fees are the biggest line: €20.1k of €31.3k revenue on dev-12 (64%), €19.1k a week on the dev worlds.
 The desk opens at 0.85 × the typical fee and climbs to 1.6 × by the deadline warning. Drivers who have seen our fees
@@ -44,3 +45,11 @@ has tours, the oracle prices a tour as it prices a car.
 booked at once: would 0.6 have?), and where does it underpay and then climb to 1.6 (open at `f*` at once and teach
 nobody to wait)? An opening-fee table by class needs no fork. And how much cheaper is the driver who has just
 delivered one of our cars nearby (idea 31, the route network)?
+
+**And your own ideas.** Drivers are the game's richest hidden model, and a fork shows any of it you ask for. Some
+questions to start you off; yours will be better. Does a fee schedule whose first step lies in the future show its
+first fee to early viewers, and what do they learn from it? Does an `experienced` or `manualLicence` audience change
+who looks? Can a gig be posted with a window that picks the driver you want? Is a release (25% of the fee more than
+24 hours ahead) ever cheaper than keeping a driver who will be late? What do withdrawn and reposted gigs do to "a
+driver hears of an order once"? What is a driver's second gig of the day really worth to them? Test what you think
+of, on forks, and write down what you find.
