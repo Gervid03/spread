@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Starts one headless Gemini CLI agent on one idea, in its own git worktree and branch.
 #   scripts/swarm.sh <slug> <model> <prompt file: absolute, or relative to the repo root>
-# Env: TURNS (default 120) caps the agent's model turns.
+# Env: TURNS (default 120) caps the agent's model turns. BASE (default origin/main) is the ref the agent's branch
+# starts from, for a track whose tools live on a branch that is not merged yet (scripts/tas-swarm.sh).
 # The agent's output goes to runs/swarm/<slug>.jsonl (stream-json) and <slug>.err.
 set -euo pipefail
 slug=$1; model=$2; prompt=$3
@@ -9,10 +10,11 @@ root=$(git rev-parse --show-toplevel)
 case "$prompt" in /*) ;; *) prompt="$root/$prompt" ;; esac
 wt="$root/../spread-wt/$slug"
 branch="exp/gemini-$slug"
+start=${BASE:-origin/main}   # the ref the branch starts from, and what its note is diffed against
 git -C "$root" config extensions.worktreeConfig true
 if [ ! -d "$wt" ]; then
   git -C "$root" fetch -q origin main
-  git -C "$root" worktree add -q "$wt" -b "$branch" origin/main
+  git -C "$root" worktree add -q "$wt" -b "$branch" "$start"
 fi
 cd "$wt"
 git config --worktree user.name "Gemini agent ($slug)"
@@ -36,7 +38,7 @@ base=$text
 for attempt in $(seq 1 $((${RESUMES:-3} + 1))); do
   gemini -m "$model" --yolo --skip-trust -o stream-json -p "$text" >> "$log" 2>> "$err"
   git fetch -q origin 2>/dev/null
-  if git rev-parse -q --verify "origin/$branch" > /dev/null      && [ -n "$(git diff --name-only --diff-filter=AM "origin/main...origin/$branch" -- 'experiments/*.md')" ]      && [ -z "$(git log --oneline "origin/$branch..HEAD")" ]; then
+  if git rev-parse -q --verify "origin/$branch" > /dev/null      && [ -n "$(git diff --name-only --diff-filter=AM "$start...origin/$branch" -- 'experiments/*.md')" ]      && [ -z "$(git log --oneline "origin/$branch..HEAD")" ]; then
     break
   fi
   echo "swarm.sh: $slug ended without a pushed note (attempt $attempt); resuming" >> "$err"

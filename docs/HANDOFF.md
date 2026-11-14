@@ -1,5 +1,50 @@
 # Handoff: where the lab stands
 
+## Sat 14 Nov, 13:30 Helsinki (the user's TAS session, cloud): four Carbon co-players on the perfect week
+The user's ask: a theoretically perfect, tool-assisted ("TAS") week, to see the bare potential: every order at the
+best achievable margin, plus the travelling salesman's ideas. It can never play the final (no forks, no foresight
+there), so nothing in this track is promoted. It gives the ceiling as a waterfall on the same worlds, and for each
+layer the rule a desk without forks could use on Sunday.
+- **Everything is on the branch `ccr-d190704c-pxvoeg`, not on main** (the cloud session may push only there). It
+  need not be merged: the launcher starts each agent's worktree from that branch.
+- **Start them: one paste on the laptop** (needs the swarm VM; the cloud session has no key and no SSH):
+  ```sh
+  ssh -i ~/.ssh/verda_spread ops@34.51.182.19 'sudo -u lab -H bash -lc "cd ~/spread && git fetch -q origin ccr-d190704c-pxvoeg && git show origin/ccr-d190704c-pxvoeg:scripts/tas-swarm.sh > /tmp/tas-swarm.sh && bash /tmp/tas-swarm.sh"'
+  ```
+  It starts `tas-price`, `tas-fees`, `tas-routes` and `tas-state` (gemini-4-carbon, 300 turns, resumed until a note is
+  pushed), each on `exp/gemini-<slug>`. To start fewer, name them at the end (`... bash /tmp/tas-swarm.sh tas-price
+  tas-routes`); `tas-price` validates the instrument, so it goes first.
+- **The agents have a free hand** (the user, 12:37: "a wide range of freedom to test their own ideas and compare
+  them on forks. I trust them"). The layers below are where each starts, not a fence: they may drop steps, follow
+  their own ideas, leave their layer and extend the tools. What stays fixed: the conduct rules, honest numbers, the
+  fork lanes, and `STATUS.md` so they know of each other. For this, `tas.py whatif` and `branch()` play any idea
+  on forks against an unchanged control on the same future (`--pick` steers a week by lookahead).
+- If they were started before a change to the briefs, `bash /tmp/tas-swarm.sh --restart` (after the same fetch and
+  `git show` as above) stops them by their pid files, merges this branch into their worktrees and starts them again
+  with the current briefs; their commits and notes stay.
+- **The four layers** (briefs: `experiments/prompts/tas/`, the shared part is `_tas.md`):
+  1. `tas-price`: every order at its dealer's limit, bisected on forks. The competitor learns only won or lost and
+     drivers never see a price, so the champion's week at perfect prices is the same week: an exact first step.
+  2. `tas-fees`: every car at the lowest fee a driver would have taken (flat fees and direct offers tried on forks).
+  3. `tas-routes`: the week's requests are known on Monday 07:00 (every team gets the same ones), so cars are planned
+     into closed tours (a car is an arc; a tour that ends where the driver lives has no trips to pay), then played.
+  4. `tas-state`: trust farmed, the competitor steered, the price war and outage days planned around, the 10%
+     lateness allowance spent; it also assembles the full table.
+  Worlds: dev-12 first, then dev-01, dev-08, dev-07.
+- **The instrument: `scripts/tas.py`** (`tape`, `limits`, `run`, `whatif`, `show`; its files are in
+  `~lab/.spread-lab/tas/`).
+  It builds on co-play's engine. **It was written without the team key and tested only on a toy world**
+  (`uv run python experiments/scripts/tas_selftest.py`, no network): the first job of `tas-price` is to check on the
+  real server that `tas.py run --seed dev-12` gives the champion's week to the cent and that forks do not move the
+  main line. Its findings go to `~lab/.spread-lab/tas/STATUS.md`, which the other three read.
+- **Slots.** A fork-heavy run holds two slots (its world and one copy at a time) and a full `limits` week is about
+  3,000 forks. Only two such runs go at once on the machine (`TAS_LANES`, default 2), so the track holds at most 4
+  of the 8 slots beside the ten co-players. Raise or lower it in the agents' environment if the board shows one side
+  starving.
+- **What to look at:** `uv run python scripts/tas.py show --seed dev-12` (every measured layer), `STATUS.md`, and
+  the four notes on `exp/gemini-tas-*`. `scripts/swarm.sh` gained `BASE` (the ref an agent's branch starts from;
+  default origin/main, so nothing changes for other agents).
+
 ## Sat 14 Nov, 09:55 Helsinki (the user's board session): three more Carbon briefs, after c1 and c2
 The user asked for everything else worth running. In `experiments/prompts/carbon/`, each starts like c1/c2 (prepend
 `_protocol.md`):
@@ -12,6 +57,24 @@ The user asked for everything else worth running. In `experiments/prompts/carbon
    arm on the same worlds; answers cached per seed and day so paired tests replay. For the jury's "creative"; lowest
    priority for margin.
 Slots are the bottleneck: run at most one of these beside c1 and c2, in this order.
+
+## Sat 14 Nov, 11:20 Helsinki (the laptop lead): ten co-players
+- **Co-play** (`scripts/coplay.py`, on main). A game is a seed plus a log of moves; every turn replays it in a fresh
+  world (worlds are deterministic), so a game holds a practice world only for the ~15 s of a replay.
+  - What-ifs are separate replays and exact (the unchanged line reproduces the champion to the cent).
+  - `probe` binary-searches on forks for a dealer's real limit on a waiting quote.
+  - `coplay.py board` ranks every game on the machine against the champion's week on its seed.
+  - Games live in `~lab/.spread-lab/coplay/`.
+- **Running: ten Gemini 4 Carbon co-players** (`cp-routes`, `cp-chains`, `cp-demand`, `cp-fees`, `cp-supervisor`,
+  `cp-buffer`, `cp-classes`, `cp-volume`, `cp-margin`, `cp-wild`).
+  - Each has its own dev world (the ten nearest the champion's median, and dev-11, its weakest) and a focus, including
+    the user's briefs.
+  - Briefs: `experiments/prompts/coplay/`. Each agent keeps a journal in its note and confirms a rule on 16 dev worlds
+    before it may run promote.sh.
+  - The day run takes no new workers (`runs/night/stop`); its last three finish.
+  - The swarm VM has all 8 slots (`SPREAD_SLOTS=8`); keep the laptop off practice.
+- **v4 is the champion** (final-champion study: v3 + `late_fee_open=1.0`, dev +€355, t 2.11), and Verda picked it
+  up by itself.
 
 ## Sat 14 Nov, 10:05 Helsinki (the laptop lead): the day run
 - **The 14-minute steps were refused** by promote.sh (`REBASE=1`): dev +€26 ± 149, but holdout −€414 ± 131 and a worst
