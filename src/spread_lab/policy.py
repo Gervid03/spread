@@ -166,6 +166,16 @@ class Params:
     sup_fri_slow_min_supply: int = 0  # if > 0 (e.g. 3), Fri 08:00 surplus opens Monday-due slow options down to this supply
     sup_fri_sd_max_drive: int = 0     # if > 0 (e.g. 180), Fri 08:00 surplus relaxes fri_same_day_max_drive to this
     sup_fri_neutral_learn: bool = False  # if True, thin-town Friday surplus quotes skip learn() via ext_ring_reqs
+    # --- batch bracket: price a batch's later cars from the outcomes of its earlier ones --------------
+    # A batch (`batchId`) is one dealer's cars from one yard, arriving within minutes. On dev-12 the dealer's exact limits
+    # (TAS limits-all) within one batch, option and delivery place spread ~9-14% (log sd), against 24% over all requests,
+    # so a won or lost quote tells the price of the next car of the group. False = the champion to the cent.
+    batch_bracket: bool = False
+    bb_up: float = 0.04               # after wins only: the next price is at least the highest won price/list x (1 + bb_up)
+    bb_down: float = 0.06             # after losses only: the next price is at most the lowest lost price/list x (1 - bb_down)
+    bb_cap: float = 2.5               # never above this x the list price (TAS saw limits up to 2.6x in outages)
+    bb_requote: bool = True           # replace the open quotes of the group when an outcome lands, until their respondBy
+    bb_neutral_learn: bool = True     # quotes the bracket moved skip learn(): the multiplier keeps tracking normal quotes
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -249,6 +259,12 @@ class Desk:
         self.sup_emerg_active: bool = False
         self.sup_fri_surplus_active: bool = False
         self.sup_fri_thin_reqs: set[str] = set()
+        self.bb_lo: dict[tuple[str, str, str], float] = {}  # (batchId, option, delivery place) -> highest price/list that won
+        self.bb_hi: dict[tuple[str, str, str], float] = {}  # -> lowest price/list that lost
+        self.bb_base: dict[str, dict[str, int]] = {}  # batch request id -> the champion's prices before the bracket
+        self.bb_sent: dict[str, dict[str, int]] = {}  # batch request id -> the prices last sent
+        self.bb_members: dict[str, list[str]] = {}    # batchId -> its request ids in arrival order
+        self.bb_touched: set[str] = set()             # request ids whose sent price the bracket moved
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -266,10 +282,12 @@ class Desk:
             self.quote(event["request"])
         elif kind == "order_won":
             self.learn(event["order"]["id"], won=True)
+            self.bb_outcome(event["order"]["id"], won_option=event["order"]["option"], won_cents=event["order"]["priceCents"])
             self.win(event["order"])
         elif kind == "order_lost":
             self.lost_requests.add(event["requestId"])
             self.learn(event["requestId"], won=False)
+            self.bb_outcome(event["requestId"])
         elif kind == "order_changed":
             self.change(event["order"])
         elif kind == "order_cancelled":
@@ -599,7 +617,82 @@ class Desk:
         if not prices:  # decline: a quote that loses costs nothing, a missing one costs goodwill
             first = request["options"][0]
             prices = {first["kind"]: int(first["listPriceCents"] * self.p.decline_mult)}
+        elif self.p.batch_bracket and self.bb_group(request):
+            self.bb_members.setdefault(request["batchId"], []).append(request["id"])
+            self.bb_base[request["id"]] = dict(prices)
+            prices = self.bb_prices(request)
+            self.bb_sent[request["id"]] = dict(prices)
+            if prices != self.bb_base[request["id"]]:
+                self.bb_touched.add(request["id"])
+                self.stats["bb_moved_at_quote"] += 1
         self.outbox.append({"type": "quote", "requestId": request["id"], "prices": prices})
+
+    # --- batch bracket --------------------------------------------------------------------------------
+    def bb_group(self, request: PriceRequest) -> bool:
+        return bool(request.get("batchId")) and len(request["legs"]) == 1
+
+    def bb_key(self, request: PriceRequest, kind: str) -> tuple[str, str, str]:
+        return (request["batchId"], kind, request["legs"][-1]["delivery"]["placeId"])
+
+    def bb_prices(self, request: PriceRequest) -> dict[str, int]:
+        """The champion's prices of a batch request, moved into the bracket that the group's outcomes so far give:
+        both ends known -> the middle; only wins -> above the best win; only losses -> below the lowest loss.
+        Never below the champion's margin floor, never above `bb_cap` x the list price."""
+        p = self.p
+        base = self.bb_base[request["id"]]
+        floor = request["referenceFeeCents"] * p.expected_fee_mult / (1 - p.min_margin_frac)
+        lists = {o["kind"]: o["listPriceCents"] for o in request["options"]}
+        out: dict[str, int] = {}
+        for kind, price in base.items():
+            key = self.bb_key(request, kind)
+            lo, hi, lst = self.bb_lo.get(key), self.bb_hi.get(key), lists[kind]
+            new = float(price)
+            if lo is not None and hi is not None:
+                if lo < hi:
+                    new = lst * (lo + hi) / 2
+                    self.stats["bb_mid"] += 1
+            elif lo is not None:
+                new = max(new, lst * lo * (1 + p.bb_up))
+                self.stats["bb_up"] += 1
+            elif hi is not None:
+                new = min(new, lst * hi * (1 - p.bb_down))
+                self.stats["bb_down"] += 1
+            new = min(max(new, floor), lst * p.bb_cap)
+            out[kind] = int(new + 0.5) if new != price else price
+        return out
+
+    def bb_outcome(self, request_id: str, won_option: Optional[str] = None, won_cents: int = 0) -> None:
+        """Records a batch request's outcome in its groups and moves the group's open quotes."""
+        if not self.p.batch_bracket or request_id not in self.bb_sent:
+            return
+        request = self.requests[request_id]
+        lists = {o["kind"]: o["listPriceCents"] for o in request["options"]}
+        if won_option is not None:
+            key = self.bb_key(request, won_option)
+            self.bb_lo[key] = max(self.bb_lo.get(key, 0.0), won_cents / lists[won_option])
+            self.stats["bb_won"] += 1
+        else:
+            for kind, cents in self.bb_sent[request_id].items():
+                key = self.bb_key(request, kind)
+                self.bb_hi[key] = min(self.bb_hi.get(key, 1e9), cents / lists[kind])
+            self.stats["bb_lost"] += 1
+        if request_id in self.bb_touched:
+            self.stats["bb_moved_won" if won_option is not None else "bb_moved_lost"] += 1
+        if not self.p.bb_requote:
+            return
+        for rid in self.bb_members.get(request["batchId"], []):
+            if rid == request_id or rid in self.orders or rid in self.lost_requests or rid not in self.bb_sent:
+                continue
+            other = self.requests[rid]
+            if self.now >= other["respondBy"]:
+                continue
+            prices = self.bb_prices(other)
+            if prices != self.bb_sent[rid]:
+                self.bb_sent[rid] = dict(prices)
+                if prices != self.bb_base[rid]:
+                    self.bb_touched.add(rid)
+                self.outbox.append({"type": "quote", "requestId": rid, "prices": prices})
+                self.stats["bb_requoted"] += 1
 
     def price(self, request: PriceRequest) -> tuple[dict[str, int], str]:
         """The prices to quote, and "quote", "floor" (a price raised to keep the margin) or "decline"."""
@@ -790,6 +883,9 @@ class Desk:
     def learn(self, request_id: str, won: bool) -> None:
         """Moves the multiplier towards the price that wins `price_target_win` of the normal quotes."""
         if self.decided.get(request_id) != "quote":
+            return
+        if self.p.bb_neutral_learn and request_id in self.bb_touched:
+            self.stats["bb_skipped_learn"] += 1
             return
         if self.p.ext_ring_neutral_learn and request_id in self.ext_ring_reqs:
             self.stats["ext_ring_skipped_learn"] += 1
@@ -1654,6 +1750,15 @@ class Desk:
                 later = [g for g in posted.get(order["id"], []) if g["postedAt"] >= event["at"] and g["id"] != event["gigId"]]
                 if not any(stop["leg"] == event["leg"] for gig in later for stop in gig["stops"]):
                     self.retry(order["id"], event["leg"], event["reason"])
+        if self.p.batch_bracket:
+            # what a restart can rebuild: the wins (their prices are in order_won); the prices of lost quotes are gone
+            for e in history:
+                if e["kind"] == "order_won" and e["order"]["id"] in self.requests:
+                    req = self.requests[e["order"]["id"]]
+                    if self.bb_group(req):
+                        lst = next(o["listPriceCents"] for o in req["options"] if o["kind"] == e["order"]["option"])
+                        key = self.bb_key(req, e["order"]["option"])
+                        self.bb_lo[key] = max(self.bb_lo.get(key, 0.0), e["order"]["priceCents"] / lst)
         for request in snapshot["openRequests"]:
             self.quote(request)
 
