@@ -1,5 +1,5 @@
 # n14-05024-undelivered-rescue-and-window-gate-on-v7
-tool calls 27; result {}
+tool calls 50; result {}
 
 ## Its last words
 

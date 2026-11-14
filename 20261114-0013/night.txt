@@ -184,3 +184,14 @@
 05:13:39 sweep 49 started: sweep --seeds-from dev --name n-slack140-fw20-sdmk -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g same_day_markup=0.08,0.10,0.12 -g same_day_min_supply=50,100
 05:16:39 worker n14-05161-validate-top started (pid 50789)
 05:19:59 sweep 50 started: sweep --seeds-from dev --name n-slack140-fw20-steep -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g steep_open=1.50,1.65,1.80 -g steep_step=0.30,0.35
+05:21:05 published to night/20261114
+05:27:05 sweep 51 started: sweep --seeds-from dev --name n-slack140-fw20-fopen -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g fee_open=0.80,0.82,0.85 -g same_day_min_supply=50,100
+05:30:05 worker n14-05023-two-slope-multiday-hold-on-v7 finished after 20 min
+05:30:05 worker n14-05162-thin-volume started (pid 53173)
+05:32:25 sweep 52 started: sweep --seeds-from dev --name n-s140-fw145-step30 -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g fee_warn=1.42,1.45,1.48 -g fee_step_min=25,30
+05:35:25 worker n14-05021-morning-reset-and-exact-trust-on-v7 finished after 32 min
+05:35:25 worker n14-05022-stack-v9-grand-v7-extring-leadcar-budget finished after 26 min
+05:35:25 worker n14-05163-triage started (pid 53844)
+05:35:45 worker n14-05164-thermostat started (pid 53939)
+05:36:05 sweep 53 started: sweep --seeds-from dev --name n-s140-ptw40-ms22-fw -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s price_target_win=0.40 -g min_supply=22,25 -g fee_warn=1.45,1.50,1.60
+05:41:05 sweep 54 started: sweep --seeds-from dev --name n-s140-fw145-dlr -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=30 -g fee_warn=1.45,1.50 -g dealer_lr=0.01,0.015,0.02

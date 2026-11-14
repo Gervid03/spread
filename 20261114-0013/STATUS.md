@@ -1,4 +1,4 @@
-# Night status, 2026-11-14 05:21 UTC (ends 2026-11-14T10:13:17Z)
+# Night status, 2026-11-14 05:41 UTC (ends 2026-11-14T10:13:17Z)
 
 ## Workers
 
@@ -56,13 +56,16 @@
 | n14-04392-sameday-scoped-buffer-alarm-and-optfloor | 04:41 | done 05:08 (27 min) | 42 | no | Δmargin €+1,601.73 ± 245.00 (SE) t=6.54 (15/1 vs champion; €+241.80 ± 154.30 (11/5) vs n14-03504; €+83.96 ± 176.17 (10/6) vs n14-03111; €+14.12 ± 183.48 (9/7) v |
 | n14-04393-slack130-ptw35-volume-and-price-lr06 | 04:41 | done 05:09 (28 min) | 49 | no | Dev paired delta vs champion: `Δmargin €+1,265.15 ± 280.24 (SE) t=4.51` (13/16 better, worst on-time `93.0%` SAFE; vs `n14-03324`: `€-322.46 ± 174.76`, vs `n14- |
 | n14-04394-stack-v8-feedrop-extring-leadcar-feewarn | 04:42 | done 05:11 (28 min) | 41 | yes | Dev paired delta: `v8-full-dev` mean `€10,585.43` (median `€10,396.37`), `Δmargin €+1,595.12 ± 219.73` (`t=7.26`, 15/16 better, worst on-time `92.7%` SAFE); `v8 |
-| n14-05021-morning-reset-and-exact-trust-on-v7 | 05:03 | running | 30 | no |  |
-| n14-05022-stack-v9-grand-v7-extring-leadcar-budget | 05:08 | running | 33 | no |  |
-| n14-05023-two-slope-multiday-hold-on-v7 | 05:09 | running | 22 | no |  |
-| n14-05024-undelivered-rescue-and-window-gate-on-v7 | 05:11 | running | 26 | no |  |
-| n14-05161-validate-top | 05:16 | running | 17 | no |  |
+| n14-05021-morning-reset-and-exact-trust-on-v7 | 05:03 | done 05:35 (32 min) | 32 | no |  |
+| n14-05022-stack-v9-grand-v7-extring-leadcar-budget | 05:08 | done 05:35 (26 min) | 48 | no | Dev paired delta: `Δmargin €+1,779.99 ± 258.50 (SE), t = 6.89` (mean `€10,770.30`, median `€10,201.17`, min `€7,721.60`, 15/16 better vs Champion v2; `+€122.23/ |
+| n14-05023-two-slope-multiday-hold-on-v7 | 05:09 | done 05:30 (20 min) | 33 | no | dev (`v7-convex-hubsd-dev` vs champion v2): Δmargin €+1,522.29 ± 267.79 (t=5.68, 14/2, mean €10,512.60, all-time record min €8,096.61, driver_fee -€355.50/wk vs |
+| n14-05024-undelivered-rescue-and-window-gate-on-v7 | 05:11 | running | 50 | no |  |
+| n14-05161-validate-top | 05:16 | running | 58 | no |  |
+| n14-05162-thin-volume | 05:30 | running | 34 | no |  |
+| n14-05163-triage | 05:35 | running | 29 | no |  |
+| n14-05164-thermostat | 05:35 | running | 25 | no |  |
 
-Queued prompts: 05162-thin-volume.md, 05163-triage.md, 05164-thermostat.md, 05165-research-volume.md, 05166-quota.md
+Queued prompts: 05165-research-volume.md, 05166-quota.md
 
 ## Sweeps started (in order; logs/sweep-NN.txt has each table)
 
@@ -116,6 +119,10 @@ Queued prompts: 05162-thin-volume.md, 05163-triage.md, 05164-thermostat.md, 0516
 48. `sweep --seeds-from dev --name n-slack140-fw20-dlr -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g same_day_min_supply=50,75,100 -g dealer_lr=0.01,0.02`
 49. `sweep --seeds-from dev --name n-slack140-fw20-sdmk -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g same_day_markup=0.08,0.10,0.12 -g same_day_min_supply=50,100`
 50. `sweep --seeds-from dev --name n-slack140-fw20-steep -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g steep_open=1.50,1.65,1.80 -g steep_step=0.30,0.35`
+51. `sweep --seeds-from dev --name n-slack140-fw20-fopen -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g fee_open=0.80,0.82,0.85 -g same_day_min_supply=50,100`
+52. `sweep --seeds-from dev --name n-s140-fw145-step30 -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g fee_warn=1.42,1.45,1.48 -g fee_step_min=25,30`
+53. `sweep --seeds-from dev --name n-s140-ptw40-ms22-fw -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s price_target_win=0.40 -g min_supply=22,25 -g fee_warn=1.45,1.50,1.60`
+54. `sweep --seeds-from dev --name n-s140-fw145-dlr -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=30 -g fee_warn=1.45,1.50 -g dealer_lr=0.01,0.015,0.02`
 
 ## Every evaluation since the night began
 
@@ -372,4 +379,28 @@ Champion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds 
 | 20261114-051639-n-slack140-fw20-sdmk-same_day_markup0.10-same_day_min_supply100 | 16 | 9,048 | 6,098 | 92.9% | SAFE | +58 ± 211 (t +0.3, 9/16 better) |
 | 20261114-051730-n-slack140-fw20-sdmk-same_day_markup0.12-same_day_min_supply50 | 16 | 9,004 | 6,320 | 92.5% | SAFE | +14 ± 250 (t +0.1, 7/16 better) |
 | 20261114-051816-n-slack140-fw20-sdmk-same_day_markup0.12-same_day_min_supply100 | 16 | 8,756 | 5,613 | 92.5% | SAFE | -235 ± 192 (t -1.2, 6/16 better) |
-| 20261114-051959-n-slack140-fw20-steep-steep_open1.50-steep_step0.30 (running) | 12 | 9,410 | 6,634 | 93.7% | no | +240 ± 153 (t +1.6, 9/12 better) |
+| 20261114-051959-n-slack140-fw20-steep-steep_open1.50-steep_step0.30 | 16 | 9,299 | 6,634 | 93.5% | SAFE | +309 ± 129 (t +2.4, 12/16 better) |
+| 20261114-052114-n-slack140-fw20-steep-steep_open1.50-steep_step0.35 | 16 | 9,321 | 6,645 | 93.5% | SAFE | +331 ± 137 (t +2.4, 13/16 better) |
+| 20261114-052234-n-slack140-fw20-steep-steep_open1.65-steep_step0.30 | 16 | 9,387 | 6,633 | 92.1% | SAFE | +397 ± 168 (t +2.4, 15/16 better) |
+| 20261114-052317-n-slack140-fw20-steep-steep_open1.65-steep_step0.35 | 16 | 9,396 | 6,656 | 93.3% | SAFE | +406 ± 148 (t +2.7, 14/16 better) |
+| 20261114-052428-n-slack140-fw20-steep-steep_open1.80-steep_step0.30 | 16 | 9,325 | 6,563 | 92.5% | SAFE | +335 ± 216 (t +1.6, 14/16 better) |
+| 20261114-052601-n-slack140-fw20-steep-steep_open1.80-steep_step0.35 | 16 | 9,382 | 6,585 | 92.9% | SAFE | +392 ± 183 (t +2.1, 14/16 better) |
+| 20261114-052705-n-slack140-fw20-fopen-fee_open0.80-same_day_min_supply50 | 16 | 9,284 | 7,139 | 93.0% | SAFE | +293 ± 209 (t +1.4, 9/16 better) |
+| 20261114-052822-n-slack140-fw20-fopen-fee_open0.80-same_day_min_supply100 | 16 | 9,050 | 6,518 | 92.1% | SAFE | +59 ± 195 (t +0.3, 9/16 better) |
+| 20261114-052911-n-slack140-fw20-fopen-fee_open0.82-same_day_min_supply50 | 16 | 9,551 | 7,011 | 93.5% | SAFE | +561 ± 192 (t +2.9, 13/16 better) |
+| 20261114-052953-n-slack140-fw20-fopen-fee_open0.82-same_day_min_supply100 | 16 | 9,156 | 6,534 | 91.1% | no | +166 ± 223 (t +0.7, 11/16 better) |
+| 20261114-053053-n-slack140-fw20-fopen-fee_open0.85-same_day_min_supply50 | 16 | 9,356 | 6,459 | 93.2% | SAFE | +366 ± 210 (t +1.7, 9/16 better) |
+| 20261114-053131-n-slack140-fw20-fopen-fee_open0.85-same_day_min_supply100 | 16 | 9,420 | 6,622 | 93.3% | SAFE | +430 ± 170 (t +2.5, 14/16 better) |
+| 20261114-053225-n-s140-fw145-step30-fee_warn1.42-fee_step_min25 | 16 | 9,356 | 6,511 | 91.8% | no | +366 ± 268 (t +1.4, 12/16 better) |
+| 20261114-053303-n-s140-fw145-step30-fee_warn1.42-fee_step_min30 | 16 | 9,344 | 6,887 | 91.9% | no | +354 ± 246 (t +1.4, 10/16 better) |
+| 20261114-053338-n-s140-fw145-step30-fee_warn1.45-fee_step_min25 | 16 | 9,345 | 6,463 | 92.6% | SAFE | +355 ± 194 (t +1.8, 10/16 better) |
+| 20261114-053411-n-s140-fw145-step30-fee_warn1.45-fee_step_min30 | 16 | 9,316 | 6,766 | 93.6% | SAFE | +325 ± 222 (t +1.5, 11/16 better) |
+| 20261114-053445-n-s140-fw145-step30-fee_warn1.48-fee_step_min25 | 16 | 9,353 | 6,313 | 91.5% | no | +363 ± 298 (t +1.2, 12/16 better) |
+| 20261114-053519-n-s140-fw145-step30-fee_warn1.48-fee_step_min30 | 16 | 9,295 | 6,266 | 93.8% | SAFE | +305 ± 240 (t +1.3, 8/16 better) |
+| 20261114-053605-n-s140-ptw40-ms22-fw-min_supply22-fee_warn1.45 | 16 | 9,115 | 6,692 | 92.5% | SAFE | +125 ± 261 (t +0.5, 9/16 better) |
+| 20261114-053639-n-s140-ptw40-ms22-fw-min_supply22-fee_warn1.50 | 16 | 9,175 | 6,151 | 91.6% | no | +185 ± 323 (t +0.6, 11/16 better) |
+| 20261114-053714-n-s140-ptw40-ms22-fw-min_supply22-fee_warn1.60 | 16 | 9,372 | 5,970 | 92.7% | SAFE | +382 ± 289 (t +1.3, 11/16 better) |
+| 20261114-053757-n-s140-ptw40-ms22-fw-min_supply25-fee_warn1.45 | 16 | 9,221 | 6,692 | 92.5% | SAFE | +231 ± 264 (t +0.9, 11/16 better) |
+| 20261114-053858-n-s140-ptw40-ms22-fw-min_supply25-fee_warn1.50 | 16 | 9,150 | 6,151 | 91.6% | no | +159 ± 315 (t +0.5, 10/16 better) |
+| 20261114-053934-n-s140-ptw40-ms22-fw-min_supply25-fee_warn1.60 | 16 | 9,431 | 5,970 | 92.7% | SAFE | +440 ± 270 (t +1.6, 12/16 better) |
+| 20261114-054106-n-s140-fw145-dlr-fee_warn1.45-dealer_lr0.01 | 0 failed | | | | | |

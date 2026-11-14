@@ -1,0 +1,4 @@
+# uv run lab sweep --seeds-from dev --name n-s140-fw145-dlr -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=30 -g fee_warn=1.45,1.50 -g dealer_lr=0.01,0.015,0.02
+# started 2026-11-14T05:41:05Z
+
+=== fee_warn=1.45,dealer_lr=0.01
