@@ -53,6 +53,8 @@ class Params:
     dealer_adj_min: float = 0.85
     dealer_adj_max: float = 1.30
     loss_streak_freeze: int = 12      # this many losses in a row stop downward moves until the next day
+    learn_price_exp: float = 0.0      # exponent on (ref_list / 16000) to revenue-weight price learning steps
+    win_streak_boost: float = 0.0     # surge multiplier per win on streaks >= 3 to capture regional outages
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
@@ -145,7 +147,7 @@ class Desk:
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
         self.dealer_trust: dict[str, int] = defaultdict(int)
         self.dealer_request_count: dict[str, int] = defaultdict(int)
-        self.loss_streak, self.streak_day = 0, -1
+        self.loss_streak, self.win_streak, self.streak_day = 0, 0, -1
         self.drivers = {d["id"]: d for d in roster}
         self.supply = geo.supply(roster, params.supply_radius_km)
         r = params.gate_radius_km if params.gate_radius_km > 0 else params.supply_radius_km
@@ -385,9 +387,16 @@ class Desk:
             return
         p, day = self.p, self.now // DAY
         if day != self.streak_day:
-            self.loss_streak, self.streak_day = 0, day
+            self.loss_streak, self.win_streak, self.streak_day = 0, 0, day
         self.loss_streak = 0 if won else self.loss_streak + 1
+        self.win_streak = self.win_streak + 1 if won else 0
         step = (1 - p.price_target_win) if won else -p.price_target_win
+        if p.learn_price_exp > 0:
+            ref_list = self.requests[request_id]["options"][0]["listPriceCents"]
+            step *= clamp((ref_list / 16000.0) ** p.learn_price_exp, 0.5, 1.75)
+        if won and p.win_streak_boost > 0 and self.win_streak >= 3:
+            step *= 1.0 + p.win_streak_boost * min(self.win_streak - 2, 4)
+            self.stats["outage_surge_steps"] += 1
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
@@ -615,6 +624,7 @@ class Desk:
     # --- restart (live mode) --------------------------------------------------------------------------
     def rejoin(self, snapshot: DeskSnapshot, history: list[DeskEvent]) -> None:
         """Rebuilds the books from the world after a (re)start, then answers what it missed."""
+        self.win_streak = 0
         posted: dict[str, list[Gig]] = {}
         self.booked = {g["id"] for g in snapshot["gigs"] if g["status"] in ("booked", "working", "done")}
         for gig in snapshot["gigs"]:
