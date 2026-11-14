@@ -136,6 +136,11 @@ class Params:
     sup_stress_warns: int = 6         # deadline_close warnings in prior 24h >= this => stressed day
     sup_stress_sd_supply: int = 70    # min same_day_min_supply on stressed days (0 = keep p.same_day_min_supply)
     sup_stress_slack_add: int = 20    # add to min_slack_min on stressed days
+    sup_emerg_unstaffed: int = 0      # 0 = off; if > 0 (e.g. 12) and warns >= sup_emerg_warns => emergency day
+    sup_emerg_warns: int = 5          # warnings in prior 24h (with unstaffed >= sup_emerg_unstaffed) => emergency day
+    sup_emerg_min_supply: int = 45    # min_supply on emergency days (also suspends ext_ring/return_hub)
+    sup_emerg_sd_supply: int = 150    # same_day_min_supply on emergency days
+    sup_emerg_slack_add: int = 50     # add to min_slack_min on emergency days
     sup_fri_ot: float = 0.965         # Fri 08:00 projected_on_time threshold for endgame slow-gate opening
     sup_fri_max_backlog: int = 5      # max total unstaffed orders at Fri 08:00 to open Friday surplus gates
     sup_fri_slow_min_supply: int = 0  # if > 0 (e.g. 3), Fri 08:00 surplus opens Monday-due slow options down to this supply
@@ -210,6 +215,7 @@ class Desk:
         self.sup_min_slack: Optional[int] = None
         self.sup_ret_supply: Optional[int] = None
         self.sup_ret_drive: Optional[int] = None
+        self.sup_emerg_active: bool = False
         self.sup_fri_surplus_active: bool = False
         self.sup_fri_thin_reqs: set[str] = set()
 
@@ -383,10 +389,17 @@ class Desk:
         self.sup_min_slack = None
         self.sup_ret_supply = None
         self.sup_ret_drive = None
+        self.sup_emerg_active = False
         self.sup_fri_surplus_active = False
 
+        is_emergency = (
+            p.sup_emerg_unstaffed > 0
+            and unstaffed_all >= p.sup_emerg_unstaffed
+            and warns_yday >= p.sup_emerg_warns
+        )
         is_stressed = (
-            proj_ot < p.sup_stress_ot
+            is_emergency
+            or proj_ot < p.sup_stress_ot
             or warns_yday >= p.sup_stress_warns
             or unstaffed_soon >= p.sup_stress_backlog
         )
@@ -397,7 +410,16 @@ class Desk:
             and unstaffed_soon <= p.sup_calm_backlog
             and free_share >= p.sup_min_free_share
         )
-        if is_stressed:
+        if is_emergency:
+            self.sup_emerg_active = True
+            self.sup_regime = "emergency"
+            self.stats["sup_days_emergency"] += 1
+            self.stats[f"sup_d{day}_regime"] = -2
+            if p.sup_emerg_sd_supply > 0:
+                self.sup_sd_supply = max(p.same_day_min_supply, p.sup_emerg_sd_supply)
+            if p.sup_emerg_slack_add != 0:
+                self.sup_min_slack = p.min_slack_min + p.sup_emerg_slack_add
+        elif is_stressed:
             self.sup_regime = "stressed"
             self.stats["sup_days_stressed"] += 1
             self.stats[f"sup_d{day}_regime"] = -1
@@ -509,11 +531,12 @@ class Desk:
         supply = self.supply.get(pickup, 0)
         gate_supply = self.gate_supply.get(pickup, 0)
         tight = self.tightening()
-        base_min_supply = (
-            p.sup_fri_slow_min_supply
-            if (p.supervisor and self.sup_fri_surplus_active and p.sup_fri_slow_min_supply > 0 and (self.now // DAY) == 4)
-            else p.min_supply
-        )
+        if p.supervisor and self.sup_emerg_active and p.sup_emerg_min_supply > 0:
+            base_min_supply = max(p.min_supply, p.sup_emerg_min_supply)
+        elif p.supervisor and self.sup_fri_surplus_active and p.sup_fri_slow_min_supply > 0 and (self.now // DAY) == 4:
+            base_min_supply = p.sup_fri_slow_min_supply
+        else:
+            base_min_supply = p.min_supply
         gate_min = base_min_supply * (1 + (p.guard_supply_mult - 1) * tight)
         std_gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
@@ -525,6 +548,9 @@ class Desk:
         eff_ret_supply = self.sup_ret_supply if (p.supervisor and self.sup_ret_supply is not None) else p.return_hub_min_supply
         eff_ret_drive = self.sup_ret_drive if (p.supervisor and self.sup_ret_drive is not None) else p.return_hub_max_drive_min
         if gate_supply < gate_min:
+            if p.supervisor and self.sup_emerg_active:
+                self.stats["sup_emerg_declined"] += 1
+                return {}, "decline"
             pass_ext_ring = (
                 p.ext_ring_min_supply > 0
                 and self.ext_supply.get(pickup, 0) >= p.ext_ring_min_supply
