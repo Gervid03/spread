@@ -37,6 +37,7 @@ from .geo import Geo
 from .notes import note_flags, parse_note_v2, shift_business_days, window_from_note
 
 HOUR, DAY = 60, 24 * 60
+CAPITAL_PLACES = frozenset({"helsinki", "espoo", "vantaa"})
 
 
 @dataclass
@@ -120,6 +121,11 @@ class Params:
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
+    # --- buffer spender: spend unused on-time budget on easy (<2% late) classes ---------------------
+    buffer_discount: float = 0.0      # 0 = off; quote easy classes at tracker price x (1 - buffer_discount)
+    buffer_hi: float = 0.955          # open budget gate while projected_on_time() >= buffer_hi
+    buffer_rule: str = "c3"           # "c3" (c3's <2% late union across 96 L8 worlds) or "default"
+    buffer_learn_b: float = 0.0       # 0 = skip learn() on buf quotes; >0 = logit-compensated target_win (e.g. 11.92)
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -176,6 +182,10 @@ class Desk:
         self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
         self.ring_hub_same_day: set[str] = set()     # request/order ids where ring_to_hub_same_day_min allowed same_day
         self.ext_ring_reqs: set[str] = set()         # request/order ids admitted via pass_ext_ring or pass_return_hub
+        self.buf_reqs: set[str] = set()              # request ids quoted with buffer discount
+        self.buf_opts: dict[str, set[str]] = defaultdict(set)  # request id -> buffer-discounted option kinds
+        self.buf_won_orders: set[str] = set()        # won order ids from buffer-discounted easy options
+        self._last_tick_now: int = now
         self.lost: set[str] = set()                  # orders that can no longer be on time
         self.late_reposted: set[str] = set()         # orders already reposted in tick() upon becoming lost
         self.ends_at: int = 14280                    # second Wednesday 22:00
@@ -261,6 +271,21 @@ class Desk:
                 self.stats["margin_ring_cents"] += line["cents"]
             if is_ext_ring:
                 self.stats["margin_ext_ring_cents"] += line["cents"]
+            if self.p.buffer_discount > 0:
+                oid = line.get("orderId")
+                if oid:
+                    if oid in self.buf_won_orders:
+                        self.stats["buf_margin_cents"] += line["cents"]
+                    elif oid in self.orders:
+                        self.stats["nonbuf_margin_cents"] += line["cents"]
+                elif line.get("gigId") and line["gigId"] in self.posts:
+                    oids = [o for o in order_ids_of(self.posts[line["gigId"]]) if o in self.requests]
+                    ref_tot = sum(self.requests[o]["referenceFeeCents"] for o in oids)
+                    if ref_tot > 0:
+                        buf_ref = sum(self.requests[o]["referenceFeeCents"] for o in oids if o in self.buf_won_orders)
+                        buf_share = round(line["cents"] * buf_ref / ref_tot)
+                        self.stats["buf_margin_cents"] += buf_share
+                        self.stats["nonbuf_margin_cents"] += line["cents"] - buf_share
             if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
                 if line["orderId"] not in self.late:
                     if is_ring:
@@ -269,6 +294,11 @@ class Desk:
                         self.stats["late_ring_hub_same_day"] += 1
                     if is_ext_ring:
                         self.stats["late_ext_ring"] += 1
+                    if self.p.buffer_discount > 0:
+                        if line["orderId"] in self.buf_won_orders:
+                            self.stats["buf_late"] += 1
+                        else:
+                            self.stats["nonbuf_late"] += 1
                 self.late.add(line["orderId"])
                 if dealer:
                     self.dealer_trust[dealer] //= 2
@@ -303,6 +333,18 @@ class Desk:
             if self.dealer_trust:
                 self.stats[f"top_dealer_trust_d{self._last_day}"] = max(self.dealer_trust.values())
             self._last_day = day
+        if self.p.buffer_discount > 0:
+            dt = max(0, self.now - self._last_tick_now)
+            self._last_tick_now = self.now
+            if dt > 0 and self.projected_on_time() >= self.p.buffer_hi:
+                self.stats["buf_open_min"] += dt
+                if day < 5 and 8 * HOUR <= self.now % DAY <= 18 * HOUR:
+                    self.stats["buf_open_busy_min"] += dt
+            if self.orders:
+                late_cnt = sum(
+                    1 for oid, o in self.orders.items() if oid in self.late or (undelivered(o) and self.now > o["deadline"])
+                )
+                self.stats["end_on_time"] = round(1.0 - late_cnt / len(self.orders), 4)
         for order_id, order in list(self.orders.items()):
             if undelivered(order) and not self.staffed(order) and self.now > order["lastPickupAt"]:
                 self.lost.add(order_id)
@@ -344,12 +386,46 @@ class Desk:
             prices = {first["kind"]: int(first["listPriceCents"] * self.p.decline_mult)}
         self.outbox.append({"type": "quote", "requestId": request["id"], "prices": prices})
 
+    def is_easy_option(self, request: PriceRequest, option_kind: str, supply: int, drive: int, pn_sure: bool) -> bool:
+        """True if (request, option_kind) belongs to the <2% late easy buffer class."""
+        arr = request["arrivedAt"]
+        day, tod = arr // DAY, arr % DAY
+        if self.p.buffer_rule == "default":
+            return (
+                supply >= 100
+                and drive <= 120
+                and pn_sure
+                and not (option_kind == "same_day" and tod >= 13 * HOUR)
+            )
+        legs = request["legs"]
+        dl_cap = legs[-1]["delivery"]["placeId"] in CAPITAL_PLACES
+        no_note = not request["note"]
+        if self.p.buffer_rule == "c3_inbound":
+            if option_kind == "within_3_days" and drive < 300 and pn_sure:
+                return True
+            if dl_cap and no_note:
+                if option_kind == "next_day" and drive < 300:
+                    return True
+                if option_kind == "same_day" and drive < 180 and day < 4 and tod < 13 * HOUR:
+                    return True
+            return False
+        cap_end = (legs[0]["pickup"]["placeId"] in CAPITAL_PLACES) or dl_cap
+        if option_kind == "within_3_days" and drive < 300 and pn_sure:
+            return True
+        if option_kind == "next_day" and drive < 300 and no_note and (cap_end or 60 <= drive < 180):
+            return True
+        if option_kind == "same_day" and drive < 180 and no_note and day < 4 and tod < 13 * HOUR and cap_end:
+            return True
+        return False
+
     def price(self, request: PriceRequest) -> tuple[dict[str, int], str]:
         """The prices to quote, and "quote", "floor" (a price raised to keep the margin) or "decline"."""
         p, legs = self.p, request["legs"]
         extra_days = 0
+        pn_sure = not request["note"]
         if p.notes_v2 and request["note"]:
             pn = parse_note_v2(request["note"], request["arrivedAt"])
+            pn_sure = not pn.unsure
             if pn.has_info:
                 self.stats["notes_read"] += 1
             if pn.unsure:
@@ -429,6 +505,9 @@ class Desk:
             top3 = sorted(self.dealer_request_count.keys(), key=lambda d: self.dealer_request_count[d], reverse=True)[:3]
             is_invest = request["dealerId"] in top3
 
+        buf_gate_open = p.buffer_discount > 0 and self.projected_on_time() >= p.buffer_hi
+        buf_used = False
+        buf_easy_seen = False
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
@@ -486,13 +565,26 @@ class Desk:
             if p.return_hub_discount > 0 and pass_return_hub and not pass_ext_ring:
                 option_mult *= (1.0 - p.return_hub_discount)
 
-            price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
+            markup = 1 + p.same_day_markup if option["kind"] == "same_day" else 1
+            price = option["listPriceCents"] * option_mult * markup
             floor = fee / (1 - p.min_margin_frac)
+            if buf_gate_open and self.is_easy_option(request, option["kind"], supply, drive, pn_sure):
+                buf_easy_seen = True
+                unbuf_cents = int(max(price, floor) + 0.5)
+                price *= (1.0 - p.buffer_discount)
+                if int(max(price, floor) + 0.5) < unbuf_cents:
+                    buf_used = True
+                    self.buf_opts[request["id"]].add(option["kind"])
             if price < floor:
                 price, floored = floor, True
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if buf_used:
+            self.buf_reqs.add(request["id"])
+            self.stats["buf_quoted"] += 1
+        elif buf_easy_seen:
+            self.stats["buf_easy_floored"] += 1
         if pass_ext_ring or pass_return_hub:
             self.ext_ring_reqs.add(request["id"])
             self.stats["quoted_ext_ring"] += 1
@@ -504,6 +596,9 @@ class Desk:
         """Moves the multiplier towards the price that wins `price_target_win` of the normal quotes."""
         if self.decided.get(request_id) != "quote":
             return
+        if self.p.buffer_discount > 0 and request_id in self.buf_reqs and self.p.buffer_learn_b <= 0:
+            self.stats["buf_skipped_learn"] += 1
+            return
         if self.p.ext_ring_neutral_learn and request_id in self.ext_ring_reqs:
             self.stats["ext_ring_skipped_learn"] += 1
             return
@@ -513,7 +608,12 @@ class Desk:
         if day != self.streak_day:
             self.loss_streak, self.streak_day = 0, day
         self.loss_streak = 0 if won else self.loss_streak + 1
-        step = (1 - p.price_target_win) if won else -p.price_target_win
+        target_win = p.price_target_win
+        if p.buffer_discount > 0 and p.buffer_learn_b > 0 and request_id in self.buf_reqs:
+            odds = (target_win / (1.0 - target_win)) * math.exp(-p.buffer_learn_b * math.log(1.0 - p.buffer_discount))
+            target_win = odds / (1.0 + odds)
+            self.stats["buf_comp_learn"] += 1
+        step = (1 - target_win) if won else -target_win
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
@@ -579,6 +679,14 @@ class Desk:
                 self.stats["won_ext_ring"] += 1
                 if self.p.return_hub_min_supply > 0 and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply:
                     self.stats["won_return_hub"] += 1
+            if self.p.buffer_discount > 0:
+                if order["id"] in self.buf_reqs and order["option"] in self.buf_opts.get(order["id"], set()):
+                    self.buf_won_orders.add(order["id"])
+                    self.stats["buf_won"] += 1
+                else:
+                    self.stats["nonbuf_won"] += 1
+                    if order["id"] in self.buf_reqs:
+                        self.stats["buf_won_undisc_opt"] += 1
             self.stats[f"won_{order['option']}"] += 1
             self.post(order, undelivered(order))
 
@@ -920,6 +1028,7 @@ class Desk:
     def rejoin(self, snapshot: DeskSnapshot, history: list[DeskEvent]) -> None:
         """Rebuilds the books from the world after a (re)start, then answers what it missed."""
         self.ends_at = snapshot.get("endsAt", 14280)
+        self._last_tick_now = self.now
         posted: dict[str, list[Gig]] = {}
         gigs_by_id = {g["id"]: g for g in snapshot["gigs"]}
         self.booked = {g["id"] for g in snapshot["gigs"] if g["status"] in ("booked", "working", "done")}
@@ -991,11 +1100,24 @@ class Desk:
                             order = self.orders.get(order_id)
                             if order and order["lastPickupAt"] - e["at"] <= self.p.drop_urgent_margin_min:
                                 self.urgent.add(order_id)
+        if self.p.buffer_discount > 0:
+            for oid, order in self.orders.items():
+                req = self.requests[oid]
+                pn_sure = not req["note"] or (self.p.notes_v2 and not parse_note_v2(req["note"], req["arrivedAt"]).unsure)
+                sup = self.supply.get(req["legs"][0]["pickup"]["placeId"], 0)
+                drv = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in req["legs"])
+                if len(req["legs"]) == 2:
+                    drv += self.geo.minutes(req["legs"][0]["delivery"]["placeId"], req["legs"][1]["pickup"]["placeId"])
+                if self.is_easy_option(req, order["option"], sup, drv, pn_sure):
+                    self.buf_won_orders.add(oid)
         ratios = []  # the price level of the latest wins, so a restarted desk does not relearn from the prior
         for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"])[-30:]:
             option = next((o for o in self.requests[order["id"]]["options"] if o["kind"] == order["option"]), None)
             if option:
-                ratios.append(order["priceCents"] / option["listPriceCents"])
+                r = order["priceCents"] / option["listPriceCents"]
+                if self.p.buffer_discount > 0 and order["id"] in self.buf_won_orders and self.projected_on_time() >= self.p.buffer_hi:
+                    r /= (1.0 - self.p.buffer_discount)
+                ratios.append(r)
         if ratios:
             self.mult = clamp(median(ratios), self.p.price_mult_min, self.p.price_mult_max)
         for order in self.orders.values():
