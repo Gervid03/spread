@@ -23,6 +23,7 @@ SEED = sys.argv[1] if len(sys.argv) > 1 else "dev-12"
 T = int(sys.argv[2]) if len(sys.argv) > 2 else 1100
 MULTS = [float(x) for x in sys.argv[3].split(",")] if len(sys.argv) > 3 else [0.35, 0.45, 0.55, 0.7]
 PACK = sys.argv[4] if len(sys.argv) > 4 else "big"      # big: 4-car tours first; small: 2-car tours first (more tours, for depth)
+KM = float(sys.argv[5]) if len(sys.argv) > 5 else 30.0    # the gap allowed between a delivery and the next pickup, and to close
 EVENING = T % DAY >= 720                    # posted in the evening for the next day, or in the morning for today
 DAY0 = (T // DAY + 1) * DAY if EVENING else T // DAY * DAY
 UNTIL = DAY0 + 570 if EVENING else T + 180  # the next morning 09:30, or three hours after a morning post
@@ -105,7 +106,7 @@ with world(SEED, what="tours2") as w:
                      "from": od["legs"][0]["pickup"]["window"]["from"], "deadline": od["deadline"], "option": od["option"],
                      "phours": leg["pickup"]["hours"], "dhours": leg["delivery"]["hours"]}
     ids = sorted(cars)
-    nxt = {a: [b for b in ids if b != a and km(cars[a]["D"], cars[b]["P"]) <= 30] for a in ids}
+    nxt = {a: [b for b in ids if b != a and km(cars[a]["D"], cars[b]["P"]) <= KM] for a in ids}
     day0 = DAY0
 
     def best_rotation(seq):
@@ -126,7 +127,7 @@ with world(SEED, what="tours2") as w:
 
     cycles = []
     seen = set()
-    for a in ids:
+    for a in ids if PACK != "solo" else []:
         for b in nxt[a]:
             if b < a:
                 continue
@@ -155,6 +156,11 @@ with world(SEED, what="tours2") as w:
         if br:
             dead = br[3][1] - sum(cars[x]["drive"] for x in cyc)
             scored.append((len(cyc), -dead, near[cars[br[1][0]]["P"]], br))
+    if PACK == "solo":
+        for a in ids:
+            br = best_rotation([a])
+            if br:
+                scored.append((1, 0, near[cars[a]["P"]], br))
     scored.sort(key=lambda s: ((-s[0] if PACK == "big" else s[0]), -s[1], -s[2]))
     used, tours = set(), []
     for size, negdead, sup, br in scored:
@@ -211,5 +217,5 @@ with world(SEED, what="tours2") as w:
                 f"views/tour {sum(views.values()) / max(1, len(gid)):.1f}")
             if bad:
                 say("  refusals:", Counter(str(b)[:70] for b in bad).most_common(3))
-        (home(SEED) / f"tours2-{T}-{PACK}.json").write_text(json.dumps(out), encoding="utf-8")
+        (home(SEED) / f"tours2-{T}-{PACK}-{int(KM)}.json").write_text(json.dumps(out), encoding="utf-8")
     say("requests", w.client.requests)
