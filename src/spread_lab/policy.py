@@ -93,6 +93,8 @@ class Params:
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
+    trust_cap_boost: float = 0.0      # extra dealer_adj_max proportional to dealer trust (up to 25)
+    drive_price_slope: float = 0.0    # long-haul price slope on drive > 150 min (per 300 min)
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -211,6 +213,10 @@ class Desk:
         elif day > self._last_day:
             if self.dealer_trust:
                 self.stats[f"top_dealer_trust_d{self._last_day}"] = max(self.dealer_trust.values())
+            cnt = self.stats.get(f"price_list_count_d{self._last_day}", 0)
+            if cnt > 0:
+                mean_ratio = self.stats[f"price_list_sum_d{self._last_day}"] / cnt
+                self.stats[f"price_ratio_d{self._last_day}_pct"] = round(mean_ratio * 100, 1)
             self._last_day = day
 
     # --- quoting --------------------------------------------------------------------------------------
@@ -294,6 +300,8 @@ class Desk:
                 option_mult *= (1 - p.trust_invest)
                 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
+            if p.drive_price_slope != 0.0:
+                price *= 1 + p.drive_price_slope * max(0, drive - 150) / 300.0
             floor = fee / (1 - p.min_margin_frac)
             if price < floor:
                 price, floored = floor, True
@@ -315,7 +323,10 @@ class Desk:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
         dealer = self.requests[request_id]["dealerId"]
-        self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, p.dealer_adj_max)
+        hi = p.dealer_adj_max + p.trust_cap_boost * (min(self.dealer_trust[dealer], 25) / 25.0)
+        self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, hi)
+        if self.dealer_adj[dealer] > p.dealer_adj_max:
+            self.stats["dealer_cap_boosted"] += 1
 
     def backlog_near(self, place: str) -> int:
         """Won orders without a driver for every undelivered car, picked up within the radius of `place`."""
