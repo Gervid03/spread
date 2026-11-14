@@ -18,6 +18,7 @@ With all `tas_*` parameters at their defaults, `TasStateDesk` reproduces `spread
 from __future__ import annotations
 
 import json
+import math
 import statistics
 from collections import Counter, defaultdict
 from dataclasses import dataclass
@@ -46,6 +47,7 @@ class TasStateParams(Params):
     tas_dp_select: bool = False        # Full Lagrangian DP foresight order & option selection (for `limits --apply`)
     tas_ranked_v5_gate: bool = False   # Tape-ranked v5 corridor gate + competitor <30%/<70%/100% + trust/event steering
     tas_day_cap: int = 72              # Daily fleet target for tas_ranked_v5_gate (Mon..Thu; 1.18x on Fri slow)
+    tas_entry_disc: float = 0.0        # e.g. 0.90: scale super().price() by 0.90 under limits --apply to filter <1.34x junk while expanding >=1.34x gems inside [30%,70%)
     # Tunable capacity & margin dials for DP selection
     tas_pool_rate: float = 0.122       # base daily solo orders per local pool driver in Lagrangian DP (Mon..Wed)
     tas_sd_share_cap: float = 0.32     # max fraction of a pool's daily capacity usable by same_day orders
@@ -192,9 +194,12 @@ class TasStateDesk(Desk):
                 params.tas_late_edge,
                 params.tas_dp_select,
                 params.tas_ranked_v5_gate,
+                params.tas_entry_disc > 0,
                 params.tas_flat_fees,
             ]
         )
+        if params.tas_entry_disc > 0:
+            self.p.fri_endgame = True
         self.dlr_day_total: dict[tuple[str, int], int] = Counter()
         self.dlr_day_cap: dict[tuple[str, int], int] = {}
         self.dlr_day_won_or_open: dict[tuple[str, int], set[str]] = defaultdict(set)
@@ -779,6 +784,47 @@ class TasStateDesk(Desk):
         rid = request["id"]
         dlr = request["dealerId"]
         d = request["arrivedAt"] // DAY
+
+        # 0. High-Selectivity Entry-Discount Mode (`tas_entry_disc > 0`, e.g. 0.90 SAFE / 0.86 EDGE)
+        if self.sp.tas_entry_disc > 0:
+            tot_d = self.dlr_day_total.get((dlr, d), 0)
+            if tot_d >= 10 and d < 4:
+                rem_val = self.remaining_dealer_value(dlr, DAY)
+                cap_frac = 0.30 if (d == 0 and rem_val >= 3500.0) else 0.70
+                cap_n = max(1, math.ceil(cap_frac * tot_d) - 1)
+                if len(self.dlr_day_won_or_open[(dlr, d)]) >= cap_n:
+                    self.stats["tas_comp_cap_declined"] += 1
+                    return {}, "tas_comp_cap"
+
+            orig_br = self.p.backlog_ratio
+            self.p.backlog_ratio = orig_br * self.sp.tas_backlog_mult
+            try:
+                prices, reason = super().price(request)
+            finally:
+                self.p.backlog_ratio = orig_br
+            if not prices:
+                return {}, reason
+
+            tod = request["arrivedAt"] % DAY
+            p0 = request["legs"][0]["pickup"]["placeId"]
+            in_outage = bool(
+                self.sp.tas_event_plan
+                and 8 * HOUR <= tod <= 18 * HOUR
+                and self.events_info["outage"] is not None
+                and self.events_info["outage"][0] == d
+                and self.geo.line_km(self.events_info["outage"][1], p0) <= 80.0
+            )
+            in_war = bool(self.sp.tas_event_plan and 8 * HOUR <= tod <= 18 * HOUR and self.events_info["war_day"] == d)
+            if in_war and "same_day" in prices and len(prices) > 1 and not self.sp.tas_late_edge:
+                prices = {k: v for k, v in prices.items() if k != "same_day"}
+
+            disc = min(self.sp.tas_entry_disc, 0.82) if in_outage else self.sp.tas_entry_disc
+            fee = request["referenceFeeCents"] * self.p.expected_fee_mult
+            floor = fee / (1.0 - self.p.min_margin_frac)
+            scaled = {k: max(int(floor + 0.5), int(v * disc + 0.5)) for k, v in prices.items()}
+            self.dlr_day_won_or_open[(dlr, d)].add(rid)
+            self.stats["tas_entry_disc_quoted"] += 1
+            return scaled, reason
 
         # 1. Competitor daily win-share cap check (when tas_comp_steer or tas_dp_select is enabled)
         if self.sp.tas_comp_steer or self.sp.tas_dp_select:
