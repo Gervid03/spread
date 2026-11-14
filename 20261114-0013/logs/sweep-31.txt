@@ -1,0 +1,20 @@
+# uv run lab sweep --seeds-from dev --name n-slack140-ptw-sdsup -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g price_target_win=0.38,0.40 -g min_supply=20,25,30
+# started 2026-11-14T03:12:54Z
+
+=== price_target_win=0.38,min_supply=20
+  mean margin €8,976.12  (median €8,497.14, min €5,998.77)  ranked 16/16  on time min 92.1% mean 96.0%  won 262  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-14.19 ± 315.85 (SE) t=-0.04  better on 9, worse on 7  Δon-time -0.74%
+
+=== price_target_win=0.38,min_supply=25
+  mean margin €8,807.14  (median €7,945.39, min €5,998.77)  ranked 16/16  on time min 92.1% mean 96.0%  won 256  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-183.16 ± 299.57 (SE) t=-0.61  better on 8, worse on 8  Δon-time -0.70%
+
+=== price_target_win=0.38,min_supply=30
+  mean margin €8,866.84  (median €8,090.15, min €6,298.70)  ranked 16/16  on time min 92.1% mean 96.4%  won 249  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-123.47 ± 267.49 (SE) t=-0.46  better on 8, worse on 8  Δon-time -0.32%
+
+=== price_target_win=0.40,min_supply=20
+  mean margin €9,347.93  (median €8,498.51, min €5,969.71)  ranked 16/16  on time min 92.7% mean 96.2%  won 275  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+357.62 ± 272.74 (SE) t=1.31  better on 11, worse on 5  Δon-time -0.54%
+
+=== price_target_win=0.40,min_supply=25

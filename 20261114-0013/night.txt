@@ -97,3 +97,15 @@
 02:56:07 worker n14-02242-extended-ring-and-return-gate finished after 26 min
 02:56:07 worker n14-02463-stack-gtn-feewarn-v4 started (pid 28274)
 02:56:27 sweep 29 started: sweep --seeds-from dev --name n-slack140-sdsup50 -s same_day_min_supply=50 -g min_slack_min=140,150,160 -g slack_per_drive=0.65,0.75
+02:57:32 published to night/20261114
+03:02:32 worker n14-02113-private-windows-and-tradeins finished after 49 min
+03:02:32 worker n14-02464-thursday-friday-safety-budget started (pid 29513)
+03:02:53 lead tick started (pid 29680)
+03:03:53 sweep 30 started: sweep --seeds-from dev --name n-slack-sdsup-feewarn -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g fee_warn=1.40,1.45,1.60 -g fee_step_min=25,30
+03:07:54 worker n14-02462-deadline-aware-backlog finished after 16 min
+03:08:54 worker n14-02244-stack-v3-candidate finished after 30 min
+03:10:54 worker n14-02461-centered-lane-cost-pricing finished after 19 min
+03:11:54 worker n14-03111-adaptive-delivery-buffer-and-alarm started (pid 30545)
+03:12:14 worker n14-03112-same-corridor-lead-car-v2 started (pid 30645)
+03:12:34 worker n14-03113-stack-gtn-extring-dlr01 started (pid 30745)
+03:12:54 sweep 31 started: sweep --seeds-from dev --name n-slack140-ptw-sdsup -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g price_target_win=0.38,0.40 -g min_supply=20,25,30
