@@ -38,6 +38,25 @@ from .notes import note_flags, parse_note_v2, shift_business_days, window_from_n
 
 HOUR, DAY = 60, 24 * 60
 
+# Empirical-Bayes shrunk log-price lane factors fitted strictly out-of-sample on 64 Level-8 worlds
+# (night-01..32 + final-01..32; zero dev or holdout worlds used).
+LIM_LANE_PICKUP: dict[str, float] = {
+    "espoo": 0.01801, "hameenlinna": -0.0375, "helsinki": -0.00067, "hyvinkaa": 0.01002, "joensuu": 0.03729,
+    "jyvaskyla": -0.04095, "kajaani": 0.0, "kemi": 0.0, "kokkola": 0.00167, "kotka": -0.03791,
+    "kouvola": -0.06463, "kuopio": -0.04077, "lahti": -0.03409, "lappeenranta": -0.02084, "lempaala": -0.04688,
+    "mikkeli": -0.01258, "oulu": -0.04536, "pori": -0.02751, "porvoo": -0.00202, "raisio": -0.03281,
+    "rauma": -0.01399, "rovaniemi": -0.03244, "salo": -0.05621, "savonlinna": 0.0, "seinajoki": 0.01883,
+    "tampere": -0.03634, "turku": -0.03561, "vaasa": -0.01609, "vantaa": 0.03766, "ylivieska": 0.0,
+}
+LIM_LANE_DELIVERY: dict[str, float] = {
+    "espoo": -0.05554, "hameenlinna": 0.02676, "helsinki": -0.06611, "hyvinkaa": -0.05914, "joensuu": 0.09158,
+    "jyvaskyla": 0.05259, "kajaani": 0.13239, "kemi": 0.13471, "kokkola": 0.11852, "kotka": 0.08248,
+    "kouvola": 0.078, "kuopio": 0.06653, "lahti": 0.04447, "lappeenranta": 0.0861, "lempaala": 0.0072,
+    "mikkeli": 0.09635, "oulu": 0.05905, "pori": 0.09169, "porvoo": -0.0445, "raisio": 0.03204,
+    "rauma": 0.06667, "rovaniemi": 0.09226, "salo": 0.04131, "savonlinna": 0.104, "seinajoki": 0.08591,
+    "tampere": 0.02508, "turku": 0.03272, "vaasa": 0.08048, "vantaa": -0.10655, "ylivieska": 0.13922,
+}
+
 
 @dataclass
 class Params:
@@ -166,6 +185,35 @@ class Params:
     sup_fri_slow_min_supply: int = 0  # if > 0 (e.g. 3), Fri 08:00 surplus opens Monday-due slow options down to this supply
     sup_fri_sd_max_drive: int = 0     # if > 0 (e.g. 180), Fri 08:00 surplus relaxes fri_same_day_max_drive to this
     sup_fri_neutral_learn: bool = False  # if True, thin-town Friday surplus quotes skip learn() via ext_ring_reqs
+    # --- r4-limits: live oracle limit estimator (events, dealer steps/trust, state-gated corridors) --
+    lim_events: bool = False          # live Friday price-war unfreeze + optional outage/war snapback hooks
+    lim_outage_mult: float = 1.20     # initial outage mult = clean mult x this inside confirmed 80km circle (< 18:00)
+    lim_outage_max_mult: float = 2.35 # ceiling for local outage tracker (unlocks > 1.80 cap inside 80km outage only)
+    lim_outage_target_win: float = 0.45  # target win share inside active 80km regional outage
+    lim_outage_min_q: int = 9999      # min quote outcomes inside 80km circle today to confirm outage (9999 = off)
+    lim_outage_min_wr: float = 0.80   # min win share inside 80km circle today to confirm outage
+    lim_outage_diff_wr: float = 0.35  # min win-share excess over outside-circle quotes (when outside >= 4)
+    lim_war_snapback: float = 0.0     # 0..1: 08:00 recovery of mult to pre-war morning open after confirmed war day
+    lim_post_mon_war_min: float = 1.38  # min Tue 08:00 mult after a Monday price war (world base + <30% hike)
+    lim_post_outage_snap: float = 0.0 # 0..1: 08:00 snap-down of outage-inflated mult toward yesterday's clean open
+    lim_fri_war_unfreeze: bool = True # when lim_events: unfreeze Friday loss streak on healthy board (floor still guards)
+    lim_dealer: bool = False          # zero-drift centered trust + wider dealer_adj bounds + cold-join calibration
+    lim_trust_slope: float = 0.0035   # log-price slope on (dealer_trust[d] - lim_trust_ema) at level >= 8
+    lim_trust_ema_alpha: float = 0.05 # online EMA rate of quoted dealer trust
+    lim_comp_step: float = 0.0        # 08:00 log-step on dealer_adj after <30% (+step) or >=70% (-step) on >=10-req dealer
+    lim_dealer_adj_min: float = 0.80  # wider dealer_adj floor when lim_dealer=True
+    lim_dealer_adj_max: float = 1.40  # wider dealer_adj cap when lim_dealer=True
+    lim_deadband_cap: float = 0.64    # Mon-Thu busy-dealer projected win-share threshold to add cliff guard bump
+    lim_deadband_bump: float = 0.0    # fractional price bump when busy dealer approaches 70% competitor price-cut cliff
+    lim_cold_join_mult: float = 1.50  # mult floor upon mid-week cold start (>=250 prior lost requests, 0 won orders)
+    lim_corridor: bool = False        # state-gated out-of-sample lane factor + inbound-to-hub floor + floor sd spread
+    lim_lane_neg_w: float = 0.55      # weight on negative lane_eff (inbound) when fleet has surplus capacity
+    lim_cong_pos_w: float = 0.0       # weight on positive lane_eff (outbound) when fleet is congested
+    lim_lane_comp_slope: float = 2.2  # target-win slope compensation in learn() so lane_mult induces zero mult drift
+    lim_inb_fee_mult: float = 1.08    # expected_fee_mult for non-hub -> hub (supply>=200) floor when fleet has surplus
+    lim_inb_max_unstaffed: int = 16   # max active unstaffed orders to allow inbound lane/floor discounting
+    lim_inb_min_ot: float = 0.945     # min projected_on_time to allow inbound lane/floor discounting
+    lim_floored_sd_prem: float = 0.10 # min (same_day / next_day - 1) spread when quote hits margin floor
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -249,6 +297,28 @@ class Desk:
         self.sup_emerg_active: bool = False
         self.sup_fri_surplus_active: bool = False
         self.sup_fri_thin_reqs: set[str] = set()
+        # --- r4-limits state ---
+        self.sorted_places: tuple[str, ...] = tuple(sorted(geo.places))
+        self.circle_80: dict[str, frozenset[str]] = (
+            {c: frozenset(geo.within(c, 80.0)) for c in self.sorted_places} if params.lim_events else {}
+        )
+        self.lim_days_done: set[int] = set()
+        self.lim_day_open_mult: dict[int, float] = {}
+        self.lim_outage_day: int = -1
+        self.lim_outage_center: str = ""
+        self.lim_outage_cur_mult: float = self.mult
+        self.lim_outage_reqs: set[str] = set()
+        self.lim_war_day: int = -1
+        self.lim_req_quote_ratio: dict[str, float] = {}
+        self.lim_day_outcomes: dict[int, list[tuple[str, bool, str, float, str, float]]] = defaultdict(list)
+        self.dlr_day_tot: Counter = Counter()
+        self.dlr_day_won: Counter = Counter()
+        self.dlr_in_flight: Counter = Counter()
+        self.lim_comp_steps: Counter = Counter()
+        self.lim_trust_ema: float = 0.0
+        self.lim_deadband_reqs: set[str] = set()
+        self.lim_cold_join_checked: bool = False
+        self.lim_req_lane_mult: dict[str, float] = {}
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -259,17 +329,29 @@ class Desk:
                 req = event["request"]
                 self.requests[req["id"]] = req
                 self.dealer_request_count[req["dealerId"]] += 1
+                self.dlr_day_tot[(req["dealerId"], req["arrivedAt"] // DAY)] += 1
             elif kind == "order_lost":
                 self.lost_requests.add(event["requestId"])
             return
         if kind == "price_request":
             self.quote(event["request"])
         elif kind == "order_won":
-            self.learn(event["order"]["id"], won=True)
+            oid = event["order"]["id"]
+            if oid in self.requests:
+                req = self.requests[oid]
+                self.dlr_day_won[(req["dealerId"], req["arrivedAt"] // DAY)] += 1
+                if self.decided.get(oid) in ("quote", "floor") and self.dlr_in_flight[req["dealerId"]] > 0:
+                    self.dlr_in_flight[req["dealerId"]] -= 1
+            self.learn(oid, won=True)
             self.win(event["order"])
         elif kind == "order_lost":
-            self.lost_requests.add(event["requestId"])
-            self.learn(event["requestId"], won=False)
+            rid = event["requestId"]
+            if rid in self.requests:
+                req = self.requests[rid]
+                if self.decided.get(rid) in ("quote", "floor") and self.dlr_in_flight[req["dealerId"]] > 0:
+                    self.dlr_in_flight[req["dealerId"]] -= 1
+            self.lost_requests.add(rid)
+            self.learn(rid, won=False)
         elif kind == "order_changed":
             self.change(event["order"])
         elif kind == "order_cancelled":
@@ -525,10 +607,107 @@ class Desk:
             self.stats["sup_fri_surplus_fired"] += 1
             self.stats[f"sup_d{day}_regime"] = 2
 
+    def maybe_limit_morning(self, allow_mult_recover: bool = True) -> None:
+        """At 08:00 on each working day (Mon-Fri), updates r4-limits morning state:
+        mid-week cold-join calibration, post-war mult snapback, and exact competitor morning steps."""
+        p = self.p
+        if not (p.lim_events or p.lim_dealer):
+            return
+        if p.lim_dealer and not self.lim_cold_join_checked:
+            self.lim_cold_join_checked = True
+            if p.lim_cold_join_mult > 0 and self.now >= 2 * DAY and not self.orders and len(self.lost_requests) >= 250:
+                if self.mult < p.lim_cold_join_mult:
+                    self.mult = p.lim_cold_join_mult
+                    self.stats["lim_cold_join_fired"] += 1
+                if p.lim_comp_step > 0:
+                    cur_d = self.now // DAY
+                    for prev_d in range(min(4, cur_d)):
+                        for dlr in sorted(self.dealer_request_count):
+                            if self.dlr_day_tot[(dlr, prev_d)] >= 10 and self.lim_comp_steps[dlr] < 3:
+                                self.lim_comp_steps[dlr] += 1
+                                self.dealer_adj[dlr] = clamp(
+                                    self.dealer_adj[dlr] * math.exp(p.lim_comp_step),
+                                    p.lim_dealer_adj_min,
+                                    p.lim_dealer_adj_max,
+                                )
+        day = self.now // DAY
+        if day > 4 or self.now < day * DAY + 8 * HOUR or day in self.lim_days_done:
+            return
+        self.lim_days_done.add(day)
+        if day == 0:
+            self.lim_day_open_mult[0] = self.mult
+            return
+
+        prev = day - 1
+        if p.lim_events and allow_mult_recover and p.lim_post_outage_snap > 0 and self.level >= 6:
+            outs_prev = self.lim_day_outcomes.get(prev, [])
+            prev_open = self.lim_day_open_mult.get(prev, self.mult)
+            ref_open = max(prev_open, 1.48) if prev == 0 else prev_open
+            if self.mult > ref_open + 0.04 and not hasattr(self, "_post_outage_snapped"):
+                for c in self.sorted_places:
+                    cset = self.circle_80[c]
+                    inc = [x for x in outs_prev if x[0] in cset]
+                    outc = [x for x in outs_prev if x[0] not in cset]
+                    if len(inc) >= 15 and len(outc) >= 6:
+                        w_in = sum(1 for x in inc if x[1]) / len(inc)
+                        w_out = sum(1 for x in outc if x[1]) / len(outc)
+                        if w_in >= 0.65 and w_in - w_out >= 0.32:
+                            new_m = clamp(self.mult - p.lim_post_outage_snap * (self.mult - ref_open), p.price_mult_min, p.price_mult_max)
+                            self._post_outage_snapped = prev
+                            self.stats["lim_post_outage_snaps"] += 1
+                            self.stats[f"lim_outsnap_d{day}_bp"] = int(round((self.mult - new_m) * 10000))
+                            self.mult = new_m
+                            break
+        if p.lim_events and allow_mult_recover and p.lim_war_snapback > 0 and self.level >= 8:
+            outs_prev = self.lim_day_outcomes.get(prev, [])
+            is_war_prev = (
+                self.lim_war_day == prev
+                or (
+                    prev != self.lim_outage_day
+                    and self.day_max_streak[prev] > p.loss_streak_freeze
+                    and len(outs_prev) >= 10
+                    and (sum(1 for x in outs_prev if x[1]) / len(outs_prev)) <= 0.25
+                )
+            )
+            if is_war_prev:
+                target_open = self.lim_day_open_mult.get(prev, self.mult)
+                if prev == 0 and p.lim_post_mon_war_min > 0:
+                    target_open = max(target_open, p.lim_post_mon_war_min)
+                if self.mult < target_open:
+                    new_m = clamp(self.mult + p.lim_war_snapback * (target_open - self.mult), p.price_mult_min, p.price_mult_max)
+                    self.stats["lim_war_snapbacks"] += 1
+                    self.stats[f"lim_war_snap_d{day}_bp"] = int(round((new_m - self.mult) * 10000))
+                    self.mult = new_m
+        self.lim_day_open_mult[day] = self.mult
+
+        if p.lim_dealer and p.lim_comp_step > 0 and allow_mult_recover:
+            for dlr in sorted(self.dealer_request_count):
+                n_prev = self.dlr_day_tot[(dlr, prev)]
+                if n_prev < 10:
+                    continue
+                sh = self.dlr_day_won[(dlr, prev)] / n_prev
+                if sh < 0.30 and self.lim_comp_steps[dlr] < 3:
+                    self.lim_comp_steps[dlr] += 1
+                    self.dealer_adj[dlr] = clamp(
+                        self.dealer_adj[dlr] * math.exp(p.lim_comp_step),
+                        p.lim_dealer_adj_min,
+                        p.lim_dealer_adj_max,
+                    )
+                    self.stats["lim_comp_hikes"] += 1
+                elif sh >= 0.70 and self.lim_comp_steps[dlr] > -3:
+                    self.lim_comp_steps[dlr] -= 1
+                    self.dealer_adj[dlr] = clamp(
+                        self.dealer_adj[dlr] * math.exp(-p.lim_comp_step),
+                        p.lim_dealer_adj_min,
+                        p.lim_dealer_adj_max,
+                    )
+                    self.stats["lim_comp_cuts"] += 1
+
     def tick(self) -> None:
         """Called after every step (practice) or event (live)."""
         if self.p.live_from_min and self.now < self.p.live_from_min:
             return
+        self.maybe_limit_morning()
         self.maybe_supervise()
         day = self.now // DAY
         if not hasattr(self, "_last_day"):
@@ -578,9 +757,11 @@ class Desk:
 
     # --- quoting --------------------------------------------------------------------------------------
     def quote(self, request: PriceRequest) -> None:
+        self.maybe_limit_morning()
         self.maybe_supervise()
         self.requests[request["id"]] = request
         self.dealer_request_count[request["dealerId"]] += 1
+        self.dlr_day_tot[(request["dealerId"], request["arrivedAt"] // DAY)] += 1
         prices, decision = self.price(request)
         self.stats[f"quote_{decision}"] += 1
         if self.level <= 3:  # every quote wins at its list price: send one only for what we take
@@ -589,6 +770,8 @@ class Desk:
                 self.outbox.append({"type": "quote", "requestId": request["id"], "prices": {first["kind"]: first["listPriceCents"]}})
             return
         self.decided[request["id"]] = decision
+        if decision in ("quote", "floor"):
+            self.dlr_in_flight[request["dealerId"]] += 1
         if prices:
             quoted_kind = next(iter(prices))
             quoted_option = next(o for o in request["options"] if o["kind"] == quoted_kind)
@@ -596,6 +779,8 @@ class Desk:
             day = self.now // DAY
             self.stats[f"price_list_sum_d{day}"] += ratio
             self.stats[f"price_list_count_d{day}"] += 1
+            if self.p.lim_events and decision == "quote":
+                self.lim_req_quote_ratio[request["id"]] = ratio
         if not prices:  # decline: a quote that loses costs nothing, a missing one costs goodwill
             first = request["options"][0]
             prices = {first["kind"]: int(first["listPriceCents"] * self.p.decline_mult)}
@@ -691,15 +876,53 @@ class Desk:
             ]
         )
         fee = request["referenceFeeCents"] * p.expected_fee_mult
-        mult = self.mult * self.dealer_adj[request["dealerId"]]
+        dlr = request["dealerId"]
+        cur_day, cur_tod = self.now // DAY, self.now % DAY
+        is_outage_quote = (
+            p.lim_events
+            and self.level >= 6
+            and self.lim_outage_day == cur_day
+            and cur_tod < 18 * HOUR
+            and pickup in self.circle_80.get(self.lim_outage_center, ())
+        )
+        base_mult = self.lim_outage_cur_mult if is_outage_quote else self.mult
+        mult = base_mult * self.dealer_adj[dlr]
         if p.trust_gain > 0:
-            count = self.dealer_trust[request["dealerId"]]
+            count = self.dealer_trust[dlr]
             mult *= (1 + p.trust_gain * count / 100.0)
+        if p.lim_dealer and p.lim_trust_slope > 0 and self.level >= 8:
+            t_cur = self.dealer_trust[dlr]
+            mult *= math.exp(p.lim_trust_slope * (t_cur - self.lim_trust_ema))
+
+        deadband_bump_active = False
+        if p.lim_dealer and p.lim_deadband_bump > 0 and cur_day < 4:
+            arr_day = request["arrivedAt"] // DAY
+            n_dlr_today = self.dlr_day_tot[(dlr, arr_day)]
+            if n_dlr_today >= 10:
+                if (self.dlr_day_won[(dlr, arr_day)] / n_dlr_today) >= p.lim_deadband_cap:
+                    mult *= (1.0 + p.lim_deadband_bump)
+                    deadband_bump_active = True
+
+        lane_mult = 1.0
+        inb_surplus_ok = False
+        is_inb_to_hub = False
+        if p.lim_corridor:
+            dest_place = legs[-1]["delivery"]["placeId"]
+            unstaffed_now = sum(1 for o in self.orders.values() if undelivered(o) and not self.staffed(o))
+            inb_surplus_ok = (unstaffed_now <= p.lim_inb_max_unstaffed and self.projected_on_time() >= p.lim_inb_min_ot)
+            is_inb_to_hub = (supply < 200 and self.supply.get(dest_place, 0) >= 200)
+            eff = LIM_LANE_PICKUP.get(pickup, 0.0) + LIM_LANE_DELIVERY.get(dest_place, 0.0)
+            if eff < 0.0 and inb_surplus_ok and p.lim_lane_neg_w > 0:
+                lane_mult = clamp(math.exp(p.lim_lane_neg_w * eff), 0.86, 1.0)
+            elif eff > 0.0 and not inb_surplus_ok and p.lim_cong_pos_w > 0:
+                lane_mult = clamp(math.exp(p.lim_cong_pos_w * eff), 1.0, 1.10)
+            if lane_mult != 1.0:
+                mult *= lane_mult
 
         is_invest = False
-        if p.trust_invest > 0 and (self.now // DAY) <= 2 and self.dealer_trust[request["dealerId"]] < 25 and supply >= 100 and not request.get("note"):
+        if p.trust_invest > 0 and (self.now // DAY) <= 2 and self.dealer_trust[dlr] < 25 and supply >= 100 and not request.get("note"):
             top3 = sorted(self.dealer_request_count.keys(), key=lambda d: self.dealer_request_count[d], reverse=True)[:3]
-            is_invest = request["dealerId"] in top3
+            is_invest = dlr in top3
 
         eff_sd_supply = self.sup_sd_supply if (p.supervisor and self.sup_sd_supply is not None) else p.same_day_min_supply
         eff_min_slack = self.sup_min_slack if (p.supervisor and self.sup_min_slack is not None) else p.min_slack_min
@@ -709,8 +932,14 @@ class Desk:
             else p.fri_same_day_max_drive
         )
 
+        std_floor = fee / (1 - p.min_margin_frac)
+        eff_floor = std_floor
+        if p.lim_corridor and is_inb_to_hub and inb_surplus_ok and p.lim_inb_fee_mult > 0:
+            eff_floor = (request["referenceFeeCents"] * p.lim_inb_fee_mult) / (1 - p.min_margin_frac)
+
         prices: dict[str, int] = {}
         floored = False
+        inb_floor_saved = False
         for option in request["options"]:
             ring_hub_sd = False
             if (pass_ext_ring or pass_return_hub or fri_thin_only) and option["kind"] == "same_day":
@@ -769,12 +998,31 @@ class Desk:
                 option_mult *= (1.0 - p.return_hub_discount)
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            floor = fee / (1 - p.min_margin_frac)
-            if price < floor:
-                price, floored = floor, True
+            if price < std_floor:
+                floored = True
+                if eff_floor < std_floor and price < std_floor:
+                    inb_floor_saved = True
+            if price < eff_floor:
+                price = eff_floor
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if p.lim_corridor and p.lim_floored_sd_prem > 0 and floored and "same_day" in prices and "next_day" in prices:
+            min_sd = int(round(prices["next_day"] * (1.0 + p.lim_floored_sd_prem)))
+            if prices["same_day"] < min_sd:
+                prices["same_day"] = min_sd
+                self.stats["lim_sd_prem_lifted"] += 1
+        if inb_floor_saved:
+            self.stats["lim_inb_floor_saved"] += 1
+        if p.lim_dealer and p.lim_trust_slope > 0 and self.level >= 8:
+            self.lim_trust_ema = (1.0 - p.lim_trust_ema_alpha) * self.lim_trust_ema + p.lim_trust_ema_alpha * self.dealer_trust[dlr]
+        if is_outage_quote:
+            self.lim_outage_reqs.add(request["id"])
+        if deadband_bump_active:
+            self.lim_deadband_reqs.add(request["id"])
+            self.stats["lim_deadband_guarded"] += 1
+        if lane_mult != 1.0:
+            self.lim_req_lane_mult[request["id"]] = lane_mult
         if fri_thin_only:
             self.sup_fri_thin_reqs.add(request["id"])
             self.stats["sup_fri_thin_quoted"] += 1
@@ -797,17 +1045,91 @@ class Desk:
         if self.p.ext_ring_no_learn and not won and request_id in self.ext_ring_reqs:
             return
         p, day = self.p, self.now // DAY
+        if p.lim_events and request_id in self.lim_outage_reqs:
+            self.stats["lim_outage_quoted"] += 1
+            if won:
+                self.stats["lim_outage_won"] += 1
+            step_out = (1.0 - p.lim_outage_target_win) if won else -p.lim_outage_target_win
+            self.lim_outage_cur_mult = clamp(
+                self.lim_outage_cur_mult * math.exp(p.price_lr * step_out),
+                self.mult,
+                p.lim_outage_max_mult,
+            )
+            return
+        if p.lim_dealer and request_id in self.lim_deadband_reqs and not won:
+            return
         if day != self.streak_day:
             self.loss_streak, self.streak_day = 0, day
         self.loss_streak = 0 if won else self.loss_streak + 1
         if self.loss_streak > self.day_max_streak[day]:
             self.day_max_streak[day] = self.loss_streak
-        step = (1 - p.price_target_win) if won else -p.price_target_win
-        if not won and self.loss_streak > p.loss_streak_freeze:
-            return  # a price war or an outage elsewhere: sit it out rather than chase it down
-        self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
-        dealer = self.requests[request_id]["dealerId"]
-        self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, p.dealer_adj_max)
+        eff_target = p.price_target_win
+        if p.lim_corridor and p.lim_lane_comp_slope > 0:
+            lm = self.lim_req_lane_mult.get(request_id, 1.0)
+            if lm != 1.0:
+                eff_target = clamp(p.price_target_win - p.lim_lane_comp_slope * math.log(lm), 0.15, 0.70)
+        step = (1 - eff_target) if won else -eff_target
+        frozen_skip = (not won and self.loss_streak > p.loss_streak_freeze)
+        if frozen_skip and p.lim_events and p.lim_fri_war_unfreeze and day == 4:
+            unstaffed_now = sum(1 for o in self.orders.values() if undelivered(o) and not self.staffed(o))
+            if unstaffed_now <= 8 and self.projected_on_time() >= 0.945:
+                frozen_skip = False
+                self.stats["lim_fri_unfrozen"] += 1
+        req = self.requests[request_id]
+        dealer = req["dealerId"]
+        pickup = req["legs"][0]["pickup"]["placeId"]
+        d_log_m = 0.0
+        d_log_dlr = 0.0
+        if not frozen_skip:
+            old_m = self.mult
+            self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
+            d_log_m = math.log(self.mult / old_m) if old_m > 0 else 0.0
+            d_min = p.lim_dealer_adj_min if p.lim_dealer else p.dealer_adj_min
+            d_max = p.lim_dealer_adj_max if p.lim_dealer else p.dealer_adj_max
+            old_d = self.dealer_adj[dealer]
+            self.dealer_adj[dealer] = clamp(old_d * math.exp(p.dealer_lr * step), d_min, d_max)
+            d_log_dlr = math.log(self.dealer_adj[dealer] / old_d) if old_d > 0 else 0.0
+
+        if p.lim_events and self.level >= 6 and day <= 4:
+            outs = self.lim_day_outcomes[day]
+            outs.append((pickup, won, request_id, d_log_m, dealer, d_log_dlr))
+            if self.level >= 8 and self.lim_war_day < 0 and day != self.lim_outage_day and len(outs) >= 10:
+                if (sum(1 for x in outs if x[1]) / len(outs)) <= 0.16:
+                    self.lim_war_day = day
+                    self.stats["lim_war_detected"] += 1
+                    self.stats[f"lim_war_d{day}"] = 1
+            if self.lim_outage_day < 0 and day != self.lim_war_day and (self.now % DAY) < 17 * HOUR:
+                best_c = None
+                for c in self.sorted_places:
+                    cset = self.circle_80[c]
+                    inc = [x for x in outs if x[0] in cset]
+                    if len(inc) < p.lim_outage_min_q:
+                        continue
+                    w_in = sum(1 for x in inc if x[1]) / len(inc)
+                    if w_in < p.lim_outage_min_wr:
+                        continue
+                    outc = [x for x in outs if x[0] not in cset]
+                    w_out = (sum(1 for x in outc if x[1]) / len(outc)) if outc else 0.0
+                    avg_r = sum(self.lim_req_quote_ratio.get(x[2], self.mult) for x in inc) / len(inc)
+                    if (len(outc) >= 4 and w_in - w_out >= p.lim_outage_diff_wr) or (len(inc) >= 11 and w_in >= 0.82 and avg_r >= 1.52):
+                        cand = (w_in, len(inc), c, inc)
+                        if best_c is None or cand[:2] > best_c[:2]:
+                            best_c = cand
+                if best_c is not None:
+                    _, _, c_star, inc_rows = best_c
+                    self.lim_outage_day = day
+                    self.lim_outage_center = c_star
+                    in_log_sum = sum(x[3] for x in inc_rows)
+                    if in_log_sum > 0:
+                        self.mult = clamp(self.mult * math.exp(-in_log_sum), p.price_mult_min, p.price_mult_max)
+                    d_min = p.lim_dealer_adj_min if p.lim_dealer else p.dealer_adj_min
+                    d_max = p.lim_dealer_adj_max if p.lim_dealer else p.dealer_adj_max
+                    for x in inc_rows:
+                        if x[5] > 0:
+                            self.dealer_adj[x[4]] = clamp(self.dealer_adj[x[4]] * math.exp(-x[5]), d_min, d_max)
+                    self.lim_outage_cur_mult = clamp(self.mult * p.lim_outage_mult, self.mult, p.lim_outage_max_mult)
+                    self.stats["lim_outage_detected"] += 1
+                    self.stats[f"lim_outage_d{day}"] = 1
 
     def backlog_near(self, place: str, include_in_flight: bool = True) -> float:
         """Won orders without a driver for every undelivered car, picked up within the radius of `place`."""
@@ -1541,6 +1863,13 @@ class Desk:
         self.requests = {e["request"]["id"]: e["request"] for e in history if e["kind"] == "price_request"}
         for req in self.requests.values():
             self.dealer_request_count[req["dealerId"]] += 1
+            self.dlr_day_tot[(req["dealerId"], req["arrivedAt"] // DAY)] += 1
+        for e in history:
+            if e["kind"] == "order_won":
+                oid = e["order"]["id"]
+                if oid in self.requests:
+                    r_won = self.requests[oid]
+                    self.dlr_day_won[(r_won["dealerId"], r_won["arrivedAt"] // DAY)] += 1
         if self.p.urgent_hygiene:
             self.urgent = set()
             for e in history:
@@ -1629,13 +1958,69 @@ class Desk:
                             order = self.orders.get(order_id)
                             if order and order["lastPickupAt"] - e["at"] <= self.p.drop_urgent_margin_min:
                                 self.urgent.add(order_id)
+        if self.p.lim_dealer and self.p.lim_trust_slope > 0 and self.level >= 8:
+            for req in sorted(self.requests.values(), key=lambda r: r["arrivedAt"]):
+                if self.gate_supply.get(req["legs"][0]["pickup"]["placeId"], 0) >= self.p.min_supply:
+                    self.lim_trust_ema = (
+                        (1.0 - self.p.lim_trust_ema_alpha) * self.lim_trust_ema
+                        + self.p.lim_trust_ema_alpha * self.dealer_trust[req["dealerId"]]
+                    )
+        if self.p.lim_events and self.level >= 6:
+            cur_d = self.now // DAY
+            for prev_d in range(min(5, cur_d + 1)):
+                day_reqs = [r for r in self.requests.values() if r["arrivedAt"] // DAY == prev_d and self.gate_supply.get(r["legs"][0]["pickup"]["placeId"], 0) >= self.p.min_supply]
+                if not day_reqs:
+                    continue
+                for c in self.sorted_places:
+                    cset = self.circle_80[c]
+                    inc = [r for r in day_reqs if r["legs"][0]["pickup"]["placeId"] in cset]
+                    outc = [r for r in day_reqs if r["legs"][0]["pickup"]["placeId"] not in cset]
+                    if len(inc) >= 12 and len(outc) >= 6:
+                        w_in = sum(1 for r in inc if r["id"] in self.orders) / len(inc)
+                        w_out = sum(1 for r in outc if r["id"] in self.orders) / len(outc)
+                        if w_in >= 0.65 and w_in - w_out >= 0.35:
+                            self.lim_outage_day = prev_d
+                            self.lim_outage_center = c
+                            break
+                if self.lim_outage_day >= 0:
+                    break
         ratios = []  # the price level of the latest wins, so a restarted desk does not relearn from the prior
         for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"])[-30:]:
-            option = next((o for o in self.requests[order["id"]]["options"] if o["kind"] == order["option"]), None)
+            req_o = self.requests[order["id"]]
+            if self.p.lim_events and self.lim_outage_day >= 0 and (req_o["arrivedAt"] // DAY) == self.lim_outage_day:
+                if req_o["legs"][0]["pickup"]["placeId"] in self.circle_80.get(self.lim_outage_center, ()):
+                    continue
+            option = next((o for o in req_o["options"] if o["kind"] == order["option"]), None)
             if option:
-                ratios.append(order["priceCents"] / option["listPriceCents"])
+                denom = float(option["listPriceCents"])
+                if self.p.lim_dealer and self.p.lim_trust_slope > 0 and self.level >= 8:
+                    denom *= math.exp(self.p.lim_trust_slope * (self.dealer_trust[req_o["dealerId"]] - self.lim_trust_ema))
+                ratios.append(order["priceCents"] / denom)
         if ratios:
             self.mult = clamp(median(ratios), self.p.price_mult_min, self.p.price_mult_max)
+        if self.p.lim_events and self.lim_outage_day == (self.now // DAY) and (self.now % DAY) < 18 * HOUR:
+            self.lim_outage_cur_mult = clamp(self.mult * self.p.lim_outage_mult, self.mult, self.p.lim_outage_max_mult)
+        if self.p.lim_events or self.p.lim_dealer:
+            cur_day = self.now // DAY
+            self.lim_cold_join_checked = False
+            self.maybe_limit_morning(allow_mult_recover=False)
+            for prev_d in range(min(5, cur_day)):
+                self.lim_days_done.add(prev_d)
+                self.lim_day_open_mult[prev_d] = self.mult
+                if self.p.lim_dealer and self.p.lim_comp_step > 0 and self.orders:
+                    for dlr in sorted(self.dealer_request_count):
+                        n_prev = self.dlr_day_tot[(dlr, prev_d)]
+                        if n_prev >= 10:
+                            sh = self.dlr_day_won[(dlr, prev_d)] / n_prev
+                            if sh < 0.30 and self.lim_comp_steps[dlr] < 3:
+                                self.lim_comp_steps[dlr] += 1
+                                self.dealer_adj[dlr] = clamp(self.dealer_adj[dlr] * math.exp(self.p.lim_comp_step), self.p.lim_dealer_adj_min, self.p.lim_dealer_adj_max)
+                            elif sh >= 0.70 and self.lim_comp_steps[dlr] > -3:
+                                self.lim_comp_steps[dlr] -= 1
+                                self.dealer_adj[dlr] = clamp(self.dealer_adj[dlr] * math.exp(-self.p.lim_comp_step), self.p.lim_dealer_adj_min, self.p.lim_dealer_adj_max)
+            if cur_day <= 4 and self.now >= cur_day * DAY + 8 * HOUR:
+                self.lim_days_done.add(cur_day)
+                self.lim_day_open_mult[cur_day] = self.mult
         if self.p.supervisor:
             cur_day = self.now // DAY
             for prev_d in range(min(5, cur_day)):
