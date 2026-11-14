@@ -120,6 +120,38 @@ class Params:
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
+    # --- per-class price trackers (pickup hub/mid/thin x drive short/mid/long) ----------------------
+    class_tracker: bool = False       # give each (pickup supply x drive) class its own multiplier
+    class_factored: bool = False      # quote = mult * class_adj[cls], keeping shared world mult fast
+    class_comp_slope: float = 8.0     # logit slope compensating world mult target for log(class_adj)
+    class_adj_min: float = 0.82       # min relative class multiplier in factored mode
+    class_adj_max: float = 1.22       # max relative class multiplier in factored mode
+    class_war_snap: bool = False      # restore class_mult to day-open level when loss_streak_freeze triggers
+    class_cold_boost: float = 0.0     # initial lr boost class_cold_boost / (4 + n_cls) for sparse classes
+    class_fleet_scale: bool = False   # scale non-long expansion targets on smaller driver rosters
+    class_pool_default: bool = False  # pool classes with target_<cls>==0 onto shared self.mult
+    class_price_lr: float = 0.05      # log-step of a class's own multiplier on its normal outcomes
+    class_world_lr: float = 0.0       # shared world-level log-step from class-centered residual
+    class_hub_supply: int = 200       # 30km supply threshold for "hub" pickup/delivery
+    class_mid_supply: int = 30        # 30km supply threshold for "mid" pickup ("thin" below this)
+    class_short_drive_min: int = 60   # drive < this is "short"
+    class_mid_drive_min: int = 180    # drive <= this is "mid", > this is "long"
+    class_init_short: float = 1.0     # initial multiplier factor for "short" classes
+    class_init_long: float = 1.0      # initial multiplier factor for "long" classes
+    class_learn_ext_ring: bool = False  # allow ext_ring/return_hub quotes to update their own class tracker
+    class_inbound_tracker: bool = False # give non-hub -> hub return routes their own "ret_*" trackers
+    target_hub_short: float = 0.0     # 0 = fallback to price_target_win
+    target_hub_mid: float = 0.0
+    target_hub_long: float = 0.0
+    target_mid_short: float = 0.0
+    target_mid_mid: float = 0.0
+    target_mid_long: float = 0.0
+    target_thin_short: float = 0.0
+    target_thin_mid: float = 0.0
+    target_thin_long: float = 0.0
+    target_ret_short: float = 0.0     # used when class_inbound_tracker=True
+    target_ret_mid: float = 0.0
+    target_ret_long: float = 0.0
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -178,7 +210,48 @@ class Desk:
         self.ext_ring_reqs: set[str] = set()         # request/order ids admitted via pass_ext_ring or pass_return_hub
         self.lost: set[str] = set()                  # orders that can no longer be on time
         self.late_reposted: set[str] = set()         # orders already reposted in tick() upon becoming lost
+        self.req_classes: dict[str, str] = {}        # request id -> class key (e.g. "hub_short")
+        self.class_mult: dict[str, float] = {}       # class key -> price multiplier
+        self.class_adj: dict[str, float] = {}        # class key -> relative multiplier around self.mult
+        self.day_open_mult: dict[str, float] = {}    # class key -> multiplier at start of current day
         self.ends_at: int = 14280                    # second Wednesday 22:00
+        if params.class_tracker:
+            self._ensure_class_mult()
+
+    def _ensure_class_mult(self) -> None:
+        p = self.p
+        sup_tiers = ("hub", "mid", "thin", "ret") if p.class_inbound_tracker else ("hub", "mid", "thin")
+        for sc in sup_tiers:
+            for dc in ("short", "mid", "long"):
+                key = f"{sc}_{dc}"
+                init_f = p.class_init_short if dc == "short" else (p.class_init_long if dc == "long" else 1.0)
+                if key not in self.class_mult:
+                    self.class_mult[key] = clamp(self.mult * init_f, p.price_mult_min, p.price_mult_max)
+                if key not in self.class_adj:
+                    self.class_adj[key] = clamp(init_f, p.class_adj_min, p.class_adj_max)
+
+    def req_class(self, request: PriceRequest) -> str:
+        p, legs = self.p, request["legs"]
+        pick_sup = self.supply.get(legs[0]["pickup"]["placeId"], 0)
+        sc = "hub" if pick_sup >= p.class_hub_supply else ("mid" if pick_sup >= p.class_mid_supply else "thin")
+        if p.class_inbound_tracker and sc != "hub":
+            if self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= p.class_hub_supply:
+                sc = "ret"
+        drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
+        if len(legs) == 2:
+            drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
+        dc = "short" if drive < p.class_short_drive_min else ("mid" if drive <= p.class_mid_drive_min else "long")
+        return f"{sc}_{dc}"
+
+    def class_target(self, cls: str) -> float:
+        val = getattr(self.p, f"target_{cls}", 0.0)
+        if val <= 0 and cls.startswith("ret_"):
+            val = getattr(self.p, f"target_thin_{cls[4:]}", 0.0)
+        base = val if val > 0 else self.p.price_target_win
+        if self.p.class_fleet_scale and base > self.p.price_target_win and not cls.endswith("_long"):
+            scale = clamp((len(self.drivers) - 610.0) / 170.0, 0.35, 1.0)
+            base = self.p.price_target_win + scale * (base - self.p.price_target_win)
+        return base
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -261,6 +334,9 @@ class Desk:
                 self.stats["margin_ring_cents"] += line["cents"]
             if is_ext_ring:
                 self.stats["margin_ext_ring_cents"] += line["cents"]
+            if self.p.class_tracker and line.get("orderId") and line["orderId"] in self.requests:
+                cls = self.req_classes.get(line["orderId"]) or self.req_class(self.requests[line["orderId"]])
+                self.stats[f"cls_mrg_{cls}_cents"] += line["cents"]
             if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
                 if line["orderId"] not in self.late:
                     if is_ring:
@@ -269,6 +345,9 @@ class Desk:
                         self.stats["late_ring_hub_same_day"] += 1
                     if is_ext_ring:
                         self.stats["late_ext_ring"] += 1
+                    if self.p.class_tracker and line["orderId"] in self.requests:
+                        cls = self.req_classes.get(line["orderId"]) or self.req_class(self.requests[line["orderId"]])
+                        self.stats[f"cls_late_{cls}"] += 1
                 self.late.add(line["orderId"])
                 if dealer:
                     self.dealer_trust[dealer] //= 2
@@ -419,7 +498,20 @@ class Desk:
             ]
         )
         fee = request["referenceFeeCents"] * p.expected_fee_mult
-        mult = self.mult * self.dealer_adj[request["dealerId"]]
+        if p.class_tracker:
+            self._ensure_class_mult()
+            cls = self.req_class(request)
+            self.req_classes[request["id"]] = cls
+            if p.class_pool_default and getattr(p, f"target_{cls}", 0.0) <= 0:
+                base_mult = self.mult
+            elif p.class_factored:
+                base_mult = clamp(self.mult * self.class_adj[cls], p.price_mult_min, p.price_mult_max)
+            else:
+                base_mult = self.class_mult[cls]
+        else:
+            cls = ""
+            base_mult = self.mult
+        mult = base_mult * self.dealer_adj[request["dealerId"]]
         if p.trust_gain > 0:
             count = self.dealer_trust[request["dealerId"]]
             mult *= (1 + p.trust_gain * count / 100.0)
@@ -493,6 +585,10 @@ class Desk:
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if p.class_tracker:
+            self.stats[f"cls_q_{cls}"] += 1
+            if not floored:
+                self.stats[f"cls_nrm_{cls}"] += 1
         if pass_ext_ring or pass_return_hub:
             self.ext_ring_reqs.add(request["id"])
             self.stats["quoted_ext_ring"] += 1
@@ -504,18 +600,94 @@ class Desk:
         """Moves the multiplier towards the price that wins `price_target_win` of the normal quotes."""
         if self.decided.get(request_id) != "quote":
             return
-        if self.p.ext_ring_neutral_learn and request_id in self.ext_ring_reqs:
-            self.stats["ext_ring_skipped_learn"] += 1
+        p = self.p
+        is_ext = request_id in self.ext_ring_reqs
+        if not (p.class_tracker and p.class_learn_ext_ring):
+            if p.ext_ring_neutral_learn and is_ext:
+                self.stats["ext_ring_skipped_learn"] += 1
+                return
+            if p.ext_ring_no_learn and not won and is_ext:
+                return
+        day = self.now // DAY
+        if not (p.class_tracker and p.class_learn_ext_ring and is_ext and p.ext_ring_neutral_learn):
+            if day != self.streak_day:
+                self.loss_streak, self.streak_day = 0, day
+                if p.class_tracker:
+                    self._ensure_class_mult()
+                    self.day_open_mult = dict(self.class_mult)
+            self.loss_streak = 0 if won else self.loss_streak + 1
+            if not won and self.loss_streak > p.loss_streak_freeze:
+                if p.class_tracker and p.class_war_snap and self.loss_streak == p.loss_streak_freeze + 1 and self.day_open_mult:
+                    for k, open_v in self.day_open_mult.items():
+                        if k in self.class_mult and open_v > self.class_mult[k]:
+                            self.class_mult[k] = open_v
+                    self.mult = sum(self.class_mult.values()) / len(self.class_mult)
+                    self.stats["class_war_snaps"] += 1
+                return  # a price war or an outage elsewhere: sit it out rather than chase it down
+        elif not won and self.loss_streak > p.loss_streak_freeze:
             return
-        if self.p.ext_ring_no_learn and not won and request_id in self.ext_ring_reqs:
+        if p.class_tracker:
+            self._ensure_class_mult()
+            cls = self.req_classes.get(request_id) or self.req_class(self.requests[request_id])
+            self.req_classes[request_id] = cls
+            if p.class_pool_default and getattr(p, f"target_{cls}", 0.0) <= 0:
+                step = (1 - p.price_target_win) if won else -p.price_target_win
+                self.stats[f"cls_lrn_{cls}"] += 1
+                self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
+                dealer = self.requests[request_id]["dealerId"]
+                self.dealer_adj[dealer] = clamp(
+                    self.dealer_adj[dealer] * math.exp(p.dealer_lr * step),
+                    p.dealer_adj_min,
+                    p.dealer_adj_max,
+                )
+                return
+            target = self.class_target(cls)
+            step = (1 - target) if won else -target
+            n_before = self.stats[f"cls_lrn_{cls}"]
+            self.stats[f"cls_lrn_{cls}"] += 1
+            lr_own = p.class_price_lr * (1.0 + p.class_cold_boost / (4.0 + n_before) if p.class_cold_boost > 0 else 1.0)
+            if p.class_factored:
+                adj_used = self.class_adj[cls]
+                self.class_adj[cls] = clamp(
+                    adj_used * math.exp(lr_own * step),
+                    p.class_adj_min,
+                    p.class_adj_max,
+                )
+                self.stats[f"cls_adj_{cls}_milli"] = int(round(self.class_adj[cls] * 1000))
+                if not (p.class_learn_ext_ring and is_ext and p.ext_ring_neutral_learn):
+                    w0 = clamp(p.price_target_win, 0.01, 0.99)
+                    logit_w = math.log(w0 / (1.0 - w0)) - p.class_comp_slope * math.log(max(1e-6, adj_used))
+                    w_world = 1.0 / (1.0 + math.exp(-clamp(logit_w, -10.0, 10.0)))
+                    step_world = (1.0 - w_world) if won else -w_world
+                    self.mult = clamp(self.mult * math.exp(p.price_lr * step_world), p.price_mult_min, p.price_mult_max)
+                    dealer = self.requests[request_id]["dealerId"]
+                    self.dealer_adj[dealer] = clamp(
+                        self.dealer_adj[dealer] * math.exp(p.dealer_lr * step),
+                        p.dealer_adj_min,
+                        p.dealer_adj_max,
+                    )
+                return
+            if p.class_learn_ext_ring and is_ext and p.ext_ring_neutral_learn:
+                self.class_mult[cls] = clamp(
+                    self.class_mult[cls] * math.exp(lr_own * step),
+                    p.price_mult_min,
+                    p.price_mult_max,
+                )
+            else:
+                for k, v in self.class_mult.items():
+                    lr = (lr_own + p.class_world_lr) if k == cls else p.class_world_lr
+                    if lr > 0:
+                        self.class_mult[k] = clamp(v * math.exp(lr * step), p.price_mult_min, p.price_mult_max)
+                dealer = self.requests[request_id]["dealerId"]
+                self.dealer_adj[dealer] = clamp(
+                    self.dealer_adj[dealer] * math.exp(p.dealer_lr * step),
+                    p.dealer_adj_min,
+                    p.dealer_adj_max,
+                )
+            if not p.class_pool_default:
+                self.mult = sum(self.class_mult.values()) / len(self.class_mult)
             return
-        p, day = self.p, self.now // DAY
-        if day != self.streak_day:
-            self.loss_streak, self.streak_day = 0, day
-        self.loss_streak = 0 if won else self.loss_streak + 1
         step = (1 - p.price_target_win) if won else -p.price_target_win
-        if not won and self.loss_streak > p.loss_streak_freeze:
-            return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
         dealer = self.requests[request_id]["dealerId"]
         self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, p.dealer_adj_max)
@@ -579,6 +751,9 @@ class Desk:
                 self.stats["won_ext_ring"] += 1
                 if self.p.return_hub_min_supply > 0 and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply:
                     self.stats["won_return_hub"] += 1
+            if self.p.class_tracker:
+                cls = self.req_classes.get(order["id"]) or self.req_class(self.requests[order["id"]])
+                self.stats[f"cls_won_{cls}"] += 1
             self.stats[f"won_{order['option']}"] += 1
             self.post(order, undelivered(order))
 
@@ -998,6 +1173,34 @@ class Desk:
                 ratios.append(order["priceCents"] / option["listPriceCents"])
         if ratios:
             self.mult = clamp(median(ratios), self.p.price_mult_min, self.p.price_mult_max)
+        if self.p.class_tracker:
+            self._ensure_class_mult()
+            for req_id, req in self.requests.items():
+                self.req_classes[req_id] = self.req_class(req)
+            cls_ratios: dict[str, list[float]] = defaultdict(list)
+            for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"]):
+                req = self.requests[order["id"]]
+                option = next((o for o in req["options"] if o["kind"] == order["option"]), None)
+                if option:
+                    r = order["priceCents"] / option["listPriceCents"]
+                    if order["option"] == "same_day":
+                        r /= (1 + self.p.same_day_markup)
+                    cls_ratios[self.req_classes[order["id"]]].append(r)
+            for k in list(self.class_mult.keys()):
+                cr = cls_ratios.get(k, [])
+                if len(cr) >= 3:
+                    m_cls = median(cr[-15:])
+                    self.class_mult[k] = clamp(m_cls, self.p.price_mult_min, self.p.price_mult_max)
+                    self.class_adj[k] = clamp(m_cls / max(1e-6, self.mult), self.p.class_adj_min, self.p.class_adj_max)
+                elif cr:
+                    m_cls = 0.5 * median(cr) + 0.5 * self.mult
+                    self.class_mult[k] = clamp(m_cls, self.p.price_mult_min, self.p.price_mult_max)
+                    self.class_adj[k] = clamp(m_cls / max(1e-6, self.mult), self.p.class_adj_min, self.p.class_adj_max)
+                else:
+                    dc = k.split("_", 1)[1]
+                    init_f = self.p.class_init_short if dc == "short" else (self.p.class_init_long if dc == "long" else 1.0)
+                    self.class_mult[k] = clamp(self.mult * init_f, self.p.price_mult_min, self.p.price_mult_max)
+                    self.class_adj[k] = clamp(init_f, self.p.class_adj_min, self.p.class_adj_max)
         for order in self.orders.values():
             if order["status"] == "waiting" and not self.gigs_of(order["id"]):
                 self.post(order, undelivered(order))
