@@ -23,7 +23,7 @@ from __future__ import annotations
 
 import math
 from collections import Counter, defaultdict
-from dataclasses import dataclass, fields
+from dataclasses import dataclass, fields, replace
 from statistics import median
 from typing import Any, NamedTuple, Optional
 
@@ -35,6 +35,7 @@ from spread.types import (
 
 from .geo import Geo
 from .notes import note_flags, parse_note_v2, shift_business_days, window_from_note
+from .supervisor import Supervisor
 
 HOUR, DAY = 60, 24 * 60
 
@@ -120,6 +121,10 @@ class Params:
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
+    # --- evening supervisor (Mon-Thu 20:00) ---------------------------------------------------------
+    supervisor: str = ""              # "" = off, "llm", or "rule"
+    sup_low_backlog: int = 5          # "rule": unbooked active orders <= this counts as low backlog
+    sup_high_backlog: int = 12        # "rule": unbooked active orders >= this counts as high backlog
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -150,7 +155,9 @@ class Desk:
     Params = Params
 
     def __init__(self, world: World, params: Params, level: int, geo: Geo, roster: list[DriverProfile], now: int):
-        self.world, self.p, self.level, self.geo, self.now = world, params, level, geo, now
+        p_copy = replace(params) if params.supervisor else params
+        self.world, self.p, self.level, self.geo, self.now = world, p_copy, level, geo, now
+        self.supervisor: Optional[Supervisor] = Supervisor(world.id, self.p) if self.p.supervisor else None
         self.outbox: list[Action] = []
         self.requests: dict[str, PriceRequest] = {}
         self.orders: dict[str, Order] = {}           # won and not cancelled; order id == request id
@@ -293,6 +300,8 @@ class Desk:
                             self.stats["late_le_24h"] += 1
                         else:
                             self.stats["late_more"] += 1
+        if self.supervisor is not None:
+            self.supervisor.on_event(self, event)
 
     def tick(self) -> None:
         """Called after every step (practice) or event (live)."""
@@ -319,12 +328,16 @@ class Desk:
                             if action is not None:
                                 stops = without_windows(action["stops"], float("inf"))
                                 self.outbox.append({**action, "stops": stops, "schedule": self.fees_for(order, pickups(action), action)})
+        if self.supervisor is not None:
+            self.supervisor.on_tick(self)
 
     # --- quoting --------------------------------------------------------------------------------------
     def quote(self, request: PriceRequest) -> None:
         self.requests[request["id"]] = request
         self.dealer_request_count[request["dealerId"]] += 1
         prices, decision = self.price(request)
+        if self.supervisor is not None:
+            self.supervisor.on_quote(self, request, prices, decision)
         self.stats[f"quote_{decision}"] += 1
         if self.level <= 3:  # every quote wins at its list price: send one only for what we take
             if prices:
@@ -998,6 +1011,8 @@ class Desk:
                 ratios.append(order["priceCents"] / option["listPriceCents"])
         if ratios:
             self.mult = clamp(median(ratios), self.p.price_mult_min, self.p.price_mult_max)
+        if self.supervisor is not None:
+            self.supervisor.on_rejoin(self, snapshot, history)
         for order in self.orders.values():
             if order["status"] == "waiting" and not self.gigs_of(order["id"]):
                 self.post(order, undelivered(order))
