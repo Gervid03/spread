@@ -64,6 +64,8 @@ class Params:
     min_slack_min: int = 180          # an option needs deadline - max(now, ready) - drive minutes >= this (v2: was 120)
     slack_per_drive: float = 0.5      # an option needs slack of at least min_slack_min + slack_per_drive * drive (v1; v0 = 0)
     long_drive_min: int = 300         # if drive > this (and > 0), quote only options with deadline on a later day than ready (v1; v0 = 0)
+    live_from_min: int = 0            # practice only: the desk sits out until this minute, as in a live final it joins late
+                                      # (the Sat 14:00 test final started at Thu 00:00 = 4320 with Mon-Wed lost); 0 = off
     max_next_day_drive_min: int = 0   # if > 0 and drive > this, drop options with deadline <= ready day + 1
     thin_long_next_day_supply: int = 0  # if > 0, non-ring pickup with supply < this and drive > long_drive_min drops next_day
     fri_same_day_max_drive: int = 0   # if > 0, on Friday (ready // DAY >= 4), drop same_day with drive >= this
@@ -251,6 +253,15 @@ class Desk:
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
         kind = event["kind"]
+        if self.p.live_from_min and self.now < self.p.live_from_min:
+            # not there yet: remember what a late join's rejoin() would rebuild from the history, and nothing else
+            if kind == "price_request":
+                req = event["request"]
+                self.requests[req["id"]] = req
+                self.dealer_request_count[req["dealerId"]] += 1
+            elif kind == "order_lost":
+                self.lost_requests.add(event["requestId"])
+            return
         if kind == "price_request":
             self.quote(event["request"])
         elif kind == "order_won":
@@ -516,6 +527,8 @@ class Desk:
 
     def tick(self) -> None:
         """Called after every step (practice) or event (live)."""
+        if self.p.live_from_min and self.now < self.p.live_from_min:
+            return
         self.maybe_supervise()
         day = self.now // DAY
         if not hasattr(self, "_last_day"):
