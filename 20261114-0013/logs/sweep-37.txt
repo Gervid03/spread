@@ -1,0 +1,4 @@
+# uv run lab sweep --seeds-from dev --name n-feewarn150-fine -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g fee_warn=1.48,1.50,1.54 -g fee_step_min=18,20
+# started 2026-11-14T03:58:48Z
+
+=== fee_warn=1.48,fee_step_min=18

@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-slack130-feewarn20 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g min_slack_min=130,140,150 -g slack_per_drive=0.75,0.80
+# started 2026-11-14T03:52:48Z
+
+=== min_slack_min=130,slack_per_drive=0.75
+  mean margin €9,436.32  (median €8,891.08, min €6,628.32)  ranked 16/16  on time min 93.2% mean 96.5%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+446.01 ± 204.33 (SE) t=2.18  better on 12, worse on 4  Δon-time -0.24%
+
+=== min_slack_min=130,slack_per_drive=0.80
+  mean margin €9,329.39  (median €8,895.00, min €6,628.32)  ranked 16/16  on time min 93.2% mean 96.5%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+339.08 ± 242.64 (SE) t=1.4  better on 8, worse on 8  Δon-time -0.26%
+
+=== min_slack_min=140,slack_per_drive=0.75
+  mean margin €9,356.04  (median €8,856.21, min €6,459.01)  ranked 16/16  on time min 93.2% mean 96.5%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+365.74 ± 210.48 (SE) t=1.74  better on 9, worse on 7  Δon-time -0.24%
+
+=== min_slack_min=140,slack_per_drive=0.80
+  mean margin €9,294.86  (median €8,801.72, min €6,531.89)  ranked 16/16  on time min 93.3% mean 96.7%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+304.56 ± 197.39 (SE) t=1.54  better on 11, worse on 5  Δon-time -0.06%
+
+=== min_slack_min=150,slack_per_drive=0.75
+  mean margin €9,339.25  (median €8,848.97, min €6,531.89)  ranked 16/16  on time min 93.3% mean 96.8%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+348.94 ± 204.17 (SE) t=1.71  better on 11, worse on 5  Δon-time +0.04%
+
+=== min_slack_min=150,slack_per_drive=0.80
+  mean margin €9,381.41  (median €8,958.37, min €6,753.17)  ranked 16/16  on time min 93.3% mean 96.9%  won 231  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+391.11 ± 192.21 (SE) t=2.03  better on 12, worse on 4  Δon-time +0.20%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  min_slack_min=130,slack_per_drive=0.75             €     9,436  on-time min 93.2%  SAFE  Δ €+446±204  20261114-035248-n-slack130-feewarn20-min_slack_min130-slack_per_drive0.75
+  min_slack_min=150,slack_per_drive=0.80             €     9,381  on-time min 93.3%  SAFE  Δ €+391±192  20261114-035711-n-slack130-feewarn20-min_slack_min150-slack_per_drive0.80
+  min_slack_min=140,slack_per_drive=0.75             €     9,356  on-time min 93.2%  SAFE  Δ €+366±210  20261114-035400-n-slack130-feewarn20-min_slack_min140-slack_per_drive0.75
+  min_slack_min=150,slack_per_drive=0.75             €     9,339  on-time min 93.3%  SAFE  Δ €+349±204  20261114-035553-n-slack130-feewarn20-min_slack_min150-slack_per_drive0.75
+  min_slack_min=130,slack_per_drive=0.80             €     9,329  on-time min 93.2%  SAFE  Δ €+339±243  20261114-035319-n-slack130-feewarn20-min_slack_min130-slack_per_drive0.80
+  min_slack_min=140,slack_per_drive=0.80             €     9,295  on-time min 93.3%  SAFE  Δ €+305±197  20261114-035511-n-slack130-feewarn20-min_slack_min140-slack_per_drive0.80
+# exit 0 at 2026-11-14T03:58:06Z

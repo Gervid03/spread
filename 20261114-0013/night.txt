@@ -124,3 +124,14 @@
 03:34:01 worker n14-03323-option-weighted-tracker-and-surge started (pid 34030)
 03:34:21 worker n14-03324-supply-adaptive-fee-open-and-drop-rescue started (pid 34141)
 03:34:41 sweep 34 started: sweep --seeds-from dev --name n-slack-sdsup-steep -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=25 -g fee_warn=1.40,1.45,1.60 -g steep_open=1.5,1.8
+03:38:46 published to night/20261114
+03:43:47 lead tick started (pid 35871)
+03:43:48 sweep 35 started: sweep --seeds-from dev --name n-slack130-sdsup -s same_day_min_supply=50 -g min_slack_min=125,130,135 -g slack_per_drive=0.75,0.80
+03:44:48 worker n14-03114-surgical-tradein-and-window-gates finished after 24 min
+03:50:48 worker n14-03321-stack-grand-v5-backlog-lane-budget finished after 17 min
+03:51:48 worker n14-03323-option-weighted-tracker-and-surge finished after 17 min
+03:51:48 worker n14-03501-extring-full-neutral-and-leadcar started (pid 36827)
+03:52:08 worker n14-03502-option-floor-decouple-and-twin-ladder started (pid 36927)
+03:52:28 worker n14-03503-stack-buf-alarm-steep-thufri started (pid 37051)
+03:52:48 sweep 36 started: sweep --seeds-from dev --name n-slack130-feewarn20 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g min_slack_min=130,140,150 -g slack_per_drive=0.75,0.80
+03:58:48 sweep 37 started: sweep --seeds-from dev --name n-feewarn150-fine -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g fee_warn=1.48,1.50,1.54 -g fee_step_min=18,20

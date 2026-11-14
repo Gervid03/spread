@@ -14,3 +14,22 @@
   vs champion on 16 paired seeds: Δmargin €+419.81 ± 147.79 (SE) t=2.84  better on 11, worse on 5  Δon-time -0.28%
 
 === fee_warn=1.45,steep_open=1.8
+  mean margin €9,234.46  (median €8,721.76, min €6,505.66)  ranked 16/16  on time min 93.2% mean 96.6%  won 231  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+244.16 ± 152.75 (SE) t=1.6  better on 9, worse on 7  Δon-time -0.13%
+
+=== fee_warn=1.60,steep_open=1.5
+  mean margin €9,144.70  (median €8,828.95, min €6,212.28)  ranked 16/16  on time min 92.5% mean 96.5%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+154.40 ± 259.05 (SE) t=0.6  better on 8, worse on 8  Δon-time -0.28%
+
+=== fee_warn=1.60,steep_open=1.8
+  mean margin €9,172.39  (median €8,577.13, min €6,055.55)  ranked 16/16  on time min 92.5% mean 96.6%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+182.08 ± 210.31 (SE) t=0.87  better on 8, worse on 8  Δon-time -0.18%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  fee_warn=1.40,steep_open=1.5                       €     9,412  on-time min 92.8%  SAFE  Δ €+421±226  20261114-033441-n-slack-sdsup-steep-fee_warn1.40-steep_open1.5
+  fee_warn=1.45,steep_open=1.5                       €     9,410  on-time min 93.2%  SAFE  Δ €+420±148  20261114-033739-n-slack-sdsup-steep-fee_warn1.45-steep_open1.5
+  fee_warn=1.45,steep_open=1.8                       €     9,234  on-time min 93.2%  SAFE  Δ €+244±153  20261114-033839-n-slack-sdsup-steep-fee_warn1.45-steep_open1.8
+  fee_warn=1.40,steep_open=1.8                       €     9,214  on-time min 92.5%  SAFE  Δ €+224±241  20261114-033539-n-slack-sdsup-steep-fee_warn1.40-steep_open1.8
+  fee_warn=1.60,steep_open=1.8                       €     9,172  on-time min 92.5%  SAFE  Δ €+182±210  20261114-034130-n-slack-sdsup-steep-fee_warn1.60-steep_open1.8
+  fee_warn=1.60,steep_open=1.5                       €     9,145  on-time min 92.5%  SAFE  Δ €+154±259  20261114-033950-n-slack-sdsup-steep-fee_warn1.60-steep_open1.5
+# exit 0 at 2026-11-14T03:43:17Z

@@ -1,4 +1,4 @@
-# Night status, 2026-11-14 03:38 UTC (ends 2026-11-14T10:13:17Z)
+# Night status, 2026-11-14 03:58 UTC (ends 2026-11-14T10:13:17Z)
 
 ## Workers
 
@@ -39,13 +39,16 @@
 | n14-03111-adaptive-delivery-buffer-and-alarm | 03:11 | done 03:28 (16 min) | 37 | yes | Dev paired delta ± SE: Dev 2 (`ptw=0.40, min_supply=22`) `Δmargin €+1,517.77 ± 201.53` (t=7.53, 16/16 better vs champion v2; `Δmargin €+478.49 ± 134.12`, t=3.57 |
 | n14-03112-same-corridor-lead-car-v2 | 03:12 | done 03:31 (19 min) | 40 | yes | `ptw=0.38`: Δmargin €+1,092.26 ± 275.53 (t=3.96, 13/16 better vs champion v2; €+52.98 ± 129.09 vs stack-gtn-ptw38-dev), worst on-time 93.3% (SAFE) / `ptw=0.45`: |
 | n14-03113-stack-gtn-extring-dlr01 | 03:12 | done 03:30 (17 min) | 35 | yes | Dev 1 (dlr01-ptw38): Δmargin €+1,275.23 ± 225.86 (t=5.65, 14/16 better, mean €10,265.54, worst on-time 92.2% SAFE); Dev 3 (full stack ptw38): Δmargin €+1,172.51 |
-| n14-03114-surgical-tradein-and-window-gates | 03:19 | running | 40 | no | I will fetch from `origin` and merge `origin/exp/gemini-n14-02114-stack-gates-trust-notes` and `origin/exp/gemini-n14-02113-private-windows-and-tradeins` into t |
-| n14-03321-stack-grand-v5-backlog-lane-budget | 03:33 | running | 13 | no | I will fetch the latest branches from `origin` and merge the three Wave-0246 feature branches (`origin/exp/gemini-n14-02462-deadline-aware-backlog`, `origin/exp |
-| n14-03322-stack-backlog-feewarn-and-v3-note | 03:33 | running | 15 | no |  |
-| n14-03323-option-weighted-tracker-and-surge | 03:34 | running | 13 | no |  |
-| n14-03324-supply-adaptive-fee-open-and-drop-rescue | 03:34 | running | 15 | no | I will fetch from `origin` and merge `origin/exp/gemini-n14-02462-deadline-aware-backlog` into our worktree branch so we build on top of the deadline-aware back |
+| n14-03114-surgical-tradein-and-window-gates | 03:19 | done 03:44 (24 min) | 52 | yes | Δmargin €+981.56 ± 242.66 (t=4.05, 12/4 better, mean €9,971.86, SAFE), worst on-time share 95.6% (mean 97.9%, Δon-time +1.18%; vs stack-gtn-ptw38-dev: Δon-time  |
+| n14-03321-stack-grand-v5-backlog-lane-budget | 03:33 | done 03:50 (17 min) | 25 | yes | dev paired Δmargin €+1,347.19 ± 255.33 (SE) (t=5.28, 15/16 better, mean €10,337.50, median €10,323.27, min €7,676.33), worst on-time share 94.2% (SAFE); at `min |
+| n14-03322-stack-backlog-feewarn-and-v3-note | 03:33 | running | 41 | no |  |
+| n14-03323-option-weighted-tracker-and-surge | 03:34 | done 03:51 (17 min) | 27 | yes | `Δmargin €+1,164.32 ± 225.27` vs Champion v2 (`t=5.17`, 15/16 better; `Δmargin €-326.96 ± 199.73` vs `n14-02462` `€10,481.58`, `rev/won` `€110.83` vs `€109.13`, |
+| n14-03324-supply-adaptive-fee-open-and-drop-rescue | 03:34 | running | 42 | no | I will fetch from `origin` and merge `origin/exp/gemini-n14-02462-deadline-aware-backlog` into our worktree branch so we build on top of the deadline-aware back |
+| n14-03501-extring-full-neutral-and-leadcar | 03:51 | running | 24 | no | I will merge `origin/exp/gemini-n14-03113-stack-gtn-extring-dlr01`, `origin/exp/gemini-n14-03112-same-corridor-lead-car-v2`, and `origin/exp/gemini-n14-02462-de |
+| n14-03502-option-floor-decouple-and-twin-ladder | 03:52 | running | 18 | no |  |
+| n14-03503-stack-buf-alarm-steep-thufri | 03:52 | running | 20 | no |  |
 
-Queued prompts: none
+Queued prompts: 03504-stack-v6-buf-alarm-backlog-lane.md
 
 ## Sweeps started (in order; logs/sweep-NN.txt has each table)
 
@@ -83,6 +86,9 @@ Queued prompts: none
 32. `sweep --seeds-from dev --name n-slack-floor-fine -s min_slack_min=150 -s slack_per_drive=0.75 -g expected_fee_mult=0.95,1.02,1.10 -g min_margin_frac=0.06,0.08`
 33. `sweep --seeds-from dev --name n-slack-sdsup-lr -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g price_lr=0.03,0.04,0.05 -g dealer_lr=0.015,0.02`
 34. `sweep --seeds-from dev --name n-slack-sdsup-steep -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=25 -g fee_warn=1.40,1.45,1.60 -g steep_open=1.5,1.8`
+35. `sweep --seeds-from dev --name n-slack130-sdsup -s same_day_min_supply=50 -g min_slack_min=125,130,135 -g slack_per_drive=0.75,0.80`
+36. `sweep --seeds-from dev --name n-slack130-feewarn20 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g min_slack_min=130,140,150 -g slack_per_drive=0.75,0.80`
+37. `sweep --seeds-from dev --name n-feewarn150-fine -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -g fee_warn=1.48,1.50,1.54 -g fee_step_min=18,20`
 
 ## Every evaluation since the night began
 
@@ -246,4 +252,19 @@ Champion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds 
 | 20261114-033441-n-slack-sdsup-steep-fee_warn1.40-steep_open1.5 | 16 | 9,412 | 6,200 | 92.8% | SAFE | +421 ± 226 (t +1.9, 10/16 better) |
 | 20261114-033539-n-slack-sdsup-steep-fee_warn1.40-steep_open1.8 | 16 | 9,214 | 6,287 | 92.5% | SAFE | +224 ± 241 (t +0.9, 7/16 better) |
 | 20261114-033739-n-slack-sdsup-steep-fee_warn1.45-steep_open1.5 | 16 | 9,410 | 7,046 | 93.2% | SAFE | +420 ± 148 (t +2.8, 11/16 better) |
-| 20261114-033839-n-slack-sdsup-steep-fee_warn1.45-steep_open1.8 | 0 failed | | | | | |
+| 20261114-033839-n-slack-sdsup-steep-fee_warn1.45-steep_open1.8 | 16 | 9,234 | 6,506 | 93.2% | SAFE | +244 ± 153 (t +1.6, 9/16 better) |
+| 20261114-033950-n-slack-sdsup-steep-fee_warn1.60-steep_open1.5 | 16 | 9,145 | 6,212 | 92.5% | SAFE | +154 ± 259 (t +0.6, 8/16 better) |
+| 20261114-034130-n-slack-sdsup-steep-fee_warn1.60-steep_open1.8 | 16 | 9,172 | 6,056 | 92.5% | SAFE | +182 ± 210 (t +0.9, 8/16 better) |
+| 20261114-034348-n-slack130-sdsup-min_slack_min125-slack_per_drive0.75 | 16 | 9,087 | 6,679 | 92.7% | SAFE | +97 ± 279 (t +0.3, 9/16 better) |
+| 20261114-034603-n-slack130-sdsup-min_slack_min125-slack_per_drive0.80 | 16 | 9,314 | 6,679 | 94.4% | SAFE | +323 ± 190 (t +1.7, 11/16 better) |
+| 20261114-034749-n-slack130-sdsup-min_slack_min130-slack_per_drive0.75 | 16 | 9,263 | 6,679 | 94.4% | SAFE | +273 ± 193 (t +1.4, 10/16 better) |
+| 20261114-034908-n-slack130-sdsup-min_slack_min130-slack_per_drive0.80 | 16 | 9,318 | 6,679 | 94.4% | SAFE | +328 ± 185 (t +1.8, 11/16 better) |
+| 20261114-035035-n-slack130-sdsup-min_slack_min135-slack_per_drive0.75 | 16 | 9,286 | 6,679 | 94.4% | SAFE | +296 ± 184 (t +1.6, 11/16 better) |
+| 20261114-035111-n-slack130-sdsup-min_slack_min135-slack_per_drive0.80 | 16 | 9,326 | 6,679 | 94.4% | SAFE | +336 ± 180 (t +1.9, 12/16 better) |
+| 20261114-035248-n-slack130-feewarn20-min_slack_min130-slack_per_drive0.75 | 16 | 9,436 | 6,628 | 93.2% | SAFE | +446 ± 204 (t +2.2, 12/16 better) |
+| 20261114-035319-n-slack130-feewarn20-min_slack_min130-slack_per_drive0.80 | 16 | 9,329 | 6,628 | 93.2% | SAFE | +339 ± 243 (t +1.4, 8/16 better) |
+| 20261114-035400-n-slack130-feewarn20-min_slack_min140-slack_per_drive0.75 | 16 | 9,356 | 6,459 | 93.2% | SAFE | +366 ± 210 (t +1.7, 9/16 better) |
+| 20261114-035511-n-slack130-feewarn20-min_slack_min140-slack_per_drive0.80 | 16 | 9,295 | 6,532 | 93.3% | SAFE | +305 ± 197 (t +1.5, 11/16 better) |
+| 20261114-035553-n-slack130-feewarn20-min_slack_min150-slack_per_drive0.75 | 16 | 9,339 | 6,532 | 93.3% | SAFE | +349 ± 204 (t +1.7, 11/16 better) |
+| 20261114-035711-n-slack130-feewarn20-min_slack_min150-slack_per_drive0.80 | 16 | 9,381 | 6,753 | 93.3% | SAFE | +391 ± 192 (t +2.0, 12/16 better) |
+| 20261114-035848-n-feewarn150-fine-fee_warn1.48-fee_step_min18 | 0 failed | | | | | |
