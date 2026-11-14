@@ -57,7 +57,7 @@ THIN = {"thin10": 1.0, "thin12": 1.2}   # his "driver first": thin-town cars (< 
 THIN_MAX = 22
 SD = {"sd75": 0.75, "sd100": 1.0}    # same_day into a pool from a town v7 won't quote same_day in; posted at once at this x
 SD_BUMP = 60
-WEEK_MIN_MARGIN = 1500               # week arms: a single car is quoted when QUOTE x limit - SOLO x typical >= this (cents)                         # same_day: raise to 1.4x after an hour unbooked
+WEEK_MIN_MARGIN = int(__import__("os").environ.get("WEEK_MIN_MARGIN", 1500))               # week arms: a single car is quoted when QUOTE x limit - SOLO x typical >= this (cents)                         # same_day: raise to 1.4x after an hour unbooked
 OFF_OPEN = 0.75                    # offers arms: every car alone at 0.75x, raised to 0.9x after BUMP; offa/offu add offers
 geo = Geo(load_map(None))
 TAPE = tape(SEED)
@@ -260,7 +260,7 @@ class Desk:
         if any(i in self.lost for i in loop):
             return [self.post([oid], SOLO, "broken", now)]
         if all(i in self.held for i in loop):
-            if self.arm in ("chain", "rest"):
+            if self.arm in ("chain", "rest") or frozenset(loop) in CHAINS:
                 return [self.post(list(loop), OPEN["c"], "chain", now)]
             return [self.post(list(loop), OPEN[len(loop)], "home" if len(loop) == 1 else f"loop{len(loop)}", now)]
         return []
@@ -337,7 +337,7 @@ class Desk:
             if g in self.booked:
                 continue
             last = x["steps"][-1][0]
-            if self.arm in ("week1", "week10") and x["kind"] in LADDER:
+            if self.arm in ("week1", "week10", "week2", "week2s") and x["kind"] in LADDER:
                 rung = x.get("rung", 0)
                 if rung < len(LADDER[x["kind"]]) and now - x["at"] >= LADDER[x["kind"]][rung][0]:
                     x["rung"] = rung + 1
@@ -470,7 +470,7 @@ class Desk:
 KINDS = ["price_request", "order_won", "order_lost", "order_changed", "order_cancelled", "gig_booked", "deadline_close",
          "gig_expired", "gig_dropped", "no_show", "visit_failed", "offer_answered"]
 SELECT = {}
-GROUP = {"week": "w", "week0": "w0", "week1": "w", "week10": "w0", "sd75": "s", "sd100": "s", "rest": "r", "solo7": "r", "thin10": "t", "thin12": "t", "ret6": "2", "ret9": "2", "off0": "4", "offa": "4", "offu": "4", "loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
+GROUP = {"week2": "w2", "week2s": "w2s", "week": "w", "week0": "w0", "week1": "w", "week10": "w0", "sd75": "s", "sd100": "s", "rest": "r", "solo7": "r", "thin10": "t", "thin12": "t", "ret6": "2", "ret9": "2", "off0": "4", "offa": "4", "offu": "4", "loops": "4", "solo": "4", "pairs": "2", "solo2": "2", "teach": "4", "flat": "4", "tri": "3", "solo3": "3",
          "home": "2h", "solo4": "2h", "homeonly": "h", "solo5": "h", "chain": "c", "solo6": "c"}
 
 
@@ -516,9 +516,10 @@ def thin_singles():
 
 
 SAME_DAY = set()
-WEEK = ("week", "week0", "week1", "week10")
+WEEK = ("week", "week0", "week1", "week10", "week2", "week2s")
+CHAINS = set()                       # week2: the 2-car open chains (not closed pairs), as frozensets
 LADDER = {"solo": [(120, 1.15), (240, 1.4)], "sd": [(60, 1.0), (120, 1.4)],
-          "loop2": [(120, 0.9), (240, 1.15)], "loop3": [(120, 0.9), (240, 1.15)]}   # week1/week10: raise as time passes
+          "loop2": [(120, 0.9), (240, 1.15)], "loop3": [(120, 0.9), (240, 1.15)], "chain": [(120, 0.9), (240, 1.15)]}   # week1/week10: raise as time passes
 
 
 def week():
@@ -541,6 +542,46 @@ def week():
     return loops + sd + singles
 
 
+def staffable(r):
+    """His point (Sun ~01:00): don't take cars that will be late. In the oracle week the late cars were the ones with
+    under 30 h to the slow deadline (1 in 3 late) and drives over 4 h (1 in 4)."""
+    o = slow_option(r)
+    return o and o["deadline"] - r["arrivedAt"] >= 30 * HOUR and geo.minutes(*ends(r)) <= 240
+
+
+def week2():
+    """The staffable oracle week: closed pairs/triangles; same_day into pools; then, of the staffable cars left that
+    clear WEEK_MIN_MARGIN, as many as possible linked two at a time back to back (any end, <= 8 h road, one gig at
+    0.65x, then the ladder); the rest alone with the ladder."""
+    loops = selection("tri")[0]
+    taken = {i for c in loops for i in c}
+    sd = [c for c in same_day_in() if c[0] not in taken]
+    SAME_DAY.update(c[0] for c in sd)
+    taken |= SAME_DAY
+    ok = []
+    for r in REQ.values():
+        o = slow_option(r)
+        if r["id"] in taken or len(r["legs"]) != 1 or not o or NEAR[ends(r)[0]] < THIN_MAX or not staffable(r):
+            continue
+        lim = LIMIT.get((r["id"], o["kind"]))
+        if lim and QUOTE * lim - SOLO * r["referenceFeeCents"] >= WEEK_MIN_MARGIN:
+            ok.append(r)
+    g = nx.Graph()
+    for x in ok:
+        for y in ok:
+            if x is y or abs(x["arrivedAt"] - y["arrivedAt"]) > DAY or geo.line_km(ends(x)[1], ends(y)[0]) > 30:
+                continue
+            if x["legs"][0]["pickup"]["privateAddress"] or y["legs"][0]["delivery"]["privateAddress"]:
+                continue
+            road = geo.minutes(*ends(x)) + geo.minutes(ends(x)[1], ends(y)[0]) + geo.minutes(*ends(y))
+            if road <= 480 and drivable([x, y]) and not g.has_edge(x["id"], y["id"]):
+                g.add_edge(x["id"], y["id"], c=[x["id"], y["id"]])
+    chains = [g.edges[e]["c"] for e in nx.max_weight_matching(g, maxcardinality=True)]
+    CHAINS.update(frozenset(c) for c in chains)
+    paired = {i for c in chains for i in c}
+    return loops + sd + chains + [[r["id"]] for r in ok if r["id"] not in paired]
+
+
 def selection(arm):
     """The loops an arm aims at: '4', '3', '2' = closed loops up to that size; '2h' = pairs, then the homeward
     singles not in a pair; 'h' = homeward singles only."""
@@ -555,6 +596,10 @@ def selection(arm):
             SELECT[key] = (week(), 0, 0)
         elif key == "w0":
             SELECT[key] = ([[i] for c in selection("week")[0] for i in c], 0, 0)
+        elif key == "w2":
+            SELECT[key] = (week2(), 0, 0)
+        elif key == "w2s":
+            SELECT[key] = ([[i] for c in selection("week2")[0] for i in c], 0, 0)
         elif key == "s":
             SELECT[key] = (same_day_in(), 0, 0)
         elif key == "r":
@@ -593,7 +638,7 @@ def play(arm):
     out = {"seed": SEED, "arm": arm, "loops": loops, "score": score, "log": dict(desk.log),
            "gigs": [{**x, "id": g, "booked": desk.booked.get(g)} for g, x in desk.gigs.items()] + desk.done,
            "ledger": desk.ledger, "events": events}
-    (home(SEED) / f"loops1-{arm}.json").write_text(json.dumps(out), encoding="utf-8")
+    (home(SEED) / f"loops1-{arm}{__import__('os').environ.get('TAG', '')}.json").write_text(json.dumps(out), encoding="utf-8")
     return out
 
 
