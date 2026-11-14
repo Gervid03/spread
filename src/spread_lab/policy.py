@@ -104,6 +104,16 @@ class Params:
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
+    # --- thin volume & inbound (ideas 24 and 25) ----------------------------------------------------
+    thin_fee_mult: float = 0.0        # 0 = decline pickups under the supply gate; > 0 quotes slow options at floor
+    thin_markup: float = 1.25         # tracker price multiplier for thin pickups
+    thin_fee_open: float = 1.3        # opening fee multiple of typical fee for thin gigs
+    thin_cap_day: int = 4             # daily cap on thin wins + price_target_win * thin quotes in flight
+    inbound_min_supply: int = 0       # 0 = off; else delivery supply within 30 km needed to pass thin pickup for slow options
+    inbound_max_drive: int = 240      # drive minutes must be under this for inbound to pass
+    inbound_markup: float = 0.05      # price markup for inbound requests
+    fee_open_inbound: float = 1.0     # opening fee multiple of typical fee for inbound gigs
+    inbound_cap_day: int = 0          # 0 = no cap; else daily cap on inbound wins + price_target_win * inbound quotes in flight
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -158,6 +168,8 @@ class Desk:
         self.stats: Counter = Counter()
         self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
         self.ring_hub_same_day: set[str] = set()     # request/order ids where ring_to_hub_same_day_min allowed same_day
+        self.req_class: dict[str, str] = {}          # request/order id -> "inbound" | "thin"
+        self.won_day: dict[str, int] = {}            # order id -> day it was won
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -181,6 +193,11 @@ class Desk:
             self.retry(event["orderId"], event["leg"], event["reason"])
         elif kind == "gig_expired":
             self.stats["gig_expired"] += 1
+            post = self.posts.get(event["gigId"])
+            if post:
+                req_class = self.req_class.get(post["stops"][0]["orderId"])
+                if req_class in ("thin", "inbound"):
+                    self.stats[f"expired_{req_class}"] += 1
             self.repost(event["gigId"])
         elif kind == "deadline_close":
             self.stats["deadline_close"] += 1
@@ -188,6 +205,18 @@ class Desk:
         elif kind == "gig_booked":
             self.booked.add(event["gigId"])
             self.stats["booked"] += 1
+            post = self.posts.get(event["gigId"])
+            if post:
+                order_id = post["stops"][0]["orderId"]
+                req_class = self.req_class.get(order_id)
+                if req_class in ("thin", "inbound") and order_id in self.requests and order_id in self.orders:
+                    typ = self.requests[order_id]["referenceFeeCents"] * pickups(post) / len(self.orders[order_id]["legs"])
+                    if typ > 0:
+                        self.stats[f"fee_typ_sum1000_{req_class}"] += int(round(1000 * event["feeCents"] / typ))
+                        self.stats[f"fee_typ_count_{req_class}"] += 1
+                    posted_at = post["schedule"][0]["at"] if post.get("schedule") else event["at"]
+                    self.stats[f"book_min_sum_{req_class}"] += max(0, event["at"] - posted_at)
+                    self.stats[f"book_min_count_{req_class}"] += 1
         elif kind in ("gig_dropped", "no_show"):
             self.booked.discard(event["gigId"])
             self.stats[kind] += 1
@@ -206,22 +235,28 @@ class Desk:
             self.last_view[event["driverId"]] = event["at"]
         elif kind == "ledger":
             line = event["line"]
-            order = self.orders.get(line.get("orderId", "")) if line.get("orderId") else None
-            dealer = self.requests[line["orderId"]]["dealerId"] if line.get("orderId") and line["orderId"] in self.requests else None
-            is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
+            order_id = line.get("orderId", "")
+            order = self.orders.get(order_id) if order_id else None
+            dealer = self.requests[order_id]["dealerId"] if order_id and order_id in self.requests else None
+            req_class = self.req_class.get(order_id) if order_id else None
+            if req_class in ("thin", "inbound"):
+                self.stats[f"margin_{req_class}_cents"] += line["cents"]
+            is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply and not req_class
             if is_ring:
                 self.stats["margin_ring_cents"] += line["cents"]
-            if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
-                if line["orderId"] not in self.late:
+            if line["kind"] in ("late_refund", "undelivered_penalty") and order_id:
+                if order_id not in self.late:
                     if is_ring:
                         self.stats["late_ring"] += 1
-                    if order and order["option"] == "same_day" and line["orderId"] in self.ring_hub_same_day:
+                    if req_class in ("thin", "inbound"):
+                        self.stats[f"late_{req_class}"] += 1
+                    if order and order["option"] == "same_day" and order_id in self.ring_hub_same_day:
                         self.stats["late_ring_hub_same_day"] += 1
-                self.late.add(line["orderId"])
+                self.late.add(order_id)
                 if dealer:
                     self.dealer_trust[dealer] //= 2
-            elif line["kind"] == "revenue" and line["orderId"]:
-                if dealer and line["orderId"] not in self.late:
+            elif line["kind"] == "revenue" and order_id:
+                if dealer and order_id not in self.late:
                     if order and self.now <= order["deadline"]:
                         self.dealer_trust[dealer] = min(25, self.dealer_trust[dealer] + 1)
         elif kind == "offer_answered":
@@ -287,18 +322,33 @@ class Desk:
         gate_supply = self.gate_supply.get(pickup, 0)
         tight = self.tightening()
         gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
+        drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
+        if len(legs) == 2:
+            drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
+        req_class: Optional[str] = None
         if gate_supply < gate_min:
-            return {}, "decline"
+            deliv_supply = self.supply.get(legs[-1]["delivery"]["placeId"], 0)
+            if (
+                p.inbound_min_supply > 0
+                and deliv_supply >= p.inbound_min_supply
+                and drive < p.inbound_max_drive
+                and (p.inbound_cap_day <= 0 or self.class_load_today("inbound") + 1e-9 < p.inbound_cap_day)
+            ):
+                req_class = "inbound"
+            elif (
+                p.thin_fee_mult > 0
+                and (p.thin_cap_day <= 0 or self.class_load_today("thin") + 1e-9 < p.thin_cap_day)
+            ):
+                req_class = "thin"
+            else:
+                return {}, "decline"
         backlog_cap = max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight)
         if self.backlog_near(pickup) + 1e-9 >= backlog_cap:
             self.stats["declined_backlog"] += 1
             if p.backlog_in_flight_weight > 0 and self.backlog_near(pickup, include_in_flight=False) + 1e-9 < backlog_cap:
                 self.stats["in_flight_blocked"] += 1
             return {}, "decline"
-        is_ring = supply < gate_min
-        drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
-        if len(legs) == 2:
-            drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
+        is_ring = supply < gate_min and req_class is None
 
         if p.trust_guard and self.dealer_trust[request["dealerId"]] >= 13:
             has_same_day = any(o["kind"] == "same_day" for o in request["options"])
@@ -334,6 +384,8 @@ class Desk:
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
+            if req_class is not None and option["kind"] == "same_day":
+                continue
             ring_hub_sd = False
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
                 if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
@@ -384,18 +436,32 @@ class Desk:
             if is_invest and slack >= 360:
                 option_mult *= (1 - p.trust_invest)
 
-            price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            floor = fee / (1 - p.min_margin_frac)
-            if price < floor:
-                price, floored = floor, True
+            if req_class == "thin":
+                price = option["listPriceCents"] * option_mult * p.thin_markup
+                thin_floor = request["referenceFeeCents"] * p.thin_fee_mult / (1 - p.min_margin_frac)
+                if price < thin_floor:
+                    price, floored = thin_floor, True
+            elif req_class == "inbound":
+                price = option["listPriceCents"] * option_mult * (1 + p.inbound_markup)
+                floor = fee / (1 - p.min_margin_frac)
+                if price < floor:
+                    price, floored = floor, True
+            else:
+                price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
+                floor = fee / (1 - p.min_margin_frac)
+                if price < floor:
+                    price, floored = floor, True
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if req_class is not None:
+            self.req_class[request["id"]] = req_class
+            self.stats[f"quoted_{req_class}"] += 1
         return prices, "floor" if floored else "quote"
 
     def learn(self, request_id: str, won: bool) -> None:
         """Moves the multiplier towards the price that wins `price_target_win` of the normal quotes."""
-        if self.decided.get(request_id) != "quote":
+        if self.decided.get(request_id) != "quote" or self.req_class.get(request_id) == "thin":
             return
         p, day = self.p, self.now // DAY
         if day != self.streak_day:
@@ -407,6 +473,22 @@ class Desk:
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
         dealer = self.requests[request_id]["dealerId"]
         self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, p.dealer_adj_max)
+
+    def class_load_today(self, cls_name: str) -> float:
+        """Today's wins of class `cls_name` + `price_target_win` * open quotes in flight of class `cls_name`."""
+        day = self.now // DAY
+        wins = sum(1 for oid in self.orders if self.req_class.get(oid) == cls_name and self.won_day.get(oid) == day)
+        in_flight = sum(
+            1
+            for req_id, req in self.requests.items()
+            if self.req_class.get(req_id) == cls_name
+            and req_id not in self.orders
+            and req_id not in self.lost_requests
+            and self.decided.get(req_id) in ("quote", "floor")
+            and self.now <= req["respondBy"]
+            and req["arrivedAt"] // DAY == day
+        )
+        return wins + self.p.price_target_win * in_flight
 
     def backlog_near(self, place: str, include_in_flight: bool = True) -> float:
         """Won orders without a driver for every undelivered car, picked up within the radius of `place`."""
@@ -457,8 +539,12 @@ class Desk:
     def win(self, order: Order) -> None:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
+            self.won_day[order["id"]] = self.requests[order["id"]]["arrivedAt"] // DAY
             self.stats["won"] += 1
-            if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
+            req_class = self.req_class.get(order["id"])
+            if req_class in ("thin", "inbound"):
+                self.stats[f"won_{req_class}"] += 1
+            elif self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
             if order["option"] == "same_day" and order["id"] in self.ring_hub_same_day:
                 self.stats["won_ring_hub_same_day"] += 1
@@ -530,7 +616,12 @@ class Desk:
         until = order["lastPickupAt"] - 3 * HOUR
         supply = self.supply.get(order["legs"][0]["pickup"]["placeId"], 0)
         fee_open_override: Optional[float] = None
-        if p.hub_multiday_fee_open > 0 and order["option"] != "same_day" and supply >= 150 and until - self.now >= 6 * HOUR:
+        req_class = self.req_class.get(order["id"])
+        if req_class == "inbound":
+            fee_open_override = p.fee_open_inbound
+        elif req_class == "thin":
+            fee_open_override = p.thin_fee_open
+        elif p.hub_multiday_fee_open > 0 and order["option"] != "same_day" and supply >= 150 and until - self.now >= 6 * HOUR:
             fee_open_override = p.hub_multiday_fee_open
             self.stats["hub_multiday_posts"] += 1
         elif p.thin_sameday_fee_open > 0 and order["option"] == "same_day" and supply < 65:
@@ -542,6 +633,7 @@ class Desk:
         """From `fee_open` now to `fee_warn` at `until`, in daytime steps only, at most 48 steps."""
         p = self.p
         fee_open = fee_open_override if fee_open_override is not None else p.fee_open
+        fee_warn = max(p.fee_warn, fee_open)
         times = [self.now]
         t = (self.now // p.fee_step_min + 1) * p.fee_step_min
         while t <= until:
@@ -552,7 +644,7 @@ class Desk:
             k = len(times) - 1
             times = [times[round(i * k / 47)] for i in range(48)]
         n = len(times)
-        return [{"at": at, "feeCents": max(1, int(base * (fee_open + (p.fee_warn - fee_open) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
+        return [{"at": at, "feeCents": max(1, int(base * (fee_open + (fee_warn - fee_open) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
                 for i, at in enumerate(times)]
 
     def steep(self, base: float) -> list[FeeStep]:
@@ -676,6 +768,27 @@ class Desk:
             elif e["kind"] == "offer_answered":
                 self.offers_sent[(e["driverId"], e["at"] // DAY)] += 1
         self.orders = {o["id"]: o for o in snapshot["orders"] if o["id"] in self.requests and o["status"] != "cancelled"}
+        for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"]):
+            req = self.requests[order["id"]]
+            self.won_day[order["id"]] = req["arrivedAt"] // DAY
+            pickup = req["legs"][0]["pickup"]["placeId"]
+            if self.gate_supply.get(pickup, 0) < self.p.min_supply:
+                legs = req["legs"]
+                drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
+                if len(legs) == 2:
+                    drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
+                deliv_supply = self.supply.get(legs[-1]["delivery"]["placeId"], 0)
+                day = self.won_day[order["id"]]
+                inbound_wins = sum(1 for oid, c in self.req_class.items() if c == "inbound" and self.won_day.get(oid) == day)
+                if (
+                    self.p.inbound_min_supply > 0
+                    and deliv_supply >= self.p.inbound_min_supply
+                    and drive < self.p.inbound_max_drive
+                    and (self.p.inbound_cap_day <= 0 or inbound_wins < self.p.inbound_cap_day)
+                ):
+                    self.req_class[order["id"]] = "inbound"
+                elif self.p.thin_fee_mult > 0:
+                    self.req_class[order["id"]] = "thin"
         if self.p.drop_urgent_margin_min > 0:
             for e in history:
                 if e["kind"] in ("gig_dropped", "no_show"):
@@ -687,6 +800,8 @@ class Desk:
                                 self.urgent.add(order_id)
         ratios = []  # the price level of the latest wins, so a restarted desk does not relearn from the prior
         for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"])[-30:]:
+            if self.req_class.get(order["id"]) == "thin":
+                continue
             option = next((o for o in self.requests[order["id"]]["options"] if o["kind"] == order["option"]), None)
             if option:
                 ratios.append(order["priceCents"] / option["listPriceCents"])
