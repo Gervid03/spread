@@ -54,7 +54,8 @@ class Params:
     dealer_adj_max: float = 1.30
     loss_streak_freeze: int = 12      # this many losses in a row stop downward moves until the next day
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
-    lane_dest_tilt: float = 0.0       # zero-mean destination supply tilt (+1.0x on deliv_supply < 30, -1.5x on >= 100)
+    lane_dest_tilt: float = 0.0       # destination supply tilt (+1.0x on deliv_supply < 30, -lane_hub_disc_mult x on >= 100 non-same_day)
+    lane_hub_disc_mult: float = 1.5   # multiplier for hub-destination discount when lane_dest_tilt > 0 and option != same_day
     cost_ratio_slope: float = 0.0     # centered cost-ratio slope on referenceFeeCents / listPriceCents - 0.91
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
@@ -401,12 +402,12 @@ class Desk:
             option_mult = mult
             if is_invest and slack >= 360:
                 option_mult *= (1 - p.trust_invest)
-            if p.lane_dest_tilt != 0.0:
+            if p.lane_dest_tilt > 0:
                 if deliv_supply < 30:
                     option_mult *= 1.0 + p.lane_dest_tilt
                     self.stats["lane_thin_dest"] += 1
-                elif deliv_supply >= 100:
-                    option_mult *= 1.0 - 1.5 * p.lane_dest_tilt
+                elif deliv_supply >= 100 and p.lane_hub_disc_mult > 0 and option["kind"] != "same_day":
+                    option_mult *= 1.0 - p.lane_hub_disc_mult * p.lane_dest_tilt
                     self.stats["lane_hub_dest"] += 1
             if p.cost_ratio_slope != 0.0:
                 cost_ratio = request["referenceFeeCents"] / option["listPriceCents"]
