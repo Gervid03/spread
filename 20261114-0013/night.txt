@@ -203,3 +203,16 @@
 05:57:31 worker n14-05166-quota started (pid 57219)
 05:57:53 lead tick started (pid 57370)
 05:59:53 sweep 56 started: sweep --seeds-from dev --name n-slack140-sdsup-steep -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s steep_open=1.5 -g fee_warn=1.45,1.50 -g fee_step_min=20,25,30
+06:01:59 published to night/20261114
+06:03:59 worker n14-05162-thin-volume finished after 33 min
+06:04:59 worker n14-06041-capacity-steps started (pid 59379)
+06:06:19 worker n14-05164-thermostat finished after 30 min
+06:06:19 worker n14-06042-costprice-on-a started (pid 59541)
+06:06:39 sweep 57 started: sweep --seeds-from dev --name n-slack-steep-dlr -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.5 -g steep_step=0.20,0.25,0.30 -g dealer_lr=0.01,0.02
+06:12:39 sweep 58 started: sweep --seeds-from dev --name n-slack140-lr03-feewarn -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s price_lr=0.03 -s dealer_lr=0.01 -s steep_open=1.5 -g fee_warn=1.45,1.50 -g fee_step_min=20,25,30
+06:16:39 worker n14-05161-validate-top finished after 60 min
+06:16:39 worker n14-06043-feeclock-on-a started (pid 60596)
+06:16:59 sweep 59 started: sweep --seeds-from dev --name n-slack-steep-ptw -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.5 -g price_target_win=0.35,0.40 -g min_supply=20,22,25
+06:17:59 worker n14-05165-research-volume finished after 21 min
+06:17:59 worker n14-06044-friday-on-a started (pid 60881)
+06:18:21 lead tick started (pid 61034)

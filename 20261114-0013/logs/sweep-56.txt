@@ -6,3 +6,30 @@
   vs champion on 16 paired seeds: Δmargin €+167.60 ± 202.67 (SE) t=0.83  better on 10, worse on 6  Δon-time -0.62%
 
 === fee_warn=1.45,fee_step_min=25
+  mean margin €9,525.26  (median €8,977.33, min €7,045.61)  ranked 16/16  on time min 93.2% mean 96.6%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+534.95 ± 160.94 (SE) t=3.32  better on 11, worse on 5  Δon-time -0.19%
+
+=== fee_warn=1.45,fee_step_min=30
+  mean margin €9,424.20  (median €9,111.77, min €6,656.53)  ranked 16/16  on time min 93.6% mean 96.7%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+433.90 ± 231.32 (SE) t=1.88  better on 10, worse on 6  Δon-time -0.09%
+
+=== fee_warn=1.50,fee_step_min=20
+  mean margin €9,431.67  (median €8,938.62, min €6,454.39)  ranked 16/16  on time min 92.6% mean 96.7%  won 232  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+441.37 ± 187.05 (SE) t=2.36  better on 12, worse on 4  Δon-time -0.09%
+
+=== fee_warn=1.50,fee_step_min=25
+  mean margin €9,382.52  (median €8,882.14, min €6,568.70)  ranked 16/16  on time min 92.8% mean 96.7%  won 233  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+392.22 ± 238.77 (SE) t=1.64  better on 13, worse on 3  Δon-time -0.07%
+
+=== fee_warn=1.50,fee_step_min=30
+  mean margin €9,234.93  (median €8,862.13, min €6,126.65)  ranked 16/16  on time min 92.7% mean 96.2%  won 233  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+244.62 ± 249.99 (SE) t=0.98  better on 8, worse on 8  Δon-time -0.52%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  fee_warn=1.45,fee_step_min=25                      €     9,525  on-time min 93.2%  SAFE  Δ €+535±161  20261114-060120-n-slack140-sdsup-steep-fee_warn1.45-fee_step_min25
+  fee_warn=1.50,fee_step_min=20                      €     9,432  on-time min 92.6%  SAFE  Δ €+441±187  20261114-060247-n-slack140-sdsup-steep-fee_warn1.50-fee_step_min20
+  fee_warn=1.45,fee_step_min=30                      €     9,424  on-time min 93.6%  SAFE  Δ €+434±231  20261114-060159-n-slack140-sdsup-steep-fee_warn1.45-fee_step_min30
+  fee_warn=1.50,fee_step_min=25                      €     9,383  on-time min 92.8%  SAFE  Δ €+392±239  20261114-060428-n-slack140-sdsup-steep-fee_warn1.50-fee_step_min25
+  fee_warn=1.50,fee_step_min=30                      €     9,235  on-time min 92.7%  SAFE  Δ €+245±250  20261114-060505-n-slack140-sdsup-steep-fee_warn1.50-fee_step_min30
+  fee_warn=1.45,fee_step_min=20                      €     9,158  on-time min 93.4%  SAFE  Δ €+168±203  20261114-055953-n-slack140-sdsup-steep-fee_warn1.45-fee_step_min20
+# exit 0 at 2026-11-14T06:05:45Z
