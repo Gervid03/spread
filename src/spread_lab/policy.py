@@ -1981,7 +1981,7 @@ class Desk:
             return None
         deadhead = self.geo.minutes(a.place_d, b.place_p)
         total_drive = a.drive_min + deadhead + b.drive_min
-        if total_drive > 12 * HOUR:
+        if total_drive + a.extra_min + b.extra_min + 60 > 12 * HOUR:
             return None
         a_lim = min(a.deadline, a.del_to)
         b_lim = min(b.deadline, b.del_to)
