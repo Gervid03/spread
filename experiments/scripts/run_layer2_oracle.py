@@ -17,7 +17,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 import tas  # noqa: E402
 from spread_lab.env import load_dotenv  # noqa: E402
 from spread_lab.lab import champion, parse_overrides  # noqa: E402
-from spread_lab.policies.tas_price import OracleDesk  # noqa: E402
+from spread_lab.policies.tas_price import OracleCyclesDesk, OracleDesk  # noqa: E402
 from spread_lab.policy import DAY  # noqa: E402
 
 
@@ -162,6 +162,7 @@ def main() -> None:
     ap.add_argument("--seed", default="dev-12")
     ap.add_argument("--name", required=True)
     ap.add_argument("-s", "--set", action="append", default=[])
+    ap.add_argument("--stack-v7", action="store_true")
     ap.add_argument("--fast-lookup", action="store_true")
     ap.add_argument("--replay", action="store_true")
     ap.add_argument("--lo", type=float, default=0.65)
@@ -169,8 +170,15 @@ def main() -> None:
     ap.add_argument("--iters", type=int, default=8)
     a = ap.parse_args()
 
-    base_params = dict(V5_PARAMS)
-    overrides = parse_overrides(OracleDesk, a.set)
+    desk_cls = OracleCyclesDesk if a.stack_v7 else OracleDesk
+    policy_name = (
+        "spread_lab.policies.tas_price:OracleCyclesDesk"
+        if a.stack_v7
+        else "spread_lab.policies.tas_price:OracleDesk"
+    )
+    replay_policy = "spread_lab.policies.cycles:Desk" if a.stack_v7 else "spread_lab.policy:Desk"
+    base_params = dict(champion()["params"]) if a.stack_v7 else dict(V5_PARAMS)
+    overrides = parse_overrides(desk_cls, a.set)
     merged = {**base_params, **overrides}
 
     fast_map = None
@@ -188,7 +196,7 @@ def main() -> None:
 
     sink_target = lim_out if not a.fast_lookup else Path("/dev/null")
     with open(sink_target, "w", encoding="utf-8") as f, tas.Tas(
-        a.seed, merged, "spread_lab.policies.tas_price:OracleDesk", a.name, forks=not a.fast_lookup
+        a.seed, merged, policy_name, a.name, forks=not a.fast_lookup
     ) as g:
         def sink(row: dict) -> None:
             lines.append(row)
@@ -201,17 +209,20 @@ def main() -> None:
         won_q = sum(1 for o in g.outcome.values() if o[0] == "won")
         lost_q = sum(1 for o in g.outcome.values() if o[0] == "lost")
 
-    tas.report(a.seed, a.name, result, {"overrides": overrides, "fast_lookup": a.fast_lookup, "broken": broken, "quotes_won": won_q, "quotes_lost": lost_q})
+    tas.report(a.seed, a.name, result, {"overrides": overrides, "stack_v7": a.stack_v7, "fast_lookup": a.fast_lookup, "broken": broken, "quotes_won": won_q, "quotes_lost": lost_q})
     if broken:
         print(f"WARNING: broken expectations ({len(broken)}): {broken[:10]}")
 
     if a.replay and not a.fast_lookup:
-        print(f"=== Replaying {book_out} with 0 forks ===", flush=True)
-        with tas.Tas(a.seed, base_params, None, f"replay-{a.name}", forks=False) as g2:
+        print(f"=== Replaying {book_out} with 0 forks on {replay_policy} ===", flush=True)
+        replay_params = {k: v for k, v in merged.items() if not k.startswith("oracle_")}
+        if "oracle_backlog_mult" in merged:
+            replay_params["backlog_ratio"] = replay_params.get("backlog_ratio", 0.06) * merged["oracle_backlog_mult"]
+        with tas.Tas(a.seed, replay_params, replay_policy, f"replay-{a.name}", forks=False) as g2:
             g2.hook = tas.book_hook(json.loads(book_out.read_text(encoding="utf-8")))
             rep_res = g2.finish()
-        tas.report(a.seed, f"run-book-{a.name}", rep_res, {"book": str(book_out)})
-        print(f"Live={result['margin']:.2f} vs 0-fork Desk book replay={rep_res['margin']:.2f} (Δ={rep_res['margin']-result['margin']:+.2f})")
+        tas.report(a.seed, f"run-book-{a.name}", rep_res, {"book": str(book_out), "policy": replay_policy})
+        print(f"Live={result['margin']:.2f} vs 0-fork replay={rep_res['margin']:.2f} (Δ={rep_res['margin']-result['margin']:+.2f})")
 
 
 if __name__ == "__main__":
