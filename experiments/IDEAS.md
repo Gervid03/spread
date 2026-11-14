@@ -68,9 +68,10 @@ went unranked on a fresh world (night-15, 89.3%), so measure the tail on fresh s
 triage, thermostat and research-volume), and they now sit in `experiments/prompts/night2/` as a record. Don't queue
 them again. Write your own prompts as usual. A brief for idea 16, already adapted to A, is in
 `experiments/prompts/night2/feeclock-on-a.md`: copy it into `night-queue/` when a slot frees.
-**Copy `experiments/prompts/night2/tail-v3-vs-a.md` into `night-queue/` at your next tick, once, ahead of
-your own prompts.** The final is one world, and v3's tail (2 of 48 fresh worlds under 92%) against A's (none)
-decides what plays on Sunday. (`capacity-steps` is already running as `n14-06041`.)
+**Copy `experiments/prompts/night2/final-champion.md` into `night-queue/` at your next tick, once, ahead of
+your own prompts.** The final is one world. This study decides what plays on Sunday: v3, v3 with A's safety flags
+(A had 0 of 48 fresh worlds under 92% against v3's 2), v3 with triage (idea 15, +€264, t 4.1 on A), or both, on 96
+worlds each. It promotes one arm only if it beats v3 without a worse tail. (`capacity-steps` is already running as `n14-06041`.)
 **Copy `experiments/prompts/night2/capacity-steps.md` into `night-queue/` (done: n14-06041).** It measures whether
 14-minute steps and event-driven evenings make practice worlds 20–40% cheaper without changing what they measure.
 Practice slots are the lab's bottleneck, so this is the cheapest capacity there is.
