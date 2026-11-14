@@ -54,6 +54,11 @@ class Params:
     dealer_adj_max: float = 1.30
     loss_streak_freeze: int = 12      # this many losses in a row stop downward moves until the next day
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
+    slow_floor_mult: float = 1.0      # multiplier on the fee floor for non-same_day options (1.0 = same floor as same_day)
+    floored_sd_prem: float = 0.0      # minimum relative premium of same_day over next_day when next_day hits floor
+    ladder_spread: float = 0.0        # 0 = off; quote batch members at estimate * exp(±spread), evenly spread
+    ladder_lr: float = 0.0            # 0 = off; step toward the middle of the bracket when a batch both wins and loses
+    ladder_window_min: int = 5        # requests of same dealer and yard within this many minutes form a batch
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
     gate_radius_km: float = 55.0      # radius of the supply count the decline gate uses (v1; 0 = supply_radius_km, as v0)
@@ -71,6 +76,8 @@ class Params:
     same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
+    backlog_multiday_weight: float = 1.0  # weight in backlog_near for unurgent orders due on a future day
+    backlog_in_flight_weight: float = 0.0  # weight in backlog_near for open unanswered non-declined quotes
     decline_mult: float = 4.0         # a decline quotes this times the list price
     # --- on-time guard: tighten intake when the projected on-time share falls -----------------------
     guard_target: float = 0.0         # 0 = off; else the projected on-time share to defend (e.g. 0.95)
@@ -143,6 +150,7 @@ class Desk:
         self.urgent: set[str] = set()                # orders whose deadline warning has come
         self.pre_warned: set[str] = set()            # orders whose pre-warning fee nudge has fired
         self.decided: dict[str, str] = {}            # request id -> "quote" | "floor" | "decline"
+        self.lost_requests: set[str] = set()         # request ids where order_lost was received
         self.mult = {8: params.price_mult_l8, 7: params.price_mult_l7}.get(level, params.price_mult_low)
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
         self.dealer_trust: dict[str, int] = defaultdict(int)
@@ -157,6 +165,10 @@ class Desk:
         self.stats: Counter = Counter()
         self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
         self.ring_hub_same_day: set[str] = set()     # request/order ids where ring_to_hub_same_day_min allowed same_day
+        self.active_batches: dict[Any, dict[str, Any]] = {}
+        self.req_batch: dict[str, dict[str, Any]] = {}
+        self.req_mult: dict[str, float] = {}
+        self.req_opt_factor: dict[str, dict[str, float]] = {}
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -167,6 +179,7 @@ class Desk:
             self.learn(event["order"]["id"], won=True)
             self.win(event["order"])
         elif kind == "order_lost":
+            self.lost_requests.add(event["requestId"])
             self.learn(event["requestId"], won=False)
         elif kind == "order_changed":
             self.change(event["order"])
@@ -280,6 +293,80 @@ class Desk:
             first = request["options"][0]
             prices = {first["kind"]: int(first["listPriceCents"] * self.p.decline_mult)}
         self.outbox.append({"type": "quote", "requestId": request["id"], "prices": prices})
+        if self.p.ladder_spread > 0 and decision == "quote":
+            self.ladder_quote(request, list(prices))
+
+    def ladder_quote(self, request: PriceRequest, option_kinds: list[str]) -> None:
+        """Spreads the quotes of a batch evenly across estimate * exp(±ladder_spread)."""
+        p = self.p
+        dealer = request["dealerId"]
+        pickup = request["legs"][0]["pickup"]["placeId"]
+        key = ("b", request["batchId"]) if request.get("batchId") else ("dy", dealer, pickup)
+        b = self.active_batches.get(key)
+        if b is not None:
+            still_open = b["resolved"] == 0 and all(self.now < self.requests[rid]["respondBy"] for rid, _ in b["members"])
+            within_win = bool(request.get("batchId")) or (request["arrivedAt"] - b["last_at"] <= p.ladder_window_min)
+            if not (still_open and within_win):
+                b = None
+        if b is None:
+            b = {
+                "base_mult": self.mult,
+                "dealer": dealer,
+                "last_at": request["arrivedAt"],
+                "members": [],
+                "wins": [],
+                "losses": [],
+                "resolved": 0,
+                "counted_quoted": False,
+                "counted_bracketed": False,
+            }
+            self.active_batches[key] = b
+        b["members"].append((request["id"], option_kinds))
+        b["last_at"] = request["arrivedAt"]
+        self.req_batch[request["id"]] = b
+        k = len(b["members"])
+        if k == 1:
+            self.req_mult[request["id"]] = b["base_mult"]
+            return
+        if not b["counted_quoted"]:
+            b["counted_quoted"] = True
+            self.stats["batches_quoted"] += 1
+        base_mult = self.mult
+        b["base_mult"] = base_mult
+        ordered = sorted(b["members"], key=lambda item: (self.requests[item[0]]["referenceFeeCents"], item[0]))
+        for i, (rid, kinds) in enumerate(ordered):
+            req = self.requests[rid]
+            if self.now >= req["respondBy"]:
+                continue
+            offset = -p.ladder_spread + 2.0 * p.ladder_spread * (i / (k - 1))
+            mult_i = base_mult * math.exp(offset)
+            self.req_mult[rid] = mult_i
+            fee = req["referenceFeeCents"] * p.expected_fee_mult
+            base_floor = fee / (1 - p.min_margin_frac)
+            opt_factors = self.req_opt_factor.get(rid, {})
+            new_prices: dict[str, int] = {}
+            nd_floored = False
+            for opt in req["options"]:
+                kind = opt["kind"]
+                if kind in kinds:
+                    factor = opt_factors.get(kind, self.dealer_adj[req["dealerId"]] * (1 + p.same_day_markup if kind == "same_day" else 1))
+                    pr = opt["listPriceCents"] * mult_i * factor
+                    floor = base_floor if kind == "same_day" else base_floor * p.slow_floor_mult
+                    if pr < floor:
+                        pr = floor
+                        if kind == "next_day":
+                            nd_floored = True
+                    new_prices[kind] = int(pr + 0.5)
+            if p.floored_sd_prem > 0 and "same_day" in new_prices and "next_day" in new_prices and nd_floored:
+                min_sd = int(new_prices["next_day"] * (1.0 + p.floored_sd_prem) + 0.5)
+                if new_prices["same_day"] < min_sd:
+                    new_prices["same_day"] = min_sd
+            for action in reversed(self.outbox):
+                if action["type"] == "quote" and action["requestId"] == rid:
+                    action["prices"] = new_prices
+                    break
+            else:
+                self.outbox.append({"type": "quote", "requestId": rid, "prices": new_prices})
 
     def price(self, request: PriceRequest) -> tuple[dict[str, int], str]:
         """The prices to quote, and "quote", "floor" (a price raised to keep the margin) or "decline"."""
@@ -305,7 +392,11 @@ class Desk:
         gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
         if gate_supply < gate_min:
             return {}, "decline"
-        if self.backlog_near(pickup) >= max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight):
+        backlog_cap = max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight)
+        if self.backlog_near(pickup) + 1e-9 >= backlog_cap:
+            self.stats["declined_backlog"] += 1
+            if p.backlog_in_flight_weight > 0 and self.backlog_near(pickup, include_in_flight=False) + 1e-9 < backlog_cap:
+                self.stats["in_flight_blocked"] += 1
             return {}, "decline"
         is_ring = supply < gate_min
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
@@ -344,7 +435,10 @@ class Desk:
             is_invest = request["dealerId"] in top3
 
         prices: dict[str, int] = {}
+        opt_factors: dict[str, float] = {}
         floored = False
+        next_day_floored = False
+        base_floor = fee / (1 - p.min_margin_frac)
         for option in request["options"]:
             ring_hub_sd = False
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
@@ -396,13 +490,25 @@ class Desk:
             if is_invest and slack >= 360:
                 option_mult *= (1 - p.trust_invest)
 
-            price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            floor = fee / (1 - p.min_margin_frac)
+            sd_mult = 1 + p.same_day_markup if option["kind"] == "same_day" else 1
+            opt_factors[option["kind"]] = (option_mult / self.mult) * sd_mult
+            price = option["listPriceCents"] * option_mult * sd_mult
+            floor = base_floor if option["kind"] == "same_day" else base_floor * p.slow_floor_mult
+            if option["kind"] != "same_day" and p.slow_floor_mult != 1.0 and price < base_floor:
+                self.stats["slow_floor_saved"] += 1
             if price < floor:
                 price, floored = floor, True
+                if option["kind"] == "next_day":
+                    next_day_floored = True
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if p.floored_sd_prem > 0 and "same_day" in prices and "next_day" in prices and next_day_floored:
+            min_sd = int(prices["next_day"] * (1.0 + p.floored_sd_prem) + 0.5)
+            if prices["same_day"] < min_sd:
+                prices["same_day"] = min_sd
+                self.stats["sd_prem_lifted"] += 1
+        self.req_opt_factor[request["id"]] = opt_factors
         return prices, "floor" if floored else "quote"
 
     def learn(self, request_id: str, won: bool) -> None:
@@ -414,18 +520,45 @@ class Desk:
             self.loss_streak, self.streak_day = 0, day
         self.loss_streak = 0 if won else self.loss_streak + 1
         step = (1 - p.price_target_win) if won else -p.price_target_win
-        if not won and self.loss_streak > p.loss_streak_freeze:
-            return  # a price war or an outage elsewhere: sit it out rather than chase it down
-        self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
-        dealer = self.requests[request_id]["dealerId"]
-        self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, p.dealer_adj_max)
+        frozen = not won and self.loss_streak > p.loss_streak_freeze
+        if not frozen:
+            self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
+            dealer = self.requests[request_id]["dealerId"]
+            self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, p.dealer_adj_max)
+        b = self.req_batch.get(request_id)
+        if b is not None and len(b["members"]) >= 2:
+            m = self.req_mult.get(request_id, b["base_mult"])
+            (b["wins"] if won else b["losses"]).append(m)
+            b["resolved"] += 1
+            if b["wins"] and b["losses"]:
+                if not b["counted_bracketed"]:
+                    b["counted_bracketed"] = True
+                    self.stats["batches_bracketed"] += 1
+                if b["resolved"] == len(b["members"]) and p.ladder_lr > 0:
+                    dearest_win = max(b["wins"])
+                    cheapest_loss = min(b["losses"])
+                    mid = math.sqrt(dearest_win * cheapest_loss)
+                    self.mult = clamp(self.mult * math.exp(p.ladder_lr * math.log(mid / b["base_mult"])), p.price_mult_min, p.price_mult_max)
 
-    def backlog_near(self, place: str) -> int:
+    def backlog_near(self, place: str, include_in_flight: bool = True) -> float:
         """Won orders without a driver for every undelivered car, picked up within the radius of `place`."""
-        radius, n = self.p.supply_radius_km, 0
+        p, radius, n = self.p, self.p.supply_radius_km, 0.0
         for order in self.orders.values():
             if self.geo.line_km(order["legs"][0]["pickup"]["placeId"], place) <= radius and not self.staffed(order):
-                n += 1
+                if p.backlog_multiday_weight != 1.0 and order["deadline"] // DAY > self.now // DAY and order["id"] not in self.urgent:
+                    n += p.backlog_multiday_weight
+                else:
+                    n += 1.0
+        if include_in_flight and p.backlog_in_flight_weight > 0:
+            for req_id, req in self.requests.items():
+                if (
+                    req_id not in self.orders
+                    and req_id not in self.lost_requests
+                    and self.decided.get(req_id) in ("quote", "floor")
+                    and self.now <= req["respondBy"]
+                    and self.geo.line_km(req["legs"][0]["pickup"]["placeId"], place) <= radius
+                ):
+                    n += p.backlog_in_flight_weight
         return n
 
     def projected_on_time(self) -> float:
@@ -653,6 +786,7 @@ class Desk:
         for req in self.requests.values():
             self.dealer_request_count[req["dealerId"]] += 1
         self.urgent = {e["orderId"] for e in history if e["kind"] == "deadline_close"}
+        self.lost_requests = {e["requestId"] for e in history if e["kind"] == "order_lost"}
         if self.p.pre_warn_lead_min > 0:
             for gig in snapshot["gigs"]:
                 order_id = gig["stops"][0]["orderId"]
