@@ -239,6 +239,27 @@ class Params:
     sup_fri_slow_min_supply: int = 0  # if > 0 (e.g. 3), Fri 08:00 surplus opens Monday-due slow options down to this supply
     sup_fri_sd_max_drive: int = 0     # if > 0 (e.g. 180), Fri 08:00 surplus relaxes fri_same_day_max_drive to this
     sup_fri_neutral_learn: bool = False  # if True, thin-town Friday surplus quotes skip learn() via ext_ring_reqs
+    # --- cp-wild mechanisms (all neutral by default) ------------------------------------------------
+    decline_tradeins: bool = False    # decline 2-car trade-in requests (48.4% late rate + trust halving)
+    future_sameday_slow: bool = False # treat 1-car dealer same_day with deadline on a future day as slow
+    fut_sd_return_only: bool = False  # apply future_sameday_slow only on pass_return_hub return legs
+    fut_sd_no_thin: bool = False      # do not apply future_sameday_slow to thin (<min_supply gate) pickups
+    fut_sd_max_drive_min: int = 0     # if > 0, apply future_sameday_slow only when drive <= this
+    fut_sd_min_deliv_supply: int = 0  # if > 0, apply future_sameday_slow only when delivery 30km supply >= this
+    fut_sd_neutral_learn: bool = False  # skip learn() on requests admitted only via future_sameday_slow
+    future_sameday_no_markup: bool = False  # omit same_day_markup on future-day dealer same_day options
+    future_sameday_pair: bool = False # allow lead_car pairing on future-day same_day orders
+    return_hub_major_supply: int = 0  # 0 = off; major-hub destination supply tier for longer return drives
+    return_hub_major_max_drive_min: int = 0  # max drive min when delivery supply >= return_hub_major_supply
+    return_hub_1leg_only: bool = False  # restrict expanded return_hub to 1-car requests
+    return_hub_deliv_backlog_ratio: float = 0.0  # 0 = off; pause expanded return_hub when dest hub backlog/supply >= this
+    return_hub_min_on_time: float = 0.0  # 0 = off; pause expanded return_hub when projected_on_time() < this
+    return_hub_max_urgent: int = 0    # 0 = off; pause expanded return_hub when urgent unstaffed orders >= this
+    floor_sd_gap: float = 0.0         # min relative price premium of today same_day above next_day after floor
+    day_shock_lr: float = 0.0         # 0 = off; 08:00-18:00 80km daily shock kernel learning rate
+    day_shock_radius_km: float = 80.0 # straight-line radius of daily shock kernel (matches 80km outage)
+    day_shock_min: float = -0.22      # log-multiplier floor for daily shock kernel (matches -20% war)
+    day_shock_max: float = 0.35       # log-multiplier cap for daily shock kernel (matches +30% outage)
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -390,6 +411,9 @@ class Desk:
         self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
         self.ring_hub_same_day: set[str] = set()     # request/order ids where ring_to_hub_same_day_min allowed same_day
         self.ext_ring_reqs: set[str] = set()         # request/order ids admitted via pass_ext_ring or pass_return_hub
+        self.fut_sd_reqs: set[str] = set()           # request/order ids where future_sameday_slow unlocked same_day
+        self.day_shock: dict[tuple[int, str], float] = defaultdict(float)  # (day, place) -> log-mult shock
+        self._shock_nb_cache: dict[tuple[float, str], list[str]] = {}
         self.lost: set[str] = set()                  # orders that can no longer be on time
         self.late_reposted: set[str] = set()         # orders already reposted in tick() upon becoming lost
         self.late_repriced: set[str] = set()         # orders already repriced in place upon becoming lost
@@ -649,6 +673,7 @@ class Desk:
                 self.stats[f"lane_margin_{lane_b}_cents"] += line["cents"]
             is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
             is_ext_ring = order and self.gate_supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
+            is_fut_sd = bool(order and line["orderId"] in self.fut_sd_reqs)
             if is_ring:
                 self.stats["margin_ring_cents"] += line["cents"]
             if is_ext_ring:
@@ -668,6 +693,8 @@ class Desk:
                 self.stats["margin_relay_quote_cents"] += line["cents"]
             if oid in self.seed_reqs:
                 self.stats["margin_seed_cents"] += line["cents"]
+            if is_fut_sd:
+                self.stats["margin_fut_sd_cents"] += line["cents"]
             if line["kind"] in ("late_refund", "undelivered_penalty") and oid:
                 if oid not in self.late:
                     if lane_b is not None:
@@ -692,6 +719,8 @@ class Desk:
                         self.stats["relay_late_booked"] += 1
                     if oid in self.relay_quote_reqs:
                         self.stats["relay_quote_late"] += 1
+                    if is_fut_sd:
+                        self.stats["late_fut_sd"] += 1
                 self.late.add(oid)
                 if dealer:
                     self.dealer_trust[dealer] //= 2
@@ -1399,9 +1428,21 @@ class Desk:
             prices = {first["kind"]: int(first["listPriceCents"] * self.p.decline_mult)}
         self.outbox.append({"type": "quote", "requestId": request["id"], "prices": prices})
 
+    def _shock_neighbors(self, place: str) -> list[str]:
+        key = (self.p.day_shock_radius_km, place)
+        nbs = self._shock_nb_cache.get(key)
+        if nbs is None:
+            r = self.p.day_shock_radius_km
+            nbs = [q for q in self.geo.places if self.geo.line_km(place, q) <= r]
+            self._shock_nb_cache[key] = nbs
+        return nbs
+
     def price(self, request: PriceRequest) -> tuple[dict[str, int], str]:
         """The prices to quote, and "quote", "floor" (a price raised to keep the margin) or "decline"."""
         p, legs = self.p, request["legs"]
+        if p.decline_tradeins and len(legs) > 1:
+            self.stats["declined_tradein"] += 1
+            return {}, "decline"
         extra_days = 0
         if p.notes_v2 and request["note"]:
             pn = parse_note_v2(request["note"], request["arrivedAt"])
@@ -1456,6 +1497,22 @@ class Desk:
                     for leg in legs
                 ]
             )
+        deliv_place = legs[-1]["delivery"]["placeId"]
+        deliv_supply = self.supply.get(deliv_place, 0)
+        expanded_ret_ok = True
+        if p.return_hub_1leg_only and len(legs) > 1:
+            expanded_ret_ok = False
+        if expanded_ret_ok and p.return_hub_min_on_time > 0 and self.projected_on_time() < p.return_hub_min_on_time:
+            expanded_ret_ok = False
+        if expanded_ret_ok and p.return_hub_max_urgent > 0:
+            urg_open = sum(
+                1 for oid in self.urgent if oid in self.orders and undelivered(self.orders[oid]) and not self.staffed(self.orders[oid])
+            )
+            if urg_open >= p.return_hub_max_urgent:
+                expanded_ret_ok = False
+        if expanded_ret_ok and p.return_hub_deliv_backlog_ratio > 0 and deliv_supply > 0:
+            if self.backlog_near(deliv_place) + 1e-9 >= p.return_hub_deliv_backlog_ratio * deliv_supply:
+                expanded_ret_ok = False
 
         pass_ext_ring = False
         pass_return_hub = False
@@ -1471,16 +1528,22 @@ class Desk:
             if p.supervisor and self.sup_emerg_active:
                 self.stats["sup_emerg_declined"] += 1
                 return {}, "decline"
+            ext_sup = self.ext_supply.get(pickup, 0) if self.ext_supply else 0
             pass_ext_ring = (
                 p.ext_ring_min_supply > 0
-                and self.ext_supply.get(pickup, 0) >= p.ext_ring_min_supply
+                and ext_sup >= p.ext_ring_min_supply
                 and drive <= p.ext_ring_max_drive_min
             )
-            pass_return_hub = (
-                eff_ret_supply > 0
-                and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= eff_ret_supply
-                and drive <= eff_ret_drive
+            want_return_hub = (
+                (eff_ret_supply > 0 and deliv_supply >= eff_ret_supply and drive <= eff_ret_drive)
+                or (p.return_hub_major_supply > 0 and deliv_supply >= p.return_hub_major_supply and drive <= p.return_hub_major_max_drive_min)
             )
+            if expanded_ret_ok:
+                pass_return_hub = want_return_hub
+            else:
+                pass_return_hub = p.return_hub_min_supply > 0 and deliv_supply >= 200 and drive <= 180
+                if want_return_hub and not pass_return_hub:
+                    self.stats["return_hub_throttled"] += 1
             if not (pass_ext_ring or pass_return_hub) and p.net_relay_quote and self.level >= 3:
                 if self._relay_cap_available():
                     found_r = self._find_relay_partner_for_request(request, extra_days)
@@ -1563,6 +1626,10 @@ class Desk:
             w_out = 1.5 if (supply >= 200 and drive >= 180) else 1.0
             mult *= (1.0 + w_out * p.outbound_markup)
             self.stats["priced_outbound_markup"] += 1
+        if p.day_shock_lr > 0:
+            tod = self.now % DAY
+            if 480 <= tod <= 1080:
+                mult *= math.exp(self.day_shock[(self.now // DAY, pickup)])
         if p.trust_gain > 0:
             count = self.dealer_trust[request["dealerId"]]
             mult *= (1 + p.trust_gain * count / 100.0)
@@ -1597,17 +1664,9 @@ class Desk:
         floored = False
         nd_floored = False
         inb_saved = False
+        unlocked_fut_sd = False
+        has_today_sd = False
         for option in request["options"]:
-            ring_hub_sd = False
-            if (pass_ext_ring or pass_return_hub or fri_thin_only or pass_relay_quote or pass_net_thin) and option["kind"] == "same_day":
-                continue
-            if pass_relay_quote and option["kind"] not in relay_ok_kinds:
-                continue
-            if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
-                if p.ring_to_hub_same_day_min > 0 and deliv_supply >= 200 and drive <= p.ring_to_hub_same_day_min:
-                    ring_hub_sd = True
-                else:
-                    continue
             deadline = option["deadline"]
             if p.notes_v2:
                 base_dl = shift_business_days(deadline, extra_days)
@@ -1622,6 +1681,36 @@ class Desk:
                     )["to"]
                     for leg in legs
                 )
+            fut_sd = (
+                p.future_sameday_slow
+                and expanded_ret_ok
+                and option["kind"] == "same_day"
+                and len(legs) == 1
+                and not legs[0]["pickup"]["privateAddress"]
+                and not legs[0]["delivery"]["privateAddress"]
+                and deadline // DAY > self.now // DAY
+                and (not p.fut_sd_return_only or pass_return_hub)
+                and (not p.fut_sd_no_thin or not (pass_ext_ring or pass_return_hub))
+                and (p.fut_sd_max_drive_min <= 0 or drive <= p.fut_sd_max_drive_min)
+                and (p.fut_sd_min_deliv_supply <= 0 or deliv_supply >= p.fut_sd_min_deliv_supply)
+            )
+            ring_hub_sd = False
+            was_blocked_sd = False
+            if (fri_thin_only or pass_relay_quote or pass_net_thin) and option["kind"] == "same_day":
+                continue
+            if pass_relay_quote and option["kind"] not in relay_ok_kinds:
+                continue
+            if (pass_ext_ring or pass_return_hub) and option["kind"] == "same_day":
+                if not fut_sd:
+                    continue
+                was_blocked_sd = True
+            if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
+                if p.ring_to_hub_same_day_min > 0 and deliv_supply >= 200 and drive <= p.ring_to_hub_same_day_min:
+                    ring_hub_sd = True
+                elif fut_sd:
+                    was_blocked_sd = True
+                else:
+                    continue
             if fri_thin_only and deadline // DAY < 7:
                 continue
             if p.max_next_day_drive_min > 0 and drive > p.max_next_day_drive_min and not (fri_thin_only and deadline // DAY >= 7):
@@ -1649,8 +1738,11 @@ class Desk:
                     self.stats["dropped_long_drive"] += 1
                     continue
             if option["kind"] == "same_day" and eff_sd_supply > 0 and supply < eff_sd_supply and not ring_hub_sd:
-                self.stats["dropped_same_day_supply"] += 1
-                continue
+                if fut_sd:
+                    was_blocked_sd = True
+                else:
+                    self.stats["dropped_same_day_supply"] += 1
+                    continue
             slack = deadline - ready - drive
             if slack < eff_min_slack + p.slack_per_drive * drive:
                 self.stats["dropped_slack"] += 1
@@ -1658,6 +1750,10 @@ class Desk:
             if ring_hub_sd:
                 self.stats["quoted_ring_hub_same_day"] += 1
                 self.ring_hub_same_day.add(request["id"])
+            if was_blocked_sd:
+                unlocked_fut_sd = True
+            if option["kind"] == "same_day" and not fut_sd:
+                has_today_sd = True
 
             option_mult = mult
             if is_invest and slack >= 360:
@@ -1669,8 +1765,11 @@ class Desk:
             elif is_seed and p.net_seed > 0:
                 option_mult *= (1.0 - p.net_seed)
 
+            sd_mult = 1.0
+            if option["kind"] == "same_day" and not (fut_sd and p.future_sameday_no_markup):
+                sd_mult = 1.0 + p.same_day_markup
             base_list = option["listPriceCents"] * l_mult if l_mult != 1.0 else option["listPriceCents"]
-            price = base_list * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
+            price = base_list * option_mult * sd_mult
             if price < base_floor:
                 floored = True
                 if eff_floor < base_floor:
@@ -1701,6 +1800,14 @@ class Desk:
             if prices["same_day"] < min_sd:
                 prices["same_day"] = min_sd
                 self.stats["floored_sd_lifted"] += 1
+        if p.floor_sd_gap > 0 and has_today_sd and "same_day" in prices and "next_day" in prices:
+            min_sd = int(prices["next_day"] * (1.0 + p.floor_sd_gap) + 0.5)
+            if prices["same_day"] < min_sd:
+                prices["same_day"] = min_sd
+                self.stats["floor_sd_gapped"] += 1
+        if unlocked_fut_sd:
+            self.fut_sd_reqs.add(request["id"])
+            self.stats["quoted_fut_sd"] += 1
         if pass_ext_ring or pass_return_hub:
             self.ext_ring_reqs.add(request["id"])
             self.stats["quoted_ext_ring"] += 1
@@ -1733,6 +1840,9 @@ class Desk:
         if self.p.ext_ring_neutral_learn and request_id in self.ext_ring_reqs:
             self.stats["ext_ring_skipped_learn"] += 1
             return
+        if self.p.fut_sd_neutral_learn and request_id in self.fut_sd_reqs and len(self.requests[request_id]["options"]) == 1:
+            self.stats["fut_sd_skipped_learn"] += 1
+            return
         if self.p.ext_ring_no_learn and not won and request_id in self.ext_ring_reqs:
             return
         p, day = self.p, self.now // DAY
@@ -1750,6 +1860,18 @@ class Desk:
             if lm != 1.0:
                 target = clamp(target - p.lane_prior_comp_slope * math.log(lm), 0.05, 0.90)
         step = (1 - target) if won else -target
+        if p.day_shock_lr > 0:
+            req = self.requests[request_id]
+            arr = req["arrivedAt"]
+            if 480 <= arr % DAY <= 1080:
+                r_day = arr // DAY
+                pk = req["legs"][0]["pickup"]["placeId"]
+                for nb in self._shock_neighbors(pk):
+                    self.day_shock[(r_day, nb)] = clamp(
+                        self.day_shock[(r_day, nb)] + p.day_shock_lr * step,
+                        p.day_shock_min,
+                        p.day_shock_max,
+                    )
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
@@ -1864,6 +1986,8 @@ class Desk:
                 self.stats["won_ring"] += 1
             if order["option"] == "same_day" and oid in self.ring_hub_same_day:
                 self.stats["won_ring_hub_same_day"] += 1
+            if order["option"] == "same_day" and order["id"] in self.fut_sd_reqs:
+                self.stats["won_fut_sd"] += 1
             if self.gate_supply.get(pickup, 0) < self.p.min_supply:
                 if order["id"] in self.sup_fri_thin_reqs:
                     self.stats["sup_fri_thin_won"] += 1
@@ -2787,7 +2911,8 @@ class Desk:
             return False
         if len(legs) != 1 or len(order["legs"]) != 1 or retry != Retry():
             return False
-        if order["option"] == "same_day" or order["id"] in self.urgent or order["id"] in self.lost:
+        is_today_sd = lambda o: o["option"] == "same_day" and (not p.future_sameday_pair or o["deadline"] // DAY <= self.now // DAY)
+        if is_today_sd(order) or order["id"] in self.urgent or order["id"] in self.lost:
             return False
         req = self.requests.get(order["id"])
         if req is None or req.get("note"):
@@ -2809,8 +2934,9 @@ class Desk:
                 if (
                     other is not None
                     and oid != order["id"]
-                    and other["option"] != "same_day"
+                    and not is_today_sd(other)
                     and oid not in self.urgent
+                    and oid not in self.lost
                     and not self.requests.get(oid, {}).get("note")
                 ):
                     pa = other["legs"][0]["pickup"]["placeId"]
@@ -2833,7 +2959,7 @@ class Desk:
             other_order = self.orders.get(other_id)
             if other_order is None or len(other_order["legs"]) != 1 or undelivered(other_order) != [0]:
                 continue
-            if other_order["option"] == "same_day":
+            if is_today_sd(other_order):
                 continue
             other_req = self.requests.get(other_id)
             if other_req is None or other_req.get("note"):
@@ -3227,6 +3353,33 @@ class Desk:
                     drive += self.geo.minutes(req["legs"][0]["delivery"]["placeId"], req["legs"][1]["pickup"]["placeId"])
                 if self.supply.get(req["legs"][-1]["delivery"]["placeId"], 0) >= 200 and drive <= self.p.ring_to_hub_same_day_min:
                     self.ring_hub_same_day.add(req_id)
+            if self.p.future_sameday_slow and len(req["legs"]) == 1:
+                sd_opt = next((o for o in req["options"] if o["kind"] == "same_day"), None)
+                if sd_opt and sd_opt["deadline"] // DAY > req["arrivedAt"] // DAY and self.supply.get(pickup, 0) < max(self.p.min_supply, self.p.same_day_min_supply):
+                    self.fut_sd_reqs.add(req_id)
+
+        if self.p.day_shock_lr > 0:
+            cur_day = self.now // DAY
+            for e in history:
+                if e["kind"] in ("order_won", "order_lost"):
+                    rid = e["order"]["id"] if e["kind"] == "order_won" else e["requestId"]
+                    req = self.requests.get(rid)
+                    if req is None:
+                        continue
+                    arr = req["arrivedAt"]
+                    if arr // DAY != cur_day or not (480 <= arr % DAY <= 1080):
+                        continue
+                    if self.p.ext_ring_neutral_learn and rid in self.ext_ring_reqs:
+                        continue
+                    won = e["kind"] == "order_won"
+                    step = (1 - self.p.price_target_win) if won else -self.p.price_target_win
+                    pk = req["legs"][0]["pickup"]["placeId"]
+                    for nb in self._shock_neighbors(pk):
+                        self.day_shock[(cur_day, nb)] = clamp(
+                            self.day_shock[(cur_day, nb)] + self.p.day_shock_lr * step,
+                            self.p.day_shock_min,
+                            self.p.day_shock_max,
+                        )
 
         for e in history:
             if e["kind"] == "gig_viewed":
