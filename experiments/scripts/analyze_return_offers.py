@@ -69,9 +69,14 @@ def summarize_run(run_dir: Path, champ_by_seed: dict[str, dict]) -> None:
 
 
 def main() -> None:
-    champ_rows = load_jsonl(Path("champion/results/dev-L8.jsonl"))
+    args = sys.argv[1:]
+    champ_path = Path("champion/results/dev-L8.jsonl")
+    if len(args) >= 2 and args[0] == "--vs":
+        champ_path = Path(args[1])
+        args = args[2:]
+    champ_rows = load_jsonl(champ_path)
     champ_by_seed = {r["seed"]: r for r in champ_rows}
-    patterns = sys.argv[1:] or ["*c14-ret*"]
+    patterns = args or ["*c14-ret*"]
     dirs = []
     for pat in patterns:
         dirs.extend(sorted(Path("runs").glob(pat)))
