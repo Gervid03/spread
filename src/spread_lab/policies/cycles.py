@@ -61,6 +61,7 @@ class Params(SundayParams):
     cyc_quote_cap_day: int = 0        # at most this many cycle-closing quotes a day (0 = no cap)
     cyc_quote_floor: float = 0.0      # a cycle-closing quote is at least this x the typical fee / (1 - margin) (0 = the old floor)
     cyc_quote_on_time: float = 0.0    # quote closers only while projected on-time is at least this (0 = always)
+    cyc_quote_disc: float = 0.0       # > 0: a closer gets the desk's own quote less this share (declined requests stay declined)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Params":
@@ -332,8 +333,14 @@ class Desk(SundayDesk):
                 continue
             if self.p.cyc_min_lead_min and opt["deadline"] - drive - self.now < self.p.cyc_min_lead_min:
                 continue
-            cap = opt["listPriceCents"] * self.p.cyc_quote_mult
             cur = prices.get(opt["kind"]) if decision != "decline" else None
+            if self.p.cyc_quote_disc > 0:
+                # a modest discount on the desk's own quote; requests the desk declined stay declined
+                if cur is None:
+                    continue
+                out[opt["kind"]] = int(max(floor, cur * (1 - self.p.cyc_quote_disc)) + 0.5)
+                continue
+            cap = opt["listPriceCents"] * self.p.cyc_quote_mult
             out[opt["kind"]] = int(max(floor, min(cur, cap) if cur else cap) + 0.5)
         if not out:
             return prices, decision
