@@ -1,0 +1,25 @@
+# uv run lab sweep --seeds-from dev --name n-lr -g price_lr=0.03,0.08 -g dealer_lr=0.01,0.04
+# started 2026-11-14T00:48:42Z
+
+=== price_lr=0.03,dealer_lr=0.01
+  mean margin €9,094.07  (median €8,116.45, min €6,298.06)  ranked 16/16  on time min 94.0% mean 96.8%  won 223  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+103.76 ± 160.69 (SE) t=0.65  better on 9, worse on 7  Δon-time +0.08%
+
+=== price_lr=0.03,dealer_lr=0.04
+  mean margin €8,680.96  (median €8,240.09, min €5,643.19)  ranked 16/16  on time min 91.7% mean 96.6%  won 222  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €-309.34 ± 195.54 (SE) t=-1.58  better on 3, worse on 13  Δon-time -0.13%
+
+=== price_lr=0.08,dealer_lr=0.01
+  mean margin €8,945.72  (median €8,156.72, min €5,064.29)  ranked 16/16  on time min 93.7% mean 96.6%  won 240  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-44.59 ± 209.01 (SE) t=-0.21  better on 9, worse on 7  Δon-time -0.16%
+
+=== price_lr=0.08,dealer_lr=0.04
+  mean margin €8,590.37  (median €7,877.01, min €5,656.89)  ranked 16/16  on time min 93.4% mean 96.9%  won 235  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-399.94 ± 164.11 (SE) t=-2.44  better on 3, worse on 13  Δon-time +0.12%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  price_lr=0.03,dealer_lr=0.01                       €     9,094  on-time min 94.0%  SAFE  Δ €+104±161  20261114-004842-n-lr-price_lr0.03-dealer_lr0.01
+  price_lr=0.08,dealer_lr=0.01                       €     8,946  on-time min 93.7%  SAFE  Δ €-45±209  20261114-005022-n-lr-price_lr0.08-dealer_lr0.01
+  price_lr=0.03,dealer_lr=0.04                       €     8,681  on-time min 91.7%  unsafe  Δ €-309±196  20261114-004934-n-lr-price_lr0.03-dealer_lr0.04
+  price_lr=0.08,dealer_lr=0.04                       €     8,590  on-time min 93.4%  SAFE  Δ €-400±164  20261114-005105-n-lr-price_lr0.08-dealer_lr0.04
+# exit 0 at 2026-11-14T00:51:47Z

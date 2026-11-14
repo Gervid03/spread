@@ -14,3 +14,22 @@
   vs champion on 16 paired seeds: Δmargin €+162.94 ± 160.72 (SE) t=1.01  better on 8, worse on 3  Δon-time +0.15%
 
 === min_slack_min=210,slack_per_drive=0.75
+  mean margin €8,840.72  (median €8,343.14, min €5,957.00)  ranked 16/16  on time min 94.4% mean 97.2%  won 227  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-149.59 ± 113.58 (SE) t=-1.32  better on 7, worse on 9  Δon-time +0.43%
+
+=== min_slack_min=240,slack_per_drive=0.25
+  mean margin €9,061.34  (median €8,467.78, min €6,480.77)  ranked 16/16  on time min 93.4% mean 97.1%  won 227  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+71.03 ± 122.01 (SE) t=0.58  better on 9, worse on 6  Δon-time +0.39%
+
+=== min_slack_min=240,slack_per_drive=0.75
+  mean margin €8,706.31  (median €7,897.98, min €6,011.69)  ranked 16/16  on time min 93.0% mean 97.0%  won 225  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-284.00 ± 182.56 (SE) t=-1.56  better on 7, worse on 9  Δon-time +0.29%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  min_slack_min=210,slack_per_drive=0.25             €     9,153  on-time min 93.3%  SAFE  Δ €+163±161  20261114-003307-n-slack-min_slack_min210-slack_per_drive0.25
+  min_slack_min=150,slack_per_drive=0.75             €     9,126  on-time min 93.8%  SAFE  Δ €+135±59  20261114-003224-n-slack-min_slack_min150-slack_per_drive0.75
+  min_slack_min=240,slack_per_drive=0.25             €     9,061  on-time min 93.4%  SAFE  Δ €+71±122  20261114-003431-n-slack-min_slack_min240-slack_per_drive0.25
+  min_slack_min=210,slack_per_drive=0.75             €     8,841  on-time min 94.4%  SAFE  Δ €-150±114  20261114-003349-n-slack-min_slack_min210-slack_per_drive0.75
+  min_slack_min=150,slack_per_drive=0.25             €     8,709  on-time min 91.3%  unsafe  Δ €-281±310  20261114-003138-n-slack-min_slack_min150-slack_per_drive0.25
+  min_slack_min=240,slack_per_drive=0.75             €     8,706  on-time min 93.0%  SAFE  Δ €-284±183  20261114-003523-n-slack-min_slack_min240-slack_per_drive0.75
+# exit 0 at 2026-11-14T00:36:21Z

@@ -15,3 +15,13 @@
 00:31:38 sweep 5 started: sweep --seeds-from dev --name n-slack -g min_slack_min=150,210,240 -g slack_per_drive=0.25,0.75
 00:33:38 worker n14-04-alarm finished after 19 min
 00:33:38 worker n14-08-return started (pid 11153)
+00:34:02 published to night/20261114
+00:35:02 worker n14-05-buffer finished after 20 min
+00:35:02 worker n14-09-release started (pid 11444)
+00:36:22 sweep 6 started: sweep --seeds-from dev --name n-ring -g gate_radius_km=45,70 -g far_options=slow,all
+00:40:22 sweep 7 started: sweep --seeds-from dev --name n-sdsupply -g same_day_min_supply=50,150,200
+00:43:22 sweep 8 started: sweep --seeds-from dev --name n-caps -g price_mult_max=2.0,2.4 -g dealer_adj_max=1.3,1.6
+00:48:22 worker n14-03-ladder finished after 34 min
+00:48:22 worker n14-10-flu started (pid 12703)
+00:48:42 sweep 9 started: sweep --seeds-from dev --name n-lr -g price_lr=0.03,0.08 -g dealer_lr=0.01,0.04
+00:52:42 sweep 10 started: sweep --seeds-from dev --name n-margin -g expected_fee_mult=1.10,1.40 -g min_margin_frac=0.04,0.12

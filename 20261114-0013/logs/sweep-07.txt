@@ -1,0 +1,20 @@
+# uv run lab sweep --seeds-from dev --name n-sdsupply -g same_day_min_supply=50,150,200
+# started 2026-11-14T00:40:22Z
+
+=== same_day_min_supply=50
+  mean margin €9,089.94  (median €8,647.16, min €6,017.30)  ranked 16/16  on time min 94.4% mean 96.5%  won 230  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+99.63 ± 127.63 (SE) t=0.78  better on 5, worse on 6  Δon-time -0.24%
+
+=== same_day_min_supply=150
+  mean margin €8,974.11  (median €8,440.18, min €5,886.20)  ranked 16/16  on time min 94.4% mean 96.9%  won 227  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-16.19 ± 75.22 (SE) t=-0.22  better on 2, worse on 3  Δon-time +0.18%
+
+=== same_day_min_supply=200
+  mean margin €8,828.23  (median €8,056.43, min €5,886.20)  ranked 16/16  on time min 92.3% mean 96.8%  won 227  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-162.08 ± 161.11 (SE) t=-1.01  better on 2, worse on 5  Δon-time +0.08%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  same_day_min_supply=50                             €     9,090  on-time min 94.4%  SAFE  Δ €+100±128  20261114-004022-n-sdsupply-same_day_min_supply50
+  same_day_min_supply=150                            €     8,974  on-time min 94.4%  SAFE  Δ €-16±75  20261114-004106-n-sdsupply-same_day_min_supply150
+  same_day_min_supply=200                            €     8,828  on-time min 92.3%  SAFE  Δ €-162±161  20261114-004204-n-sdsupply-same_day_min_supply200
+# exit 0 at 2026-11-14T00:43:02Z

@@ -1,0 +1,25 @@
+# uv run lab sweep --seeds-from dev --name n-ring -g gate_radius_km=45,70 -g far_options=slow,all
+# started 2026-11-14T00:36:22Z
+
+=== gate_radius_km=45,far_options=slow
+  mean margin €8,500.28  (median €8,004.35, min €5,599.74)  ranked 16/16  on time min 95.2% mean 96.9%  won 216  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-490.03 ± 252.38 (SE) t=-1.94  better on 4, worse on 10  Δon-time +0.19%
+
+=== gate_radius_km=45,far_options=all
+  mean margin €8,500.28  (median €8,004.35, min €5,599.74)  ranked 16/16  on time min 95.2% mean 96.9%  won 216  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-490.03 ± 252.38 (SE) t=-1.94  better on 4, worse on 10  Δon-time +0.19%
+
+=== gate_radius_km=70,far_options=slow
+  mean margin €8,662.05  (median €8,354.34, min €5,610.18)  ranked 16/16  on time min 93.5% mean 96.1%  won 236  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-328.25 ± 132.29 (SE) t=-2.48  better on 6, worse on 10  Δon-time -0.61%
+
+=== gate_radius_km=70,far_options=all
+  mean margin €8,662.05  (median €8,354.34, min €5,610.18)  ranked 16/16  on time min 93.5% mean 96.1%  won 236  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-328.25 ± 132.29 (SE) t=-2.48  better on 6, worse on 10  Δon-time -0.61%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  gate_radius_km=70,far_options=slow                 €     8,662  on-time min 93.5%  SAFE  Δ €-328±132  20261114-003758-n-ring-gate_radius_km70-far_optionsslow
+  gate_radius_km=70,far_options=all                  €     8,662  on-time min 93.5%  SAFE  Δ €-328±132  20261114-003859-n-ring-gate_radius_km70-far_optionsall
+  gate_radius_km=45,far_options=slow                 €     8,500  on-time min 95.2%  SAFE  Δ €-490±252  20261114-003622-n-ring-gate_radius_km45-far_optionsslow
+  gate_radius_km=45,far_options=all                  €     8,500  on-time min 95.2%  SAFE  Δ €-490±252  20261114-003707-n-ring-gate_radius_km45-far_optionsall
+# exit 0 at 2026-11-14T00:39:55Z

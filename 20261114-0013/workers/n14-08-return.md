@@ -1,5 +1,5 @@
 # n14-08-return
-tool calls 8; result {}
+tool calls 55; result {}
 
 ## Its last words
 
