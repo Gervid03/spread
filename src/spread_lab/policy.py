@@ -71,6 +71,8 @@ class Params:
     same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
+    backlog_multiday_weight: float = 1.0  # weight in backlog_near for unurgent orders due on a future day
+    backlog_in_flight_weight: float = 0.0  # weight in backlog_near for open unanswered non-declined quotes
     decline_mult: float = 4.0         # a decline quotes this times the list price
     ext_ring_radius_km: float = 70.0  # extended ring radius for slow short/medium-drive orders
     ext_ring_min_supply: int = 0      # 0 = off; min drivers within ext_ring_radius_km to admit slow orders
@@ -78,6 +80,7 @@ class Params:
     return_hub_min_supply: int = 0    # 0 = off; min 30km supply at delivery hub to admit thin-to-hub return orders
     return_hub_max_drive_min: int = 200  # max drive minutes for thin-to-capital return orders
     ext_ring_no_learn: bool = False   # if True, lost ext_ring/return_hub quotes do not step mult/dealer_adj down
+    ext_ring_neutral_learn: bool = False  # if True, both won and lost ext_ring/return_hub quotes skip learn()
     return_hub_discount: float = 0.0  # discount on option_mult when admitted via pass_return_hub (and not pass_ext_ring)
     # --- on-time guard: tighten intake when the projected on-time share falls -----------------------
     guard_target: float = 0.0         # 0 = off; else the projected on-time share to defend (e.g. 0.95)
@@ -150,6 +153,7 @@ class Desk:
         self.posts: dict[str, PostAction] = {}       # gig id -> the post that made it
         self.urgent: set[str] = set()                # orders whose deadline warning has come
         self.decided: dict[str, str] = {}            # request id -> "quote" | "floor" | "decline"
+        self.lost_requests: set[str] = set()         # request ids where order_lost was received
         self.mult = {8: params.price_mult_l8, 7: params.price_mult_l7}.get(level, params.price_mult_low)
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
         self.dealer_trust: dict[str, int] = defaultdict(int)
@@ -176,6 +180,7 @@ class Desk:
             self.learn(event["order"]["id"], won=True)
             self.win(event["order"])
         elif kind == "order_lost":
+            self.lost_requests.add(event["requestId"])
             self.learn(event["requestId"], won=False)
         elif kind == "order_changed":
             self.change(event["order"])
@@ -310,10 +315,18 @@ class Desk:
             )
             if not (pass_ext_ring or pass_return_hub):
                 return {}, "decline"
-            if self.backlog_near(pickup) >= p.backlog_min:
+            if self.backlog_near(pickup) + 1e-9 >= p.backlog_min:
+                self.stats["declined_backlog"] += 1
+                if p.backlog_in_flight_weight > 0 and self.backlog_near(pickup, include_in_flight=False) + 1e-9 < p.backlog_min:
+                    self.stats["in_flight_blocked"] += 1
                 return {}, "decline"
-        elif self.backlog_near(pickup) >= max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight):
-            return {}, "decline"
+        else:
+            backlog_cap = max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight)
+            if self.backlog_near(pickup) + 1e-9 >= backlog_cap:
+                self.stats["declined_backlog"] += 1
+                if p.backlog_in_flight_weight > 0 and self.backlog_near(pickup, include_in_flight=False) + 1e-9 < backlog_cap:
+                    self.stats["in_flight_blocked"] += 1
+                return {}, "decline"
         is_ring = supply < gate_min
 
         if p.trust_guard and self.dealer_trust[request["dealerId"]] >= 13:
@@ -422,6 +435,9 @@ class Desk:
         """Moves the multiplier towards the price that wins `price_target_win` of the normal quotes."""
         if self.decided.get(request_id) != "quote":
             return
+        if self.p.ext_ring_neutral_learn and request_id in self.ext_ring_reqs:
+            self.stats["ext_ring_skipped_learn"] += 1
+            return
         if self.p.ext_ring_no_learn and not won and request_id in self.ext_ring_reqs:
             return
         p, day = self.p, self.now // DAY
@@ -435,12 +451,25 @@ class Desk:
         dealer = self.requests[request_id]["dealerId"]
         self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, p.dealer_adj_max)
 
-    def backlog_near(self, place: str) -> int:
+    def backlog_near(self, place: str, include_in_flight: bool = True) -> float:
         """Won orders without a driver for every undelivered car, picked up within the radius of `place`."""
-        radius, n = self.p.supply_radius_km, 0
+        p, radius, n = self.p, self.p.supply_radius_km, 0.0
         for order in self.orders.values():
             if self.geo.line_km(order["legs"][0]["pickup"]["placeId"], place) <= radius and not self.staffed(order):
-                n += 1
+                if p.backlog_multiday_weight != 1.0 and order["deadline"] // DAY > self.now // DAY and order["id"] not in self.urgent:
+                    n += p.backlog_multiday_weight
+                else:
+                    n += 1.0
+        if include_in_flight and p.backlog_in_flight_weight > 0:
+            for req_id, req in self.requests.items():
+                if (
+                    req_id not in self.orders
+                    and req_id not in self.lost_requests
+                    and self.decided.get(req_id) in ("quote", "floor")
+                    and self.now <= req["respondBy"]
+                    and self.geo.line_km(req["legs"][0]["pickup"]["placeId"], place) <= radius
+                ):
+                    n += p.backlog_in_flight_weight
         return n
 
     def projected_on_time(self) -> float:
@@ -800,6 +829,7 @@ class Desk:
         for req in self.requests.values():
             self.dealer_request_count[req["dealerId"]] += 1
         self.urgent = {e["orderId"] for e in history if e["kind"] == "deadline_close"}
+        self.lost_requests = {e["requestId"] for e in history if e["kind"] == "order_lost"}
         
         # replay ledger to build trust exactly as handle() does
         _late_replay = set()
