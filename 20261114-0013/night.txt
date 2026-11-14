@@ -239,3 +239,16 @@
 06:59:57 worker n14-06591-final-champion started (pid 71189)
 07:00:17 worker n14-06592-hours-and-sweep-stack-on-v3 started (pid 71292)
 07:01:37 sweep 67 started: sweep --seeds-from dev --name n-slack130-ptw-fine -s min_slack_min=130 -s slack_per_drive=0.80 -s same_day_min_supply=50 -s dealer_lr=0.01 -g price_target_win=0.34,0.36,0.37 -g min_supply=18,20
+07:02:43 published to night/20261114
+07:03:43 worker n14-06043-feeclock-on-a finished after 47 min
+07:03:43 worker n14-06593-inbound-discount-and-thin-on-v3 started (pid 73221)
+07:08:03 sweep 68 started: sweep --seeds-from dev --name n-slack130-dlr01-fw150 -s min_slack_min=130 -s slack_per_drive=0.80 -s same_day_min_supply=50 -s dealer_lr=0.01 -s fee_warn=1.50 -s fee_step_min=20 -s min_supply=20 -g price_lr=0.05,0.06 -g price_target_win=0.35,0.37,0.38
+07:15:03 worker n14-06262-signals-on-v3 finished after 41 min
+07:15:03 worker n14-06264-triage-and-feedrop-on-v3 finished after 24 min
+07:15:03 worker n14-06594-safety-brake-and-view-offer-on-v3 started (pid 74324)
+07:15:25 lead tick started (pid 74480)
+07:18:25 sweep 69 started: sweep --seeds-from dev --name n-slack135-steep150-dlr01 -s min_slack_min=135 -s slack_per_drive=0.80 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.5 -s dealer_lr=0.01 -g price_lr=0.05,0.06 -g min_supply=20,25,30
+07:22:25 worker n14-06591-final-champion finished after 22 min
+07:22:25 worker n14-06594-safety-brake-and-view-offer-on-v3 finished after 7 min
+07:22:25 worker n14-06592-hours-and-sweep-stack-on-v3 finished after 22 min
+07:22:25 worker n14-06593-inbound-discount-and-thin-on-v3 finished after 18 min

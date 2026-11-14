@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-slack130-dlr01-fw150 -s min_slack_min=130 -s slack_per_drive=0.80 -s same_day_min_supply=50 -s dealer_lr=0.01 -s fee_warn=1.50 -s fee_step_min=20 -s min_supply=20 -g price_lr=0.05,0.06 -g price_target_win=0.35,0.37,0.38
+# started 2026-11-14T07:08:03Z
+
+=== price_lr=0.05,price_target_win=0.35
+  mean margin €10,436.93  (median €10,246.85, min €7,507.45)  ranked 16/16  on time min 94.0% mean 97.5%  won 251  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-92.49 ± 98.35 (SE) t=-0.94  better on 6, worse on 10  Δon-time +0.35%
+
+=== price_lr=0.05,price_target_win=0.37
+  mean margin €10,698.16  (median €10,162.40, min €7,723.87)  ranked 16/16  on time min 93.6% mean 97.0%  won 263  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+168.75 ± 201.03 (SE) t=0.84  better on 7, worse on 9  Δon-time -0.19%
+
+=== price_lr=0.05,price_target_win=0.38
+  mean margin €10,649.44  (median €10,463.99, min €7,895.46)  ranked 16/16  on time min 94.2% mean 97.2%  won 270  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+120.02 ± 140.95 (SE) t=0.85  better on 8, worse on 8  Δon-time +0.03%
+
+=== price_lr=0.06,price_target_win=0.35
+  mean margin €10,456.20  (median €9,657.47, min €7,644.55)  ranked 16/16  on time min 93.8% mean 97.0%  won 256  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-73.21 ± 131.10 (SE) t=-0.56  better on 7, worse on 9  Δon-time -0.12%
+
+=== price_lr=0.06,price_target_win=0.37
+  mean margin €10,335.56  (median €10,039.53, min €7,593.98)  ranked 16/16  on time min 92.6% mean 96.7%  won 265  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-193.86 ± 188.72 (SE) t=-1.03  better on 5, worse on 11  Δon-time -0.50%
+
+=== price_lr=0.06,price_target_win=0.38
+  mean margin €10,621.62  (median €10,436.71, min €7,735.43)  ranked 16/16  on time min 93.0% mean 97.1%  won 271  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+92.20 ± 135.57 (SE) t=0.68  better on 7, worse on 9  Δon-time -0.05%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  price_lr=0.05,price_target_win=0.37                €    10,698  on-time min 93.6%  SAFE  Δ €+169±201  20261114-070857-n-slack130-dlr01-fw150-price_lr0.05-price_target_win0.37
+  price_lr=0.05,price_target_win=0.38                €    10,649  on-time min 94.2%  SAFE  Δ €+120±141  20261114-071059-n-slack130-dlr01-fw150-price_lr0.05-price_target_win0.38
+  price_lr=0.06,price_target_win=0.38                €    10,622  on-time min 93.0%  SAFE  Δ €+92±136  20261114-071429-n-slack130-dlr01-fw150-price_lr0.06-price_target_win0.38
+  price_lr=0.06,price_target_win=0.35                €    10,456  on-time min 93.8%  SAFE  Δ €-73±131  20261114-071154-n-slack130-dlr01-fw150-price_lr0.06-price_target_win0.35
+  price_lr=0.05,price_target_win=0.35                €    10,437  on-time min 94.0%  SAFE  Δ €-92±98  20261114-070803-n-slack130-dlr01-fw150-price_lr0.05-price_target_win0.35
+  price_lr=0.06,price_target_win=0.37                €    10,336  on-time min 92.6%  SAFE  Δ €-194±189  20261114-071332-n-slack130-dlr01-fw150-price_lr0.06-price_target_win0.37
+# exit 0 at 2026-11-14T07:17:33Z

@@ -1,0 +1,13 @@
+# uv run lab sweep --seeds-from dev --name n-slack135-steep150-dlr01 -s min_slack_min=135 -s slack_per_drive=0.80 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.5 -s dealer_lr=0.01 -g price_lr=0.05,0.06 -g min_supply=20,25,30
+# started 2026-11-14T07:18:25Z
+
+=== price_lr=0.05,min_supply=20
+  mean margin €10,733.26  (median €10,462.15, min €7,632.87)  ranked 16/16  on time min 93.8% mean 96.7%  won 281  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+203.84 ± 163.76 (SE) t=1.24  better on 9, worse on 7  Δon-time -0.43%
+
+=== price_lr=0.05,min_supply=25
+  mean margin €10,722.82  (median €9,744.80, min €7,769.90)  ranked 16/16  on time min 93.8% mean 96.7%  won 276  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+193.40 ± 153.25 (SE) t=1.26  better on 9, worse on 7  Δon-time -0.50%
+
+=== price_lr=0.05,min_supply=30
+# exit 143 at 2026-11-14T07:21:45Z

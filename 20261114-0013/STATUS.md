@@ -1,4 +1,4 @@
-# Night status, 2026-11-14 07:02 UTC (ends 2026-11-14T10:13:17Z)
+# Night status, 2026-11-14 07:22 UTC (ends 2026-11-14T10:13:17Z)
 
 ## Workers
 
@@ -68,16 +68,18 @@
 | n14-05166-quota | 05:57 | done 06:33 (36 min) | 63 | yes | Dev (`q=0.06, m=35`, mean €9,901.98): Δmargin €-675.94 ± 201.25 (t=-3.36, 4/12) vs A, €+911.68 ± 279.62 (t=3.26, 13/3) vs champion, worst on-time 92.95% (`dev-0 |
 | n14-06041-capacity-steps | 06:04 | done 06:26 (21 min) | 71 | yes | 480.3 requests/world and 10.21 s/world vs base 645.1 requests/world and 16.49 s/world (dev Δmargin +€26.08 ± 148.85, t=0.18, Δon-time +0.09%, worst world on-tim |
 | n14-06042-costprice-on-a | 06:06 | done 06:35 (28 min) | 59 | yes | Dev paired Δmargin: `€-342.23 ± 154.44 (t=-2.22, 4/12) vs A` / `€+1,245.38 ± 185.95 (t=6.70, 16/0) vs champion`, worst on-time `95.1%` (SAFE, `driver_fee / reve |
-| n14-06043-feeclock-on-a | 06:16 | running | 86 | yes |  |
+| n14-06043-feeclock-on-a | 06:16 | done 07:03 (47 min) | 86 | yes | Dev paired Δmargin: combo `€+119.37 ± 186.64` vs A (`€+167.87 ± 164.78` vs v3 champion), worst on-time `91.25%` (`deadline_close` 20.6, `gig_dropped` 28.9, NOT  |
 | n14-06044-friday-on-a | 06:17 | done 06:55 (37 min) | 68 | yes | (a)+(b) dev: worst on-time 94.1% (SAFE), vs Policy A Δmargin €+22.26 ± 99.73 (SE, t=0.22, 10W/4L, Δon-time -0.25%), vs champion (v3) Δmargin €+70.76 ± 118.53 (S |
 | n14-06261-hours-on-v3 | 06:27 | done 06:50 (23 min) | 69 | yes | dev paired `Δmargin €+7.56 ± 113.42` (`t=+0.07`, 8 better / 8 worse), worst on-time `94.39%` (SAFE; `dropped_hours=782`, `lastpickup_err=2` across `2,545` order |
-| n14-06262-signals-on-v3 | 06:33 | running | 33 | no |  |
+| n14-06262-signals-on-v3 | 06:33 | done 07:15 (41 min) | 41 | yes | `eligible_supply=True` dev Δmargin €-50.63 ± 146.36 (t=-0.35, inside the noise), worst on-time 95.35% (+0.97% vs 94.38% v3; total late 111 vs 128, `prem_won`/`p |
 | n14-06263-snow-and-hitch-research | 06:35 | done 06:53 (18 min) | 43 | yes | Dev paired delta ± SE and worst on-time share: +0.00 ± 0.00 (no policy change; Champion v3 dev mean €10,529.42, worst on-time 94.39%). |
-| n14-06264-triage-and-feedrop-on-v3 | 06:50 | running | 31 | no |  |
-| n14-06591-final-champion | 06:59 | running | 17 | no |  |
-| n14-06592-hours-and-sweep-stack-on-v3 | 07:00 | running | 15 | no |  |
+| n14-06264-triage-and-feedrop-on-v3 | 06:50 | done 07:15 (24 min) | 50 | no | Dev paired delta ± SE and worst on-time share: `Δmargin €+407.79 ± 204.23 (t = 2.00, 11/5, mean €10,937.21, min €7,821.09, driver_fee -€331.69/w, revenue +€101. |
+| n14-06591-final-champion | 06:59 | done 07:22 (22 min) | 36 | no |  |
+| n14-06592-hours-and-sweep-stack-on-v3 | 07:00 | done 07:22 (22 min) | 38 | no | I will merge `exp/gemini-n14-06261-hours-on-v3` into the current branch (`exp/gemini-n14-06592-hours-and-sweep-stack-on-v3`) to bring in the `slack_by_hours` im |
+| n14-06593-inbound-discount-and-thin-on-v3 | 07:03 | done 07:22 (18 min) | 32 | no |  |
+| n14-06594-safety-brake-and-view-offer-on-v3 | 07:15 | done 07:22 (7 min) | 19 | no | I will run `git diff` and then execute the smoke noop evaluation (`uv run lab eval --seeds-from smoke --name brake-view-noop`) to verify that our default parame |
 
-Queued prompts: 06593-inbound-discount-and-thin-on-v3.md, 06594-safety-brake-and-view-offer-on-v3.md
+Queued prompts: 07221-eligible-supply-and-plr065-on-v3.md, 07222-hitch-pairs-on-v3.md, 07223-hitch-return-offer-on-v3.md, 07224-stack-v3-triage-feedrop-buf-alarm.md
 
 ## Sweeps started (in order; logs/sweep-NN.txt has each table)
 
@@ -148,10 +150,12 @@ Queued prompts: 06593-inbound-discount-and-thin-on-v3.md, 06594-safety-brake-and
 65. `sweep --seeds-from dev --name n-steep15-backlog -s min_slack_min=135 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.50 -s dealer_lr=0.01 -g backlog_ratio=0.06,0.07,0.08 -g min_supply=26,28`
 66. `sweep --seeds-from dev --name n-dlr01-plr06-fine -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g dealer_lr=0.009,0.011 -g price_lr=0.055,0.06,0.065`
 67. `sweep --seeds-from dev --name n-slack130-ptw-fine -s min_slack_min=130 -s slack_per_drive=0.80 -s same_day_min_supply=50 -s dealer_lr=0.01 -g price_target_win=0.34,0.36,0.37 -g min_supply=18,20`
+68. `sweep --seeds-from dev --name n-slack130-dlr01-fw150 -s min_slack_min=130 -s slack_per_drive=0.80 -s same_day_min_supply=50 -s dealer_lr=0.01 -s fee_warn=1.50 -s fee_step_min=20 -s min_supply=20 -g price_lr=0.05,0.06 -g price_target_win=0.35,0.37,0.38`
+69. `sweep --seeds-from dev --name n-slack135-steep150-dlr01 -s min_slack_min=135 -s slack_per_drive=0.80 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.5 -s dealer_lr=0.01 -g price_lr=0.05,0.06 -g min_supply=20,25,30`
 
 ## Every evaluation since the night began
 
-Champion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds the champion has (dev, holdout).
+Champion (promoted 2026-11-14T06:12, git 85b89db) on dev: margin mean 10,529, on-time min 94.4%. Δ is paired on seeds the champion has (dev, holdout).
 
 | run | worlds | margin mean | min margin | on-time min | SAFE | Δ vs champion (paired) |
 |---|---|---|---|---|---|---|
@@ -507,4 +511,17 @@ Champion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds 
 | 20261114-065938-n-dlr01-plr06-fine-dealer_lr0.011-price_lr0.06 | 16 | 10,399 | 8,030 | 91.2% | no | -130 ± 179 (t -0.7, 6/16 better) |
 | 20261114-070014-n-dlr01-plr06-fine-dealer_lr0.011-price_lr0.065 | 16 | 10,634 | 7,428 | 92.5% | SAFE | +104 ± 201 (t +0.5, 10/16 better) |
 | 20261114-070137-n-slack130-ptw-fine-price_target_win0.34-min_supply18 | 16 | 10,411 | 7,435 | 95.2% | SAFE | -118 ± 125 (t -0.9, 7/16 better) |
-| 20261114-070232-n-slack130-ptw-fine-price_target_win0.34-min_supply20 | 0 failed | | | | | |
+| 20261114-070232-n-slack130-ptw-fine-price_target_win0.34-min_supply20 | 16 | 10,355 | 7,251 | 95.6% | SAFE | -174 ± 153 (t -1.1, 6/16 better) |
+| 20261114-070327-n-slack130-ptw-fine-price_target_win0.36-min_supply18 | 16 | 10,378 | 7,676 | 94.9% | SAFE | -152 ± 138 (t -1.1, 7/16 better) |
+| 20261114-070418-n-slack130-ptw-fine-price_target_win0.36-min_supply20 | 16 | 10,348 | 7,676 | 94.9% | SAFE | -182 ± 147 (t -1.2, 8/16 better) |
+| 20261114-070525-n-slack130-ptw-fine-price_target_win0.37-min_supply18 | 16 | 10,354 | 7,566 | 94.8% | SAFE | -176 ± 115 (t -1.5, 5/16 better) |
+| 20261114-070628-n-slack130-ptw-fine-price_target_win0.37-min_supply20 | 16 | 10,483 | 7,566 | 94.8% | SAFE | -47 ± 139 (t -0.3, 5/16 better) |
+| 20261114-070803-n-slack130-dlr01-fw150-price_lr0.05-price_target_win0.35 | 16 | 10,437 | 7,507 | 94.0% | SAFE | -92 ± 98 (t -0.9, 6/16 better) |
+| 20261114-070857-n-slack130-dlr01-fw150-price_lr0.05-price_target_win0.37 | 16 | 10,698 | 7,724 | 93.6% | SAFE | +169 ± 201 (t +0.8, 7/16 better) |
+| 20261114-071059-n-slack130-dlr01-fw150-price_lr0.05-price_target_win0.38 | 16 | 10,649 | 7,895 | 94.2% | SAFE | +120 ± 141 (t +0.9, 8/16 better) |
+| 20261114-071154-n-slack130-dlr01-fw150-price_lr0.06-price_target_win0.35 | 16 | 10,456 | 7,645 | 93.9% | SAFE | -73 ± 131 (t -0.6, 7/16 better) |
+| 20261114-071332-n-slack130-dlr01-fw150-price_lr0.06-price_target_win0.37 | 16 | 10,336 | 7,594 | 92.6% | SAFE | -194 ± 189 (t -1.0, 5/16 better) |
+| 20261114-071429-n-slack130-dlr01-fw150-price_lr0.06-price_target_win0.38 | 16 | 10,622 | 7,735 | 93.0% | SAFE | +92 ± 136 (t +0.7, 7/16 better) |
+| 20261114-071826-n-slack135-steep150-dlr01-price_lr0.05-min_supply20 | 16 | 10,733 | 7,633 | 93.8% | SAFE | +204 ± 164 (t +1.2, 9/16 better) |
+| 20261114-071927-n-slack135-steep150-dlr01-price_lr0.05-min_supply25 | 16 | 10,723 | 7,770 | 93.8% | SAFE | +193 ± 153 (t +1.3, 9/16 better) |
+| 20261114-072013-n-slack135-steep150-dlr01-price_lr0.05-min_supply30 (running) | 9 | 10,687 | 8,619 | 93.8% | no | +312 ± 260 (t +1.2, 6/9 better) |

@@ -6,3 +6,30 @@
   vs champion on 16 paired seeds: Δmargin €-118.28 ± 124.76 (SE) t=-0.95  better on 7, worse on 9  Δon-time +0.42%
 
 === price_target_win=0.34,min_supply=20
+  mean margin €10,355.15  (median €10,133.46, min €7,250.98)  ranked 16/16  on time min 95.6% mean 97.6%  won 248  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-174.27 ± 153.42 (SE) t=-1.14  better on 6, worse on 10  Δon-time +0.48%
+
+=== price_target_win=0.36,min_supply=18
+  mean margin €10,377.72  (median €10,111.51, min €7,676.25)  ranked 16/16  on time min 94.9% mean 97.2%  won 261  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-151.69 ± 137.99 (SE) t=-1.1  better on 7, worse on 9  Δon-time +0.00%
+
+=== price_target_win=0.36,min_supply=20
+  mean margin €10,347.53  (median €10,165.60, min €7,676.25)  ranked 16/16  on time min 94.9% mean 97.2%  won 261  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-181.89 ± 147.16 (SE) t=-1.24  better on 8, worse on 8  Δon-time +0.01%
+
+=== price_target_win=0.37,min_supply=18
+  mean margin €10,353.74  (median €10,244.58, min €7,566.18)  ranked 16/16  on time min 94.8% mean 97.3%  won 266  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-175.68 ± 115.04 (SE) t=-1.53  better on 5, worse on 11  Δon-time +0.13%
+
+=== price_target_win=0.37,min_supply=20
+  mean margin €10,482.75  (median €10,244.58, min €7,566.18)  ranked 16/16  on time min 94.8% mean 97.4%  won 265  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-46.67 ± 139.35 (SE) t=-0.33  better on 5, worse on 11  Δon-time +0.26%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  price_target_win=0.37,min_supply=20                €    10,483  on-time min 94.8%  SAFE  Δ €-47±139  20261114-070628-n-slack130-ptw-fine-price_target_win0.37-min_supply20
+  price_target_win=0.34,min_supply=18                €    10,411  on-time min 95.2%  SAFE  Δ €-118±125  20261114-070137-n-slack130-ptw-fine-price_target_win0.34-min_supply18
+  price_target_win=0.36,min_supply=18                €    10,378  on-time min 94.9%  SAFE  Δ €-152±138  20261114-070327-n-slack130-ptw-fine-price_target_win0.36-min_supply18
+  price_target_win=0.34,min_supply=20                €    10,355  on-time min 95.6%  SAFE  Δ €-174±153  20261114-070232-n-slack130-ptw-fine-price_target_win0.34-min_supply20
+  price_target_win=0.37,min_supply=18                €    10,354  on-time min 94.8%  SAFE  Δ €-176±115  20261114-070525-n-slack130-ptw-fine-price_target_win0.37-min_supply18
+  price_target_win=0.36,min_supply=20                €    10,348  on-time min 94.9%  SAFE  Δ €-182±147  20261114-070418-n-slack130-ptw-fine-price_target_win0.36-min_supply20
+# exit 0 at 2026-11-14T07:07:35Z
