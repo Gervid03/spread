@@ -37,3 +37,30 @@ The protocol
    the run folder name(s).
 
 Your task:
+
+## The day protocol (Sat 14 Nov, from 10:00 Helsinki): fewer agents, more thought per test
+Practice worlds are the bottleneck (8 per team, shared by every agent), so every world you play must answer a
+question. Think, read the code and reveals first, and test second.
+- **Flags with neutral defaults.** Each mechanism gets Params fields whose defaults reproduce the champion. Check
+  that once on `--seeds-from smoke`: Δ must be €0.00.
+- **Measure the mechanism.** Add counters to `desk.stats` (how often it fired, wins, late ones, euros) and read them
+  on smoke first. A mechanism that never fires can't be tested on dev.
+- **Screen cheaply, confirm faithfully.**
+  1. Screen with the fast instrument (14-minute steps, ~35% fewer seconds a world) against its own champion
+     baseline: `uv run lab eval <your flags> -s step_min=14 -s busy_start_min=480 -s busy_end_min=1080 --seeds dev-01,dev-02,dev-03,dev-04,dev-05,dev-06,dev-07,dev-08 --vs baselines/fast14-dev --name fast-<x>`.
+  2. **Confirm on the normal instrument** (no step flags, vs the champion) on all 16 dev worlds, only for settings
+     that screened Δ > 0. The fast instrument is fine for paired screening but **not neutral** (the champion lost
+     €414 ± 131 on holdout with it), so every number you report as a result comes from the normal instrument.
+  3. Use 32 fresh worlds (`--seeds night-01,...,night-32`) only for a candidate that is SAFE on dev with t >= 2.
+
+  At most 4 settings per question, chosen by reasoning from your counters. No blind grids.
+- **Slot-free work first.** Reveals of finished practice worlds (`uv run lab reveal <world>`) and results files cost no
+  slots. Size an idea with them before you build it.
+- **Tail matters as much as mean.** The final is one secret world: report the worst on-time share and the number of
+  worlds under 92%, every time.
+- **Push after every finished measurement** (`git push -u origin HEAD`), so nothing is lost if your session ends.
+- **Ideas are welcome.** If you see a promising idea that you won't test yourself, write a brief (the shape of
+  `experiments/prompts/day/*.md`: the idea, why, the flags, what to measure) to
+  `$HOME/spread/runs/night/queue/9<HHMM>-<slug>.md`, at most two per session. The next free agent takes it.
+- Practice pauses by itself during the test finals (13:40–14:50 and 19:40–20:50 Helsinki). If an eval prints
+  "Practice paused", work on code or reveals meanwhile, and don't kill it.

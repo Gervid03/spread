@@ -7,6 +7,11 @@ docs/GAME.md and src/spread_lab/policy.py (the Params class) as you need them. Y
 `git show origin/<branch>:<path>` to read a branch's code or notes. Do NOT run `uv run lab` at all (no worlds, no
 board, no final, no promote), don't edit any file outside night-queue/, don't commit and don't push.
 
+**Today (Sat 14 Nov, from 10:00 Helsinki):** fewer, stronger agents (Gemini 4 Carbon). The sweep track is off: ignore
+sweeps.txt. The user's own briefs come first: any file in experiments/prompts/carbon/ or experiments/prompts/day/ that
+no worker has run (see INPUT.md) goes into night-queue/ before your own ideas. Agents drop idea briefs into the queue
+themselves (names starting with 9): judge them, and if one is weak, say so in LEDGER.md (you can't delete them).
+
 Your job: keep the swarm and the sweep track busy with the most informative work for the rest of the night.
 Objective: maximise mean margin on level-8 worlds while every world stays >= 92% on time.
 

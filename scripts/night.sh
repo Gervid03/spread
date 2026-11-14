@@ -23,10 +23,12 @@ export PATH="$HOME/.local/bin:$PATH" PYTHONUNBUFFERED=1
 HOURS=${HOURS:-8}; MODEL=${MODEL:-gemini-4-argon}; LEAD_MODEL=${LEAD_MODEL:-$MODEL}
 FALLBACK_MODEL=${FALLBACK_MODEL:-gemini-3.1-pro-preview}
 MAX_WORKERS=${MAX_WORKERS:-3}; TURNS=${TURNS:-150}; NIGHT_BOARD=${NIGHT_BOARD:-1}
+MAX_AGENTS=${MAX_AGENTS:-0}        # >0: also cap all Gemini agents on the host (agents started outside night.sh count)
+SWEEPS=${SWEEPS:-1}; LEAD_QUEUE_LE=${LEAD_QUEUE_LE:-0}; SEED_DIR=${SEED_DIR:-experiments/prompts/night}
 start=$(date +%s); deadline=$((start + $(awk "BEGIN{print int($HOURS * 3600)}")))
 night=$root/runs/night; mkdir -p "$night/queue" "$night/started" "$night/logs" runs/swarm
 PUBLISH_BRANCH=${PUBLISH_BRANCH:-night/$(date -u +%Y%m%d)}
-tag=n$(date -u +%d)                               # slug prefix, so branch names don't clash with earlier nights
+tag=${TAG:-n$(date -u +%d)}                               # slug prefix, so branch names don't clash with earlier nights
 
 exec 9> "$night/night.lock"
 flock -n 9 || { echo "night.sh is already running"; exit 1; }
@@ -36,7 +38,7 @@ echo "$start" > "$night/start"
 date -u -d "@$deadline" +%FT%TZ > "$night/deadline"
 
 # Seed the queue from the committed prompts (once per night: a copy already started is not repeated).
-for f in experiments/prompts/night/*.md; do
+for f in "$SEED_DIR"/*.md; do
   [ -e "$f" ] || continue
   b=$(basename "$f"); [ -e "$night/started/$b" ] || [ -e "$night/queue/$b" ] || cp "$f" "$night/queue/$b"
 done
@@ -75,6 +77,8 @@ reap_workers() {
     unset "wpid[$slug]" "wstart[$slug]" "wfile[$slug]"
   done
 }
+
+agents_ok() { [ "$MAX_AGENTS" = 0 ] || [ "$(pgrep -fc '^node /usr/bin/gemini')" -lt "$MAX_AGENTS" ]; }
 
 next_sweep() {                                    # prints the first sweep line not yet done
   local line
@@ -147,15 +151,15 @@ while :; do
   reap_workers
   if [ "$stopping" = 0 ]; then
     # workers
-    while [ "${#wpid[@]}" -lt "$MAX_WORKERS" ] && [ "$now" -ge "$hold_until" ]; do
+    while [ "${#wpid[@]}" -lt "$MAX_WORKERS" ] && [ "$now" -ge "$hold_until" ] && agents_ok; do
       f=$(ls "$night/queue"/*.md 2>/dev/null | sort | head -1); [ -n "$f" ] || break
       start_worker "$f"; sleep 20
     done
     # an empty queue: ask the lead for more (at most every 20 minutes, never two at once)
-    if [ -z "$(ls "$night/queue"/*.md 2>/dev/null)" ] && ! alive "$lead_pid" && [ $((now - last_lead)) -ge 1200 ] \
+    if [ "$(ls "$night/queue"/*.md 2>/dev/null | wc -l)" -le "$LEAD_QUEUE_LE" ] && ! alive "$lead_pid" && [ $((now - last_lead)) -ge 1200 ] \
        && [ "$now" -lt $((deadline - 2700)) ]; then lead_tick; fi
     # sweeps
-    alive "$sweep_pid" || start_sweep || true
+    [ "$SWEEPS" = 1 ] && { alive "$sweep_pid" || start_sweep || true; }
     # ranking rounds
     if [ "$NIGHT_BOARD" = 1 ] && ! alive "$board_pid" && [ $((now - last_board)) -ge 1800 ]; then
       ( echo "# $(date -u +%FT%TZ)"; uv run lab board --auto --yes ) >> "$night/logs/board.txt" 2>&1 < /dev/null &
