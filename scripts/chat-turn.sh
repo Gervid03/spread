@@ -14,4 +14,4 @@ setsid nohup bash -c '
   export PATH="$HOME/.local/bin:$PATH" TAS_LANES=2
   cd "$wt" && gemini -m gemini-4-carbon --yolo --skip-trust -o text --resume latest -p "$MSG" >> "$log" 2>&1
   echo "[[turn done]]" >> "$log"' 9>&- > /dev/null 2>&1 < /dev/null &
-tail -n +1 -f "$log" | sed -u -e '/YOLO mode is enabled/d' -e '/^\[\[turn done\]\]$/q'
+tail -n +1 -f "$log" | sed -u -e '/YOLO mode is enabled/d' -e '/256-color support/d' -e '/^\[\[turn done\]\]$/Q'
