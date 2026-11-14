@@ -37,9 +37,15 @@ orders a week at 96–98% on time, and their margin per order (~€40) is the sa
 €4–5k a week is volume. The margin x-ray (`origin/exp/gemini-n14-01392-margin-xray-v2`) shows where it is: the thin
 class (under 30 drivers within 55 km) is 287 requests a week, all declined, and same_day from mid towns and the
 ring is all declined too. Ideas that open these classes safely (25, 24, 20, 21, 26) come before price and fee polish.
+The handbook (`/kit/HANDBOOK.md`, "Dealers compare prices") names the other route: **"At levels 7 and 8 the list
+price wins most requests"** (the competitor is 26–54% above list), and a request is good when it is cheap for us to
+staff: it goes towards towns where drivers live, it pairs with an order we have (a return leg, a second car from the
+same yard), or it starts in a busy area at a busy hour. One win target for every request wins the dear lanes and
+loses the cheap ones. So pricing by staffing cost (idea 18; 02461's lane tilt was a first cut) and chains (26) are
+volume ideas too: they win more of the cars we can staff cheaply.
 
 **3. Fable's round 3 (ideas 15–30 below) is untested.** It was written at 01:30, before the night began, and
-never reached the queue. It gets the worker slots, in this order: 25 + 24 (in `02-thin-volume`), 15 triage, 19 thermostat, 20 quota,
+never reached the queue. It gets the worker slots, in this order: 25 + 24 (in `02-thin-volume`), 15 triage, 19 thermostat, 18 price by cost, 20 quota,
 21 (a)+(b), 26 hitch (R11 first), 16 fee clock, 17 hours, 23 signals, then 22 (after R7). The briefs are in `experiments/prompts/gemini-<name>.md`. They were written for v2, so adapt each to A
 in the worker prompt (merge A, A's flags, A's runs). Research briefs (R6–R14) cost almost no practice slots
 (reveals are one request each), so one research worker can run beside the others at any time.
