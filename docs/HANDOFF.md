@@ -1,4 +1,60 @@
-# Handoff: where the lab stands (Sat 14 Nov, 01:00 Helsinki)
+# Handoff: where the lab stands
+
+## Sat 14 Nov, 07:15 Helsinki (the cloud lead, night shift)
+Read this, then the directive at the top of `experiments/IDEAS.md`, then `docs/OPERATIONS.md`.
+
+**The night (scripts/night.sh on the swarm VM, 02:13–12:13 Helsinki; results force-pushed every 20 minutes to
+`night/20261114`):** about 50 Gemini 4 Argon workers and 47 dev sweeps on v2. The best stacks are 16-seed dev numbers,
+not yet validated on fresh worlds:
+
+| | branch | dev mean | Δ vs v2 (t) | worst world |
+|---|---|---:|---:|---:|
+| v2 (champion) | `main` | €8,990 | — | 94.4% |
+| A, fee-drop | `exp/gemini-n14-03324-supply-adaptive-fee-open-and-drop-rescue` | €10,578 | +1,588 (6.8) | 95.6% |
+| B, buffer-alarm | `exp/gemini-n14-03111-adaptive-delivery-buffer-and-alarm` | €10,508 | +1,518 (7.5) | 95.8% |
+| D, ext-ring + lead car | `exp/gemini-n14-03501-extring-full-neutral-and-leadcar` | €10,529 | +1,539 (5.8) | 94.4% |
+| C, v7 = A + B + `dealer_lr` 0.01 | `exp/gemini-n14-04154-stack-v7-feedrop-buf-alarm` | €10,648 | +1,658 (7.1) | 94.0% |
+
+All four are within one SE of each other, so re-stacking has stopped paying. v2 on 32 fresh worlds (`night-01..32`)
+made €9,193 with 3 worlds under 92% (night-11 90.5%). The fresh-world tail is the real risk for the final.
+
+**The public board** (`GET https://spread.bahnexpress.com/v1/leaderboards/practice?level=8`, round "Saturday
+00:00"): **35th of 63 ranked teams** (151 in all) with €54.2k for 5 worlds. The top 10 need ~€75.5k, and House best
+has €71.8k. **The leaders win 410–460 orders a week at 96–98% on time, at the same ~€40 margin an order as ours;
+we win ~270.** The gap is volume. The margin x-ray (`exp/gemini-n14-01392-margin-xray-v2`) puts it in the thin
+class (under 30 drivers within 55 km: 287 requests a week, all declined) and in same_day from mid towns and the
+ring (all declined).
+
+**Done tonight from the cloud** (everything is on `main`, nothing in `src/`, so the final runner did not restart):
+- Fable's round 3 (ideas 15–30, S7–S17, R6–R14, 14 briefs) merged. It had never reached the night run.
+- The lead's directive at the top of IDEAS.md: build on A, volume first, round 3 gets the slots, no v2 sweeps.
+- Four prompts that the night lead's tick copies from `night-queue/` on main: `01-validate-top` (A, B, D, C on holdout
+  plus `night-01..32`, a restart, `step_min=3` live parity, then **`scripts/promote.sh`** for the winner and a reset of
+  the swarm host's root checkout so ranking rounds play it), `02-thin-volume` (ideas 25 + 24), `03-triage` (15),
+  `04-thermostat` (19). **Remove them from `night-queue/` once they are queued** (main brings them back at every
+  tick).
+- `scripts/promote.sh` + `scripts/promote_gate.py`: the gated road to main (tested with stubs; see OPERATIONS.md).
+- `experiments/prompts/fable-ideas.md`: the brief to give Fable now and then.
+
+**Server capacity, measured tonight.** A level-8 week takes **~16 s on the swarm VM** (~630 requests at ~25 ms), not
+the 50–60 s measured from the laptop. With 8 worlds per team that's a ceiling of **~1,800 worlds an hour**, and the night
+ran close to it. Machines don't raise it: the cap is per team. The v2 sweep track alone used 2.4–3.6 of the 8
+slot-hours each hour (30–45%), on code that is no longer the frontier, so it is now off until the root checkout is
+on the new champion. **Gemini** (Argon for the lead and workers, 5 at a time) runs at ~15–20 requests a minute,
+about 1% of the Tier 3 limit. More Gemini buys more thinking, not more tests. Its best use is slot-free work:
+research on reveals (one request each), code review, and two workers on one structural idea (best of two).
+
+**After the night ends (12:13 Helsinki): the day run, one paste on the laptop.** If it says "already running", the
+night's last workers are finishing: wait ten minutes and paste again.
+```sh
+ssh -i ~/.ssh/verda_spread ops@34.51.182.19 'sudo -u lab -H bash -lc "cd ~/spread && git fetch -q origin && git reset -q --hard origin/main && mkdir -p runs && (HOURS=17 MAX_WORKERS=6 setsid nohup bash scripts/night.sh > runs/night-day.out 2>&1 < /dev/null &); sleep 60; tail -n 6 runs/night/night.txt"'
+```
+It runs until Sun 05:00 Helsinki and pauses itself in the quiet hours. promote.sh refuses after Sun 06:00. The
+freeze (`touch /home/lab/spread-final/.freeze` on Verda) is still by hand.
+
+---
+
+## Sat 14 Nov, 01:00 Helsinki (the laptop lead)
 
 For the next lead session (Claude in a cloud session, or a person). Read this, then `docs/OPERATIONS.md`,
 `AGENTS.md` and `experiments/IDEAS.md`.

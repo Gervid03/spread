@@ -52,8 +52,10 @@ v2, nothing on the stacks) · S10 same-day markup (worse) · S11 margin floor (w
 S13 gate radius (worse) · S14 win target 0.40 with `min_supply` 22 (in A). Not done yet: **S16 (`step_min=3`, the
 final's live parity)** and S17. S16 is in `01-validate-top`.
 
-**5. No more sweep lines.** The sweep track runs in the root checkout, that is v2's code, so it can't measure
-anything on A. Leave `night-queue/sweeps.txt` unwritten, and the slots go to the workers.
+**5. Sweep lines only on the champion's own code.** The sweep track runs in the root checkout. While that checkout
+is still on v2's code (INPUT.md's champion line says v2, €8,990 on dev), its sweeps measure nothing about A: write
+no sweep lines, and the slots go to the workers. Once a new champion is promoted and the root checkout is reset to
+main (`01-validate-top` does both), sweeps of the champion's own flags are useful again: up to 6 lines a tick.
 
 **6. The cloud lead's prompts sit in `night-queue/`** (`01-validate-top`, `02-thin-volume`, `03-triage`,
 `04-thermostat`). Main brings them back at every tick, so: leave a file in place unless INPUT.md already lists a
