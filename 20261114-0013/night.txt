@@ -170,3 +170,17 @@
 04:50:11 sweep 46 started: sweep --seeds-from dev --name n-slack140-fw150-open-steep -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g fee_open=0.82,0.85,0.88 -g steep_step=0.25,0.35
 04:51:11 worker n14-04154-stack-v7-feedrop-buf-alarm finished after 28 min
 04:59:11 sweep 47 started: sweep --seeds-from dev --name n-slack140-fw-fine -s min_slack_min=140 -s slack_per_drive=0.75 -g fee_warn=1.48,1.52,1.55 -g fee_step_min=18,22
+05:00:17 published to night/20261114
+05:03:17 worker n14-05021-morning-reset-and-exact-trust-on-v7 started (pid 48970)
+05:07:37 sweep 48 started: sweep --seeds-from dev --name n-slack140-fw20-dlr -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g same_day_min_supply=50,75,100 -g dealer_lr=0.01,0.02
+05:08:37 worker n14-04392-sameday-scoped-buffer-alarm-and-optfloor finished after 27 min
+05:08:37 worker n14-05022-stack-v9-grand-v7-extring-leadcar-budget started (pid 49586)
+05:09:57 worker n14-04393-slack130-ptw35-volume-and-price-lr06 finished after 28 min
+05:09:57 worker n14-05023-two-slope-multiday-hold-on-v7 started (pid 49813)
+05:11:17 worker n14-04394-stack-v8-feedrop-extring-leadcar-feewarn finished after 28 min
+05:11:17 worker n14-05024-undelivered-rescue-and-window-gate-on-v7 started (pid 50039)
+05:11:39 lead tick started (pid 50208)
+05:13:39 worker n14-04391-floor-learn-decouple-and-multiday-fee finished after 33 min
+05:13:39 sweep 49 started: sweep --seeds-from dev --name n-slack140-fw20-sdmk -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g same_day_markup=0.08,0.10,0.12 -g same_day_min_supply=50,100
+05:16:39 worker n14-05161-validate-top started (pid 50789)
+05:19:59 sweep 50 started: sweep --seeds-from dev --name n-slack140-fw20-steep -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g steep_open=1.50,1.65,1.80 -g steep_step=0.30,0.35

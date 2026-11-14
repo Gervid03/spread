@@ -1,0 +1,4 @@
+# uv run lab sweep --seeds-from dev --name n-slack140-fw20-steep -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g steep_open=1.50,1.65,1.80 -g steep_step=0.30,0.35
+# started 2026-11-14T05:19:59Z
+
+=== steep_open=1.50,steep_step=0.30

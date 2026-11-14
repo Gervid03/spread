@@ -1,4 +1,4 @@
-# Night status, 2026-11-14 05:00 UTC (ends 2026-11-14T10:13:17Z)
+# Night status, 2026-11-14 05:21 UTC (ends 2026-11-14T10:13:17Z)
 
 ## Workers
 
@@ -52,12 +52,17 @@
 | n14-04152-drop-repost-and-trust-cap | 04:16 | done 04:41 (24 min) | 37 | yes | `feedrop-repost-dev`: mean margin `€10,518.92`, min margin `€7,657.43`, `Δmargin €+1,528.62 ± 238.56 (t=6.41)` vs champion (`Δmargin €-59.00 ± 62.48, t=-0.94` v |
 | n14-04153-stack-tradein-windows-on-v7 | 04:17 | done 04:42 (24 min) | 41 | yes | dev paired Δmargin €+1,430.72 ± 289.89 (t=4.94, 14/2, mean €10,421.03, worst on-time 94.8%, SAFE; at ptw=0.40, ms=22, min_slack=150: Δmargin €+1,306.49 ± 232.75 |
 | n14-04154-stack-v7-feedrop-buf-alarm | 04:22 | done 04:51 (28 min) | 33 | yes | Δmargin €+1,657.77 ± 233.04 (t=7.11, 16/0, mean €10,648.07, min €7,721.60), worst on-time 94.0% (mean 97.2%, SAFE); without dealer_lr=0.01: Δmargin €+1,569.75 ± |
-| n14-04391-floor-learn-decouple-and-multiday-fee | 04:39 | running | 39 | no | I will fetch from `origin` and merge `origin/exp/gemini-n14-03324-supply-adaptive-fee-open-and-drop-rescue` into our branch to bring in the `n14-03324` codebase |
-| n14-04392-sameday-scoped-buffer-alarm-and-optfloor | 04:41 | running | 27 | no | I will now fetch the remote branches and merge `origin/exp/gemini-n14-03502-option-floor-decouple-and-twin-ladder` and `origin/exp/gemini-n14-03324-supply-adapt |
-| n14-04393-slack130-ptw35-volume-and-price-lr06 | 04:41 | running | 34 | no |  |
-| n14-04394-stack-v8-feedrop-extring-leadcar-feewarn | 04:42 | running | 25 | no | I will now fetch from `origin` and inspect the commits and diffs of `origin/exp/gemini-n14-03324-supply-adaptive-fee-open-and-drop-rescue` and `origin/exp/gemin |
+| n14-04391-floor-learn-decouple-and-multiday-fee | 04:39 | done 05:13 (33 min) | 51 | yes | dev paired delta: `Δmargin €+1,486.90 ± 218.47 (SE) t=6.81 (15/1 vs champion; Δmargin €-100.71 ± 96.75, t=-1.04, 8/8 vs n14-03324; mean €10,477.21, min €7,756.1 |
+| n14-04392-sameday-scoped-buffer-alarm-and-optfloor | 04:41 | done 05:08 (27 min) | 42 | no | Δmargin €+1,601.73 ± 245.00 (SE) t=6.54 (15/1 vs champion; €+241.80 ± 154.30 (11/5) vs n14-03504; €+83.96 ± 176.17 (10/6) vs n14-03111; €+14.12 ± 183.48 (9/7) v |
+| n14-04393-slack130-ptw35-volume-and-price-lr06 | 04:41 | done 05:09 (28 min) | 49 | no | Dev paired delta vs champion: `Δmargin €+1,265.15 ± 280.24 (SE) t=4.51` (13/16 better, worst on-time `93.0%` SAFE; vs `n14-03324`: `€-322.46 ± 174.76`, vs `n14- |
+| n14-04394-stack-v8-feedrop-extring-leadcar-feewarn | 04:42 | done 05:11 (28 min) | 41 | yes | Dev paired delta: `v8-full-dev` mean `€10,585.43` (median `€10,396.37`), `Δmargin €+1,595.12 ± 219.73` (`t=7.26`, 15/16 better, worst on-time `92.7%` SAFE); `v8 |
+| n14-05021-morning-reset-and-exact-trust-on-v7 | 05:03 | running | 30 | no |  |
+| n14-05022-stack-v9-grand-v7-extring-leadcar-budget | 05:08 | running | 33 | no |  |
+| n14-05023-two-slope-multiday-hold-on-v7 | 05:09 | running | 22 | no |  |
+| n14-05024-undelivered-rescue-and-window-gate-on-v7 | 05:11 | running | 26 | no |  |
+| n14-05161-validate-top | 05:16 | running | 17 | no |  |
 
-Queued prompts: none
+Queued prompts: 05162-thin-volume.md, 05163-triage.md, 05164-thermostat.md, 05165-research-volume.md, 05166-quota.md
 
 ## Sweeps started (in order; logs/sweep-NN.txt has each table)
 
@@ -108,6 +113,9 @@ Queued prompts: none
 45. `sweep --seeds-from dev --name n-slack140-fw150-floor -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g expected_fee_mult=1.15,1.20,1.25 -g min_margin_frac=0.06,0.08`
 46. `sweep --seeds-from dev --name n-slack140-fw150-open-steep -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g fee_open=0.82,0.85,0.88 -g steep_step=0.25,0.35`
 47. `sweep --seeds-from dev --name n-slack140-fw-fine -s min_slack_min=140 -s slack_per_drive=0.75 -g fee_warn=1.48,1.52,1.55 -g fee_step_min=18,22`
+48. `sweep --seeds-from dev --name n-slack140-fw20-dlr -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g same_day_min_supply=50,75,100 -g dealer_lr=0.01,0.02`
+49. `sweep --seeds-from dev --name n-slack140-fw20-sdmk -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g same_day_markup=0.08,0.10,0.12 -g same_day_min_supply=50,100`
+50. `sweep --seeds-from dev --name n-slack140-fw20-steep -s min_slack_min=140 -s slack_per_drive=0.75 -s fee_warn=1.50 -s fee_step_min=20 -g steep_open=1.50,1.65,1.80 -g steep_step=0.30,0.35`
 
 ## Every evaluation since the night began
 
@@ -346,4 +354,22 @@ Champion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds 
 | 20261114-045324-n-slack140-fw150-open-steep-fee_open0.85-steep_step0.35 | 16 | 9,382 | 6,585 | 92.9% | SAFE | +392 ± 183 (t +2.1, 14/16 better) |
 | 20261114-045538-n-slack140-fw150-open-steep-fee_open0.88-steep_step0.25 | 16 | 8,972 | 6,316 | 91.8% | no | -19 ± 239 (t -0.1, 9/16 better) |
 | 20261114-045625-n-slack140-fw150-open-steep-fee_open0.88-steep_step0.35 | 16 | 8,946 | 6,263 | 92.2% | SAFE | -44 ± 237 (t -0.2, 9/16 better) |
-| 20261114-045912-n-slack140-fw-fine-fee_warn1.48-fee_step_min18 (running) | 11 | 8,742 | 6,417 | 93.8% | no | +170 ± 188 (t +0.9, 8/11 better) |
+| 20261114-045912-n-slack140-fw-fine-fee_warn1.48-fee_step_min18 | 16 | 8,929 | 6,417 | 90.6% | no | -61 ± 243 (t -0.3, 10/16 better) |
+| 20261114-050034-n-slack140-fw-fine-fee_warn1.48-fee_step_min22 | 16 | 9,255 | 6,802 | 92.5% | SAFE | +265 ± 202 (t +1.3, 11/16 better) |
+| 20261114-050238-n-slack140-fw-fine-fee_warn1.52-fee_step_min18 | 16 | 9,014 | 6,638 | 93.0% | SAFE | +24 ± 243 (t +0.1, 9/16 better) |
+| 20261114-050343-n-slack140-fw-fine-fee_warn1.52-fee_step_min22 | 16 | 8,911 | 5,979 | 91.5% | no | -79 ± 289 (t -0.3, 8/16 better) |
+| 20261114-050433-n-slack140-fw-fine-fee_warn1.55-fee_step_min18 | 16 | 9,164 | 6,364 | 93.6% | SAFE | +174 ± 166 (t +1.1, 7/16 better) |
+| 20261114-050515-n-slack140-fw-fine-fee_warn1.55-fee_step_min22 | 16 | 9,078 | 6,281 | 91.2% | no | +88 ± 183 (t +0.5, 9/16 better) |
+| 20261114-050737-n-slack140-fw20-dlr-same_day_min_supply50-dealer_lr0.01 | 16 | 9,328 | 7,032 | 92.5% | SAFE | +338 ± 249 (t +1.4, 13/16 better) |
+| 20261114-050836-n-slack140-fw20-dlr-same_day_min_supply50-dealer_lr0.02 | 16 | 9,356 | 6,459 | 93.2% | SAFE | +366 ± 210 (t +1.7, 9/16 better) |
+| 20261114-050913-n-slack140-fw20-dlr-same_day_min_supply75-dealer_lr0.01 | 16 | 9,215 | 6,320 | 92.5% | SAFE | +225 ± 252 (t +0.9, 10/16 better) |
+| 20261114-050954-n-slack140-fw20-dlr-same_day_min_supply75-dealer_lr0.02 | 16 | 9,248 | 6,349 | 93.2% | SAFE | +258 ± 190 (t +1.4, 10/16 better) |
+| 20261114-051039-n-slack140-fw20-dlr-same_day_min_supply100-dealer_lr0.01 | 16 | 9,144 | 6,320 | 92.5% | SAFE | +154 ± 250 (t +0.6, 9/16 better) |
+| 20261114-051124-n-slack140-fw20-dlr-same_day_min_supply100-dealer_lr0.02 | 16 | 9,420 | 6,622 | 93.3% | SAFE | +430 ± 170 (t +2.5, 14/16 better) |
+| 20261114-051339-n-slack140-fw20-sdmk-same_day_markup0.08-same_day_min_supply50 | 16 | 9,277 | 6,031 | 93.8% | SAFE | +287 ± 217 (t +1.3, 11/16 better) |
+| 20261114-051422-n-slack140-fw20-sdmk-same_day_markup0.08-same_day_min_supply100 | 16 | 9,068 | 6,148 | 94.8% | SAFE | +78 ± 219 (t +0.4, 9/16 better) |
+| 20261114-051543-n-slack140-fw20-sdmk-same_day_markup0.10-same_day_min_supply50 | 16 | 8,901 | 6,131 | 92.9% | SAFE | -90 ± 230 (t -0.4, 7/16 better) |
+| 20261114-051639-n-slack140-fw20-sdmk-same_day_markup0.10-same_day_min_supply100 | 16 | 9,048 | 6,098 | 92.9% | SAFE | +58 ± 211 (t +0.3, 9/16 better) |
+| 20261114-051730-n-slack140-fw20-sdmk-same_day_markup0.12-same_day_min_supply50 | 16 | 9,004 | 6,320 | 92.5% | SAFE | +14 ± 250 (t +0.1, 7/16 better) |
+| 20261114-051816-n-slack140-fw20-sdmk-same_day_markup0.12-same_day_min_supply100 | 16 | 8,756 | 5,613 | 92.5% | SAFE | -235 ± 192 (t -1.2, 6/16 better) |
+| 20261114-051959-n-slack140-fw20-steep-steep_open1.50-steep_step0.30 (running) | 12 | 9,410 | 6,634 | 93.7% | no | +240 ± 153 (t +1.6, 9/12 better) |
