@@ -1,6 +1,8 @@
 # d14-01-hitch-pairs
-tool calls 119; result {}
+tool calls 146; result {"total_tokens": 16920991, "input_tokens": 16748906, "output_tokens": 79819, "cached": 15200034, "input": 1548872, "duration_ms": 2989299, "tool_calls": 146, "models": {"gemini-4-carbon": {"total_tokens": 16802879, "input_tokens": 16633816, "output_tokens": 79305, "cached": 15200034, "input": 1433782}, "gemini-3-flash-preview": {"total_tokens": 118112, "input_tokens": 115090, "output_tokens": 514, "cached": 0, "input": 115090}}}
 
 ## Its last words
 
-
+I am staging our policy changes, experiment note, and reveal/run analysis scripts, committing them to `exp/gemini-d14-01-hitch-pairs`, and pushing the branch to `origin`.Pushing `exp/gemini-d14-01-hitch-pairs` to `origin` after unsetting empty askpass/ssh environment variables.Pushing branch `exp/gemini-d14-01-hitch-pairs` to `origin` using `GIT_SSH_COMMAND=ssh`.`-s hitch=True -s hitch_quote=True` (`hitch_after_min=20, hitch_km=15.0, hitch_fee=0.85, hitch_patience_min=30, hitch_cap_day=6, hitch_homeward=True, hitch_preserve_age=True, hitch_max_splits=2`)
+Worst world `dev-14` at 93.92% on time (`0/16` under 92%, SAFE; worst margin `dev-05` €8,087.53 vs €7,614.48 champion) · won 285.3 orders/wk (vs 281.1 champion) · dev Δmargin €+644.26 ± 147.02 (t=4.38, 14/16 better, worst on-time 93.92%); with `hitch_cap_day=12`: worst on-time 93.92% SAFE, won 285.2/wk, Δmargin €+625.02 ± 136.98 (t=4.56)
+`runs/20261114-083310-hitch-pairs-dev-v2-cap6`, `runs/20261114-083407-hitch-pairs-dev-v2-cap12`, `runs/20261114-083211-hitch-pairs-s5-homeward`, `runs/20261114-083241-hitch-pairs-s6-pair-only-homeward`, `runs/20261114-081604-hitch-pairs-noop`
