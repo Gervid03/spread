@@ -5,6 +5,27 @@ against the champion of the time, on the 16 dev worlds unless a set is named (±
 32 unseen worlds (`night-01..32`). The detail is in each branch's note (`experiments/<date>-gemini-<slug>.md`).
 Promotions are in [PROMOTIONS.md](PROMOTIONS.md); round 3 (ideas 15–30) is in `docs/HANDOFF.md`.
 
+## Update Sat 16:55 Helsinki (laptop lead): round 4, the stack, the live clock
+- **The finals are live and fast** (the organisers on Discord, 15:21): the 20:00 test final and the Sun final play the
+  whole week from Monday in ~34 wall minutes, ~7 game minutes a wall second; a 15-minute quote window is ~2 wall
+  seconds. Only the 14:00 test final started on Thursday. The team's API rate is ~1,000 requests a minute for all agents
+  together; a practice week costs 820-920 requests with our instrument (the organisers say a lean client needs ~350).
+  So what ships must decide in milliseconds; forks, co-play and TAS only find rules.
+- **Round 7 board (Sat 15:00), v6:** €16,543 · €13,425 · €11,173 · €12,443 · €16,646 = €70.2k (279-345 orders a run);
+  the website showed us around 19th.
+- **stack-v7** (`exp/stack-v7`, note `experiments/20261114-1650-claude-stack-v7.md`): cp-routes, cp-demand, cp-margin,
+  cp-wild and cp-volume merged by hand onto v6, each behind its flags. **cp-chains left out**: its hitch and return
+  offers duplicate cp-routes' relay and offers with separate bookkeeping of the same cars; cp-routes measured better.
+  cp-margin's `fix_slot_state` duplicates v5's `urgent_hygiene`. A name clash (`day_open_mult`) between cp-margin and
+  the supervisor would have crashed day 1; renamed.
+- **promote.sh exp/stack-v7 with the routes flags** running since 16:03; parity (every flag off = v6 to the cent) running.
+- **Stopped:** cp-wild (no progress in 3 h, tool errors; +€240 t 2.51 kept on its branch and in the stack).
+- **Started:** round 4 (`experiments/prompts/r4/`): r4-live (desk timing, live-like practice, fewer requests per
+  week), r4-limits (the oracle's prices as a live rule), r4-volume, r4-tune (the stack's interactions, ablations),
+  r4-wild. Two chat Carbons for the user: chat-a, chat-b (`scripts/chat.ps1`, one SSH call per turn).
+- **New switch:** `-s live_from_min=4320` sits the desk out until Thursday 00:00 (a late join); v6 on dev-12 makes
+  €2,556 with 76 orders, close to the 14:00 test final's €2,448.
+
 ## Update Sat 13:40 Helsinki (laptop lead)
 - **Test final 14:00, result (v6):** margin **€2,448.33**, 106 delivered of 107 won, 100% on time, ranked. Played Thu 00:00 to Wed+ (wall 14:00-14:19). Requests by day: Mon 219, Tue 204, Wed 191 (pre-played, all lost), **Thu 238, Fri 179**: we won 107 of 417 (25.7%), all on Thu-Fri (€1,861 by Sat 00:00, the rest from late deliveries' revenue). 1,711 gig views, 326 offers answered, 2 gigs dropped, 1 no-show, 1 cancel. About €1,200 per request day against ~€2,200 in practice (v5 dev-12: €10,910 over 5): the cold start (no trust, no drivers placed) halves the day. Full dump on Verda in `/home/lab/final-logs/faa312d87508a2987baef/`. Public board round 6 (Sat 12:00): **40th, €67.7k** (top €110k, 10th €90.6k).
 - **The 14:00 test final does not start on Monday.** World faa312d87508a2987baef, set at 13:45: at the start its clock is already **Thu 00:00** (now 4320, endsAt 14280), with Mon-Wed pre-played: 614 price requests, all 614 `order_lost` (we had no desk there), one forecast (snow in Kemi/Oulu/Rovaniemi Tue). So the desk joins Thursday with 0 orders, 0 trust, and three days of 0% win share behind it (by tas-state's law the competitor has raised on every busy dealer each morning). If the Sun 08:00 final does the same, Thursday-first play (no Monday warm-up, the Friday-is-last endgame) is what matters. Every event, a snapshot a minute and the score are dumped on Verda to `/home/lab/final-logs/<worldId>/` by `/home/lab/final_watch.py` (read-only, a separate process).
