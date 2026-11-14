@@ -64,6 +64,10 @@ class Params:
     min_slack_min: int = 180          # an option needs deadline - max(now, ready) - drive minutes >= this (v2: was 120)
     slack_per_drive: float = 0.5      # an option needs slack of at least min_slack_min + slack_per_drive * drive (v1; v0 = 0)
     long_drive_min: int = 300         # if drive > this (and > 0), quote only options with deadline on a later day than ready (v1; v0 = 0)
+    max_next_day_drive_min: int = 0   # if > 0 and drive > this, drop options with deadline <= ready day + 1
+    thin_long_next_day_supply: int = 0  # if > 0, non-ring pickup with supply < this and drive > long_drive_min drops next_day
+    fri_same_day_max_drive: int = 0   # if > 0, on Friday (ready // DAY >= 4), drop same_day with drive >= this
+    ring_to_hub_same_day_min: int = 0  # if > 0, allow ring same_day into dense hub (supply >= 200) when drive <= this
     same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
@@ -139,6 +143,7 @@ class Desk:
         self.offers_sent: Counter = Counter()        # (driver id, day) -> direct offers sent
         self.stats: Counter = Counter()
         self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
+        self.ring_hub_same_day: set[str] = set()     # request/order ids where ring_to_hub_same_day_min allowed same_day
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -182,6 +187,8 @@ class Desk:
                 if line["orderId"] not in self.late:
                     if is_ring:
                         self.stats["late_ring"] += 1
+                    if order and order["option"] == "same_day" and line["orderId"] in self.ring_hub_same_day:
+                        self.stats["late_ring_hub_same_day"] += 1
                 self.late.add(line["orderId"])
         elif kind == "offer_answered":
             self.stats[f"offer_{event['answer']}"] += 1
@@ -231,18 +238,36 @@ class Desk:
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
+            ring_hub_sd = False
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
+                if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
+                    ring_hub_sd = True
+                else:
+                    continue
+            if p.max_next_day_drive_min > 0 and drive > p.max_next_day_drive_min:
+                if option["deadline"] // DAY <= ready // DAY + 1:
+                    self.stats["dropped_next_day_long"] += 1
+                    continue
+            if p.thin_long_next_day_supply > 0 and not is_ring and supply < p.thin_long_next_day_supply and drive > p.long_drive_min:
+                if option["deadline"] // DAY <= ready // DAY + 1:
+                    self.stats["dropped_thin_long_next_day"] += 1
+                    continue
+            if p.fri_same_day_max_drive > 0 and ready // DAY >= 4 and option["kind"] == "same_day" and drive >= p.fri_same_day_max_drive:
+                self.stats["dropped_fri_same_day"] += 1
                 continue
             if p.long_drive_min > 0 and drive > p.long_drive_min:
                 if option["deadline"] // DAY <= ready // DAY:
                     self.stats["dropped_long_drive"] += 1
                     continue
-            if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply:
+            if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply and not ring_hub_sd:
                 self.stats["dropped_same_day_supply"] += 1
                 continue
             if option["deadline"] - ready - drive < p.min_slack_min + p.slack_per_drive * drive:
                 self.stats["dropped_slack"] += 1
                 continue
+            if ring_hub_sd:
+                self.stats["quoted_ring_hub_same_day"] += 1
+                self.ring_hub_same_day.add(request["id"])
             price = option["listPriceCents"] * mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
             floor = fee / (1 - p.min_margin_frac)
             if price < floor:
@@ -306,6 +331,8 @@ class Desk:
             self.stats["won"] += 1
             if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
+            if order["option"] == "same_day" and order["id"] in self.ring_hub_same_day:
+                self.stats["won_ring_hub_same_day"] += 1
             self.stats[f"won_{order['option']}"] += 1
             self.post(order, undelivered(order))
 
