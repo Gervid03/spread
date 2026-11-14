@@ -23,6 +23,7 @@ from spread.client import World
 from spread.types import DeskEvent, DeskSnapshot, DriverProfile, Order, PriceRequest
 
 from ..geo import Geo
+from ..lab import champion
 from ..notes import parse_note_v2, shift_business_days, window_from_note
 from ..policy import DAY, HOUR, daytime_minutes_between, order_ids_of, undelivered
 from .tas_routes import Desk as TasRoutesDesk, Params as TasRoutesParams
@@ -47,6 +48,12 @@ class Params(TasRoutesParams):
     sunday_stage_min_slack: int = 480   # require lastPickupAt - now >= this to stage an order
     sunday_tour_quote: bool = False     # quote declined thin-town slow requests when they close an in-hand hub car
     sunday_quote_cap_day: int = 8       # max thin-town return wins per day
+
+    @classmethod
+    def from_dict(cls, raw: dict[str, Any]) -> "Params":
+        base = dict(champion().get("params", {}))
+        base.update(raw)
+        return super().from_dict(base)
 
 
 class Desk(TasRoutesDesk):
@@ -193,6 +200,11 @@ class Desk(TasRoutesDesk):
             return hub_oid
         return None
 
+    def pair_base_cents(self, oids: list[str]) -> float:
+        if not self.p.sunday_tours:
+            return super(TasRoutesDesk, self).pair_base_cents(oids)
+        return super().pair_base_cents(oids)
+
     def price(self, request: PriceRequest) -> tuple[dict[str, int], str]:
         if not self.p.sunday_tours:
             return super(TasRoutesDesk, self).price(request)
@@ -214,7 +226,7 @@ class Desk(TasRoutesDesk):
         mult = self.mult * self.dealer_adj[request["dealerId"]]
         if self.p.trust_gain > 0:
             mult *= (1 + self.p.trust_gain * self.dealer_trust[request["dealerId"]] / 100.0)
-        min_price = request["referenceFeeCents"] * 0.68 / max(0.01, 1 - self.p.min_margin)
+        min_price = request["referenceFeeCents"] * 0.68 / max(0.01, 1 - self.p.min_margin_frac)
 
         sponsored_prices: dict[str, int] = {}
         for opt in request["options"]:

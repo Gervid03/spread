@@ -16,7 +16,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
 
 from spread_lab.env import lab_home
 from spread_lab.policy import order_ids_of
-from tas import Tas, book_hook, on_fork, report
+from tas import Tas, book_hook, on_fork, price_oracle, report
 
 
 def bisect_post_fees(
@@ -103,8 +103,12 @@ def main() -> None:
     ap.add_argument("--iters", type=int, default=6)
     args = ap.parse_args()
 
-    book_data = json.loads(Path(args.book).read_text(encoding="utf-8"))
-    by_book = book_hook(book_data)
+    book_path = Path(args.book)
+    plan_candidate = book_path.parent / book_path.name.replace("book-", "plan-")
+    use_plan_oracle = plan_candidate.exists()
+    src_book_path = plan_candidate if use_plan_oracle else book_path
+    book_data = json.loads(src_book_path.read_text(encoding="utf-8"))
+    by_book = book_hook(book_data, open_x=0.50)
     params = {
         "tour_plan_file": str(Path(args.tours).resolve()),
         "tour_flat_mode": True,
@@ -112,8 +116,12 @@ def main() -> None:
     }
 
     with Tas(args.seed, params, "spread_lab.policies.tas_routes:Desk", args.name, forks=True) as g:
+        p_oracle = price_oracle("won", True, 0.48, 2.50, 8, lambda _line: None) if use_plan_oracle else None
+
         def combined_hook(game: Tas, actions: list[dict[str, Any]], fresh: list[int]) -> list[dict[str, Any]]:
             acts = by_book(game, actions, fresh)
+            if p_oracle is not None and fresh:
+                acts = p_oracle(game, acts, fresh)
             post_idxs = [idx for idx, a in enumerate(acts) if a["type"] == "post"]
             if not post_idxs:
                 return acts

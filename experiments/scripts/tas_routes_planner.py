@@ -31,20 +31,49 @@ def math_ceil_safe(x: float) -> int:
     return ix if x == ix else ix + 1
 
 
-def load_known_limits(seed: str) -> dict[tuple[str, str], int]:
-    out: dict[tuple[str, str], int] = {}
-    tdir = lab_home() / "tas" / seed
-    if not tdir.exists():
-        return out
-    for p in sorted(tdir.glob("limits-*.jsonl")):
-        for line in p.read_text(encoding="utf-8").splitlines():
-            if not line.strip():
+def load_known_limits(seed: str) -> tuple[dict[tuple[str, str], int], dict[tuple[str, str], float]]:
+    """Returns:
+      1) `exact_seed`: (rid, option) -> measured `lo` cents on `seed` (adjusted if measured at degraded trust)
+      2) `lane_mult`: cross-world `(pickup, delivery)` median de-trusted `lo/list` multiplier across all TAS seeds!
+    """
+    exact_seed: dict[tuple[str, str], int] = {}
+    lane_obs: dict[tuple[str, str], list[float]] = defaultdict(list)
+
+    tas_root = lab_home() / "tas"
+    if not tas_root.exists():
+        return exact_seed, {}
+
+    for sdir in sorted(tas_root.iterdir()):
+        if not sdir.is_dir():
+            continue
+        for p in sorted(sdir.glob("limits-*.jsonl")):
+            # Skip puretours400 where late same_day orders halved dealer trust mid-week
+            if "puretours" in p.name:
                 continue
-            r = json.loads(line)
-            if r.get("lo") and r.get("rid") and r.get("option"):
-                key = (r["rid"], r["option"])
-                out[key] = max(out.get(key, 0), int(r["lo"]))
-    return out
+            for line in p.read_text(encoding="utf-8").splitlines():
+                if not line.strip():
+                    continue
+                r = json.loads(line)
+                lo = r.get("lo")
+                lst = r.get("list")
+                if lo and lst and r.get("pickup") and r.get("delivery"):
+                    tr = r.get("trust", 0) or 0
+                    detrusted = (lo / lst) / (1.0 + 0.01 * tr)
+                    if r.get("day", 0) not in (4,):  # avoid price-war distortion when pooling lanes
+                        lane_obs[(r["pickup"], r["delivery"])].append(detrusted)
+                if sdir.name == seed and r.get("rid") and r.get("option"):
+                    key = (r["rid"], r["option"])
+                    if lo:
+                        exact_seed[key] = max(exact_seed.get(key, 0), int(lo))
+                    elif r.get("bound") == "<lo" and r.get("hi"):
+                        exact_seed.setdefault(key, int(r["hi"] * 0.92))
+
+    lane_mult = {
+        k: sorted(vs)[len(vs) // 2]
+        for k, vs in lane_obs.items()
+        if len(vs) >= 2
+    }
+    return exact_seed, lane_mult
 
 
 def calibrate_seed_world_factors(seed: str, geo: Geo, tape: dict[str, Any]) -> tuple[dict[int, float], set[int]]:
@@ -85,12 +114,24 @@ def estimate_prize_cents(
     arc: Arc,
     supply30: dict[str, int],
     known_limits: dict[tuple[str, str], int],
+    lane_mult: dict[tuple[str, str], float],
     day_mult: dict[int, float],
 ) -> float:
     exact = known_limits.get((arc.rid, arc.option))
     if exact:
+        # Note: limits-all.jsonl measured limits with 0 trust (no deliveries); scale up by expected trust on Tue-Fri!
+        d = min(4, arc.arrived_at // DAY)
+        if d >= 1 and arc.dealer in TOP_DEALERS and exact < arc.list_cents * 1.48:
+            est_tr = min(22, 7 * d)
+            return float(exact) * (1.0 + 0.008 * est_tr)
         return float(exact)
     d = min(4, arc.arrived_at // DAY)
+    est_tr = min(22, 7 * d) if (d >= 1 and arc.dealer in TOP_DEALERS) else 0
+    lm = lane_mult.get((arc.pickup, arc.delivery))
+    if lm is not None:
+        # Scale cross-world lane base factor by world's day_mult relative to dev-12 baseline (~1.54) and trust
+        world_scale = clamp_f(day_mult.get(d, 1.54) / 1.54, 0.80, 1.30)
+        return arc.list_cents * lm * world_scale * (1.0 + 0.009 * est_tr)
     mult = day_mult.get(d, 1.52)
     sup_p = supply30.get(arc.pickup, 0)
     if sup_p < 15:
@@ -98,6 +139,10 @@ def estimate_prize_cents(
     elif sup_p < 40:
         mult += 0.03
     return arc.list_cents * mult
+
+
+def clamp_f(x: float, lo: float, hi: float) -> float:
+    return max(lo, min(hi, x))
 
 
 def estimate_tour_cost_cents(arcs: list[Arc], sim: dict[str, Any], geo: Geo, supply30: dict[str, int]) -> float:
@@ -244,6 +289,11 @@ def solve_lagrangian_and_local_search(
     lam: dict[str, float] = {r: 0.0 for r in all_rids}
     mu: dict[tuple[str, int], float] = {k: 0.0 for k in z_cap}
     eta: dict[tuple[str, int], float] = {k: 0.0 for k in ze_cap}
+    dd_cap: dict[tuple[str, int], int] = {
+        k: dealer_day_cap_for(tot, k[1], max_dealer_share, steered_state)
+        for k, tot in dealer_day_tot.items()
+    }
+    nu: dict[tuple[str, int], float] = {k: 0.0 for k in dd_cap}
     gamma = 0.0  # dual on max_cars
 
     # Seed initial lambda with max per-car net
@@ -303,11 +353,13 @@ def solve_lagrangian_and_local_search(
         req_cov: Counter = Counter()
         zd_cov: Counter = Counter()
         zed_cov: Counter = Counter()
+        dd_cov: Counter = Counter()
         car_cov = 0
 
         for c in cols:
             w = c.bound_net if use_bound_weights else c.net
-            rc = w - sum(lam[r] for r in c.rids) - mu.get(c.zone_day, 0.0) - (eta.get(c.zone_day, 0.0) if c.needs_exp else 0.0) - gamma * len(c.rids)
+            dd_cost = 0.0 if use_bound_weights else sum(nu.get((x.dealer, x.arrived_at // DAY), 0.0) for x in c.arcs)
+            rc = w - sum(lam[r] for r in c.rids) - mu.get(c.zone_day, 0.0) - (eta.get(c.zone_day, 0.0) if c.needs_exp else 0.0) - dd_cost - gamma * len(c.rids)
             if rc > 0.0:
                 pos_sum += rc
                 active_cols.append(c)
@@ -316,27 +368,33 @@ def solve_lagrangian_and_local_search(
                 zd_cov[c.zone_day] += 1
                 if c.needs_exp:
                     zed_cov[c.zone_day] += 1
+                if not use_bound_weights:
+                    for x in c.arcs:
+                        dd_cov[(x.dealer, x.arrived_at // DAY)] += 1
                 car_cov += len(c.rids)
 
         dual_val = (
             sum(lam.values())
             + sum(z_cap[k] * mu[k] for k in z_cap if z_cap[k] > 0)
             + sum(ze_cap[k] * eta[k] for k in ze_cap if ze_cap[k] > 0)
+            + (0.0 if use_bound_weights else sum(dd_cap[k] * nu[k] for k in dd_cap if dd_cap[k] < dealer_day_tot[k]))
             + (max_cars * gamma if max_cars < 10000 else 0.0)
             + pos_sum
         )
         if dual_val < best_dual_ub:
             best_dual_ub = dual_val
 
-        # Every 12 iterations, build a primal feasible solution guided by dual shadow prices!
-        if it % 12 == 0 or it == iters - 1:
+        # Every 10 iterations, build a primal feasible solution guided by dual shadow prices per driver-gig!
+        if it % 10 == 0 or it == iters - 1:
             scored = sorted(
                 cols,
                 key=lambda c: (
                     (c.bound_net if use_bound_weights else (c.net + c.trust_bonus))
-                    - 0.45 * sum(lam[r] for r in c.rids)
-                    - 0.65 * mu.get(c.zone_day, 0.0)
-                ) / (1.0 + 0.15 * len(c.rids)),
+                    - 0.40 * sum(lam[r] for r in c.rids)
+                    - 0.80 * mu.get(c.zone_day, 0.0)
+                    - (0.0 if use_bound_weights else 0.85 * sum(nu.get((x.dealer, x.arrived_at // DAY), 0.0) for x in c.arcs))
+                    - 0.80 * gamma * len(c.rids)
+                ),
                 reverse=True,
             )
             pval, pset = greedy_primal(scored)
@@ -358,6 +416,12 @@ def solve_lagrangian_and_local_search(
             g_e = ecap - zed_cov[k]
             if g_e != 0 and (eta[k] > 0 or g_e < 0):
                 norm2 += g_e * g_e
+        if not use_bound_weights:
+            for k, dcap in dd_cap.items():
+                if dcap < dealer_day_tot[k]:
+                    g_d = dcap - dd_cov[k]
+                    if g_d != 0 and (nu[k] > 0 or g_d < 0):
+                        norm2 += g_d * g_d
         g_m = max_cars - car_cov if max_cars < 10000 else 0
         if g_m != 0 and (gamma > 0 or g_m < 0):
             norm2 += g_m * g_m
@@ -377,6 +441,12 @@ def solve_lagrangian_and_local_search(
             g_e = ecap - zed_cov[k]
             if g_e != 0:
                 eta[k] = max(0.0, eta[k] - alpha * g_e)
+        if not use_bound_weights:
+            for k, dcap in dd_cap.items():
+                if dcap < dealer_day_tot[k]:
+                    g_d = dcap - dd_cov[k]
+                    if g_d != 0:
+                        nu[k] = max(0.0, nu[k] - alpha * g_d)
         if max_cars < 10000 and g_m != 0:
             gamma = max(0.0, gamma - alpha * g_m)
 
@@ -476,7 +546,7 @@ def generate_candidate_columns(
     reqs = tape["requests"]
     roster = tape["roster"]
     supply30 = geo.supply(roster, 30.0)
-    known_limits = load_known_limits(seed)
+    known_limits, lane_mult = load_known_limits(seed)
     day_mult, flu_days = calibrate_seed_world_factors(seed, geo, tape)
     z_cap_bound, ze_cap_bound = build_zone_day_caps(roster, geo, active_fraction=0.48, flu_days=flu_days)
 
@@ -489,16 +559,20 @@ def generate_candidate_columns(
         all_opts_by_rid[r["id"]] = opts
         if len(r["legs"]) != 1:
             continue
-        clean = [a for a in opts if not a.unsure and a.deadline - a.ready_at - a.drive_min >= 120 and a.deadline <= tape["ends_at"] - 150]
-        if clean:
-            # Prefer next_day when arrived early enough, and within_3_days when multi-day flexibility helps
-            clean.sort(key=lambda a: (a.deadline, a.list_cents), reverse=True)
-            arcs.append(clean[0])
-            # Also include faster `same_day` on Monday morning if feasible so planner can pick Monday fast trust tours!
-            if r["arrivedAt"] < 13 * HOUR:
-                sd = [a for a in clean if a.option == "same_day" and a.drive_min <= 140]
-                if sd and sd[0].option != clean[0].option:
-                    arcs.append(sd[0])
+        non_sd = [a for a in opts if a.option != "same_day" and not a.unsure and a.deadline - a.ready_at - a.drive_min >= 150 and a.deadline <= tape["ends_at"] - 180]
+        if non_sd:
+            # Prefer next_day (much higher list price + higher dealer multiple!) when slack >= 210m, AND also keep within_3_days if different so multi-day tours still connect
+            nd = [a for a in non_sd if a.option == "next_day" and a.deadline - a.ready_at - a.drive_min >= 210]
+            w3 = [a for a in non_sd if a.option == "within_3_days"]
+            if nd:
+                arcs.append(nd[0])
+            if w3 and (not nd or w3[0].deadline > nd[0].deadline + DAY):
+                arcs.append(w3[0])
+        # Fast Monday morning same_day trust-builders (short hops <= 85m arriving before Mon 12:30)
+        if r["arrivedAt"] < 12 * HOUR + 30:
+            sd = [a for a in opts if a.option == "same_day" and not a.unsure and a.drive_min <= 85 and a.deadline - a.ready_at - a.drive_min >= 240]
+            if sd:
+                arcs.append(sd[0])
 
     by_p: dict[str, list[Arc]] = defaultdict(list)
     for a in arcs:
@@ -512,17 +586,24 @@ def generate_candidate_columns(
         d_pick = sim["first_pickup_at"] // DAY
         zd = (zone_of(p0), d_pick)
         needs_exp = any(x.premium for x in t_arcs)
-        prize = sum(estimate_prize_cents(x, supply30, known_limits, day_mult) for x in t_arcs)
+        prizes = [estimate_prize_cents(x, supply30, known_limits, lane_mult, day_mult) for x in t_arcs]
+        prize = sum(prizes)
         cost = estimate_tour_cost_cents(t_arcs, sim, geo, supply30)
         b_cost = min_bound_tour_cost_cents(t_arcs, sim, geo)
+        # Every leg in a multi-car tour must at least cover its incremental share of tour driver cost + €12
+        # so cheap 0.78x-limit connector legs never dilute dealer caps or waste driver hours!
+        if len(t_arcs) > 1:
+            ref_tot = max(1, sum(x.ref_cents for x in t_arcs))
+            if any(pr < cost * (x.ref_cents / ref_tot) + 1200 for pr, x in zip(prizes, t_arcs)):
+                return
         # Penalize mixing 1 premium car into non-premium multi-car tour
         n_prem = sum(1 for x in t_arcs if x.premium)
         if len(t_arcs) > 1 and 0 < n_prem < len(t_arcs):
             cost += 900.0
-        # Monday fast-delivery trust bonus on top dealers (+€9 per Monday-delivered order on D01..D10)
+        # Monday fast-delivery trust bonus on top dealers (+€12 per Monday-delivered order on D01..D10)
         t_bonus = 0.0
         if sim["last_delivery_at"] <= 20 * HOUR:
-            t_bonus = sum(900.0 for x in t_arcs if x.dealer in TOP_DEALERS)
+            t_bonus = sum(1200.0 for x in t_arcs if x.dealer in TOP_DEALERS)
         if prize - b_cost > 500.0:
             cols.append(Column(len(cols), t_arcs, sim, zd, needs_exp, prize, cost, b_cost, t_bonus))
 
@@ -567,14 +648,22 @@ def generate_candidate_columns(
                             if sim4:
                                 add_col([a, b, c, d], sim4)
 
-    # 2. High-margin solos (for hubs with surplus drivers and for bound completeness)
+    # 2. High-margin solos + 2-leg trade-ins (built-in round trips!) + proven ring/return_hub solos
+    gate_supply = geo.supply(roster, 55.0)
     if include_solos:
         for r in reqs:
             opts = [a for a in all_opts_by_rid[r["id"]] if not a.unsure and a.deadline - a.ready_at - a.drive_min >= 180 and a.deadline <= tape["ends_at"] - 180]
             for a in opts:
-                if supply30.get(a.pickup, 0) < 25 or a.drive_min > 380:
+                sup0 = supply30.get(a.pickup, 0)
+                gsup = gate_supply.get(a.pickup, 0)
+                ret_hub = supply30.get(a.delivery, 0) >= 180 and a.drive_min <= 210 and a.option != "same_day"
+                if sup0 < 18 and gsup < 22 and not ret_hub:
                     continue
-                if a.option == "same_day" and (supply30.get(a.pickup, 0) < 80 or a.drive_min > 120 or a.arrived_at % DAY > 14 * HOUR):
+                if a.drive_min > (660 if a.legs_count == 2 else 480):
+                    continue
+                if a.option == "same_day" and (sup0 < 100 or a.drive_min > 150 or a.arrived_at % DAY > 14 * HOUR):
+                    continue
+                if sup0 < 22 and a.option == "same_day":
                     continue
                 sim1 = {"post_at": a.respond_by, "first_pickup_at": max(a.respond_by + 45, a.ready_at), "last_delivery_at": max(a.respond_by + 45, a.ready_at) + a.drive_min, "road_min": a.drive_min, "deadhead_min": 0}
                 add_col([a], sim1)
@@ -753,15 +842,17 @@ def run_full_planner(
             ref_tot = max(1, sum(x.ref_cents for x in c.arcs))
             for idx, x in enumerate(c.arcs):
                 alloc_cost = c.cost * (x.ref_cents / ref_tot)
-                prices: dict[str, int] = {}
-                for cand_arc in all_opts_by_rid[x.rid]:
-                    trial = list(c.arcs)
-                    trial[idx] = cand_arc
-                    if simulate_tour(trial, geo, slack_min=105, start_buffer_min=45, max_road_min=690) is not None:
-                        floor_c = max(int(cand_arc.list_cents * 0.72), int(alloc_cost + 800))
-                        prices[cand_arc.option] = floor_c
-                if not prices:
-                    prices[x.option] = max(int(x.list_cents * 0.72), int(alloc_cost + 800))
+                floor_x = max(200, int(x.list_cents * 0.50))
+                prices: dict[str, int] = {x.option: floor_x}
+                # If `within_3_days` was planned, ALSO offer `next_day` if `next_day` keeps >=165m slack on the tour
+                # so impatient dealers buy `next_day` instead of rejecting `within_3_days`! Never add unplanned `same_day`!
+                if x.option == "within_3_days":
+                    for cand_arc in all_opts_by_rid[x.rid]:
+                        if cand_arc.option == "next_day":
+                            trial = list(c.arcs)
+                            trial[idx] = cand_arc
+                            if simulate_tour(trial, geo, slack_min=165, start_buffer_min=45, max_road_min=680) is not None:
+                                prices["next_day"] = max(200, int(cand_arc.list_cents * 0.55))
                 book[x.rid] = {"prices": prices}
 
     tdir = lab_home() / "tas" / seed

@@ -432,11 +432,6 @@ class Desk(BaseDesk):
                 self.stats["tour_broken_lost_quote"] += 1
                 self._release_waiting_orders([x for x in rids if x in self.tour_waiting])
                 return
-            if rid in self.decided and self.decided[rid] == "decline":
-                self.broken_tours.add(tid)
-                self.stats["tour_broken_declined"] += 1
-                self._release_waiting_orders([x for x in rids if x in self.tour_waiting])
-                return
             if rid in self.requests and rid not in self.orders and self.now > self.requests[rid]["respondBy"] + 1:
                 self.broken_tours.add(tid)
                 self.stats["tour_broken_unwon"] += 1
