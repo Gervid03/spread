@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Sets up a fresh Ubuntu 24.04 machine for the lab. Run it as root on the machine:
 #     bash vm-setup.sh final    # the dedicated final runner (a systemd service, nothing else)
-#     bash vm-setup.sh swarm    # the swarm host: Gemini CLI agents and their evaluations
+#     bash vm-setup.sh swarm    # the practice host: evaluations and experiments
 # Copy two files to /root first (scripts/vm-push.sh does all of it from the laptop):
 #     /root/spread_deploy   the repo's deploy key (write access to Gervid03/spread only)
-#     /root/spread.env      the .env: SPREAD_KEY, and GEMINI_API_KEY on the swarm host
+#     /root/spread.env      the .env: SPREAD_KEY
 set -euo pipefail
 role=${1:?usage: vm-setup.sh final|swarm}
 export DEBIAN_FRONTEND=noninteractive
@@ -21,14 +21,6 @@ ssh-keyscan -t ed25519 github.com > /home/lab/.ssh/known_hosts 2>/dev/null
 chown lab:lab /home/lab/.ssh/config /home/lab/.ssh/known_hosts
 chmod 600 /home/lab/.ssh/config
 install -m 600 -o lab -g lab /root/spread.env /home/lab/spread.env
-
-if [ "$role" = swarm ]; then
-  if ! command -v node >/dev/null || [ "$(node -v | cut -c2- | cut -d. -f1)" -lt 20 ]; then
-    curl -fsSL https://deb.nodesource.com/setup_22.x | bash - >/dev/null
-    apt-get install -y -q nodejs >/dev/null
-  fi
-  npm install -g --silent @google/gemini-cli
-fi
 
 dir=spread
 [ "$role" = final ] && dir=spread-final

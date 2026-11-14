@@ -3,7 +3,8 @@
 One line per idea that got a real measurement. Newest round first. Numbers are paired Δmargin a level-8 week
 against the champion of the time, on the 16 dev worlds unless a set is named (± SE, t, better/worse); "fresh" is
 32 unseen worlds (`night-01..32`). The detail is in each branch's note (`experiments/<date>-gemini-<slug>.md`).
-Promotions are in [PROMOTIONS.md](PROMOTIONS.md); round 3 (ideas 15–30) is in `docs/HANDOFF.md`.
+Promotions are in [PROMOTIONS.md](PROMOTIONS.md). The notes, prompts, HANDOFF and scripts named below were removed from
+main on Sat 14 Nov ~22:00 (the de-bloat); they are all in the git tag `swarm-era`.
 
 ## Update Sat 18:10 Helsinki (laptop lead with the user): v7 = the cycle desk (closed 2-4 car tours)
 - **Champion v7** (73fc729, `spread_lab.policies.cycles:Desk`, note `experiments/20261114-1845-claude-cycle-desk.md`):

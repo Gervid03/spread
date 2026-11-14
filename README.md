@@ -21,7 +21,7 @@ Level 8 (the final's level), mean margin per week on our 16 development and 16 h
 | **v2** (champion) | **€8,990** dev · **€9,414** holdout | **94.4%** · **91.8%** | **32/32** | open fees at 0.85×, a faster price tracker, no direct offers, 3 h of slack |
 
 How we got there, with every variant we measured (including the ones that failed):
-[`experiments/20261113-2230-claude-v0-baseline.md`](experiments/20261113-2230-claude-v0-baseline.md).
+[`experiments/LEDGER.md`](experiments/LEDGER.md); every experiment note of the swarm era is in the git tag `swarm-era`.
 
 ## How it works (baseline)
 - **Selection.** Declines (a deliberately losing quote) when few drivers live within 30 km of the pickup,

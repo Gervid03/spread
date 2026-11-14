@@ -4,7 +4,7 @@
 #   scripts/promote.sh <branch> [-s key=value ...]       the flags are the candidate's full set of overrides
 # Run it on the swarm host as `lab` (it needs .env). It takes ~4-8 minutes of practice slots (16 dev worlds,
 # 16 holdout worlds, one restarted world), and waits out the quiet hours like every eval.
-# Gates (docs/HANDOFF.md, Sat 01:00; the numbers are checked by scripts/promote_gate.py):
+# Gates (the numbers are checked by scripts/promote_gate.py):
 #   - before the freeze: Sun 15 Nov 06:00 Helsinki (04:00 UTC);
 #   - the merge is clean and touches only src/spread_lab/{policy,notes}.py, src/spread_lab/policies/,
 #     experiments/, night-queue/ or README.md (never the instrument, seeds/, champion/ or scripts/);
