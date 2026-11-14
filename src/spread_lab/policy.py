@@ -68,6 +68,11 @@ class Params:
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
     decline_mult: float = 4.0         # a decline quotes this times the list price
+    ext_ring_radius_km: float = 70.0  # extended ring radius for slow short/medium-drive orders
+    ext_ring_min_supply: int = 0      # 0 = off; min drivers within ext_ring_radius_km to admit slow orders
+    ext_ring_max_drive_min: int = 240 # max drive minutes for orders admitted via ext_ring_min_supply
+    return_hub_min_supply: int = 0    # 0 = off; min 30km supply at delivery hub to admit thin-to-hub return orders
+    return_hub_max_drive_min: int = 200  # max drive minutes for thin-to-capital return orders
     # --- on-time guard: tighten intake when the projected on-time share falls -----------------------
     guard_target: float = 0.0         # 0 = off; else the projected on-time share to defend (e.g. 0.95)
     guard_band: float = 0.04          # tightening is full this far under the target
@@ -143,6 +148,7 @@ class Desk:
         self.supply = geo.supply(roster, params.supply_radius_km)
         r = params.gate_radius_km if params.gate_radius_km > 0 else params.supply_radius_km
         self.gate_supply = geo.supply(roster, r)
+        self.ext_supply = geo.supply(roster, params.ext_ring_radius_km) if params.ext_ring_min_supply > 0 else {}
         self.last_view: dict[str, int] = {}          # driver id -> minute of their last view of our gigs
         self.offers_sent: Counter = Counter()        # (driver id, day) -> direct offers sent
         self.stats: Counter = Counter()
@@ -186,12 +192,17 @@ class Desk:
             order = self.orders.get(line.get("orderId", "")) if line.get("orderId") else None
             dealer = self.requests[line["orderId"]]["dealerId"] if line.get("orderId") and line["orderId"] in self.requests else None
             is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
+            is_ext_ring = order and self.gate_supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
             if is_ring:
                 self.stats["margin_ring_cents"] += line["cents"]
+            if is_ext_ring:
+                self.stats["margin_ext_ring_cents"] += line["cents"]
             if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
                 if line["orderId"] not in self.late:
                     if is_ring:
                         self.stats["late_ring"] += 1
+                    if is_ext_ring:
+                        self.stats["late_ext_ring"] += 1
                 self.late.add(line["orderId"])
                 if dealer:
                     self.dealer_trust[dealer] //= 2
@@ -262,14 +273,29 @@ class Desk:
         gate_supply = self.gate_supply.get(pickup, 0)
         tight = self.tightening()
         gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
-        if gate_supply < gate_min:
-            return {}, "decline"
-        if self.backlog_near(pickup) >= max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight):
-            return {}, "decline"
-        is_ring = supply < gate_min
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
+        pass_ext_ring = False
+        pass_return_hub = False
+        if gate_supply < gate_min:
+            pass_ext_ring = (
+                p.ext_ring_min_supply > 0
+                and self.ext_supply.get(pickup, 0) >= p.ext_ring_min_supply
+                and drive <= p.ext_ring_max_drive_min
+            )
+            pass_return_hub = (
+                p.return_hub_min_supply > 0
+                and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= p.return_hub_min_supply
+                and drive <= p.return_hub_max_drive_min
+            )
+            if not (pass_ext_ring or pass_return_hub):
+                return {}, "decline"
+            if self.backlog_near(pickup) >= p.backlog_min:
+                return {}, "decline"
+        elif self.backlog_near(pickup) >= max(p.backlog_min, p.backlog_ratio * gate_supply) * (1 - tight):
+            return {}, "decline"
+        is_ring = supply < gate_min
 
         if p.trust_guard and self.dealer_trust[request["dealerId"]] >= 13:
             has_same_day = any(o["kind"] == "same_day" for o in request["options"])
@@ -305,7 +331,7 @@ class Desk:
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
-            if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
+            if ((is_ring and p.far_options == "slow") or pass_ext_ring or pass_return_hub) and option["kind"] == "same_day":
                 continue
             deadline = option["deadline"]
             if p.notes_v2:
@@ -344,6 +370,10 @@ class Desk:
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if pass_ext_ring or pass_return_hub:
+            self.stats["quoted_ext_ring"] += 1
+            if pass_return_hub:
+                self.stats["quoted_return_hub"] += 1
         return prices, "floor" if floored else "quote"
 
     def learn(self, request_id: str, won: bool) -> None:
@@ -398,8 +428,13 @@ class Desk:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
             self.stats["won"] += 1
-            if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
+            pickup = order["legs"][0]["pickup"]["placeId"]
+            if self.supply.get(pickup, 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
+            if self.gate_supply.get(pickup, 0) < self.p.min_supply:
+                self.stats["won_ext_ring"] += 1
+                if self.p.return_hub_min_supply > 0 and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply:
+                    self.stats["won_return_hub"] += 1
             self.stats[f"won_{order['option']}"] += 1
             self.post(order, undelivered(order))
 
