@@ -153,6 +153,7 @@ V5_PARAMS = {
     "steep_max": 2.25,
     "view_offer_mult": 1.03,
     "view_offer_cap": 1.15,
+    "supervisor": False,
 }
 
 
@@ -214,14 +215,17 @@ def main() -> None:
         print(f"WARNING: broken expectations ({len(broken)}): {broken[:10]}")
 
     if a.replay and not a.fast_lookup:
-        print(f"=== Replaying {book_out} with 0 forks on {replay_policy} ===", flush=True)
+        replay_pol = "spread_lab.policies.cycles:Desk"
+        print(f"=== Replaying {book_out} with 0 forks on {replay_pol} (stack_v7={a.stack_v7}) ===", flush=True)
         replay_params = {k: v for k, v in merged.items() if not k.startswith("oracle_")}
+        if not a.stack_v7:
+            replay_params.update({"cyc": False, "sunday_tours": False, "sunday_tour_quote": False, "tour_dynamic": False, "supervisor": False})
         if "oracle_backlog_mult" in merged:
             replay_params["backlog_ratio"] = replay_params.get("backlog_ratio", 0.06) * merged["oracle_backlog_mult"]
-        with tas.Tas(a.seed, replay_params, replay_policy, f"replay-{a.name}", forks=False) as g2:
+        with tas.Tas(a.seed, replay_params, replay_pol, f"replay-{a.name}", forks=False) as g2:
             g2.hook = tas.book_hook(json.loads(book_out.read_text(encoding="utf-8")))
             rep_res = g2.finish()
-        tas.report(a.seed, f"run-book-{a.name}", rep_res, {"book": str(book_out), "policy": replay_policy})
+        tas.report(a.seed, f"run-book-{a.name}", rep_res, {"book": str(book_out), "policy": replay_pol, "stack_v7": a.stack_v7})
         print(f"Live={result['margin']:.2f} vs 0-fork replay={rep_res['margin']:.2f} (Δ={rep_res['margin']-result['margin']:+.2f})")
 
 

@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, fields, replace
 from typing import Any
 
 from spread.types import PriceRequest
@@ -30,6 +30,12 @@ class OracleParams(Params):
     oracle_mon_dealer_cap: float = 0.68
     oracle_super_yield: float = 42.0
     oracle_max_week_orders: int = 345
+
+    @classmethod
+    def from_dict(cls, values: dict[str, Any]) -> "OracleParams":
+        v7_tour_keys = {f.name for f in fields(CyclesParams)} - {f.name for f in fields(Params)}
+        cleaned = {k: v for k, v in values.items() if k not in v7_tour_keys}
+        return super().from_dict(cleaned)
 
 
 @dataclass
