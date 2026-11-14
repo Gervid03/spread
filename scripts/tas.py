@@ -231,9 +231,17 @@ def outcomes(events: list) -> dict[str, tuple]:
 def on_fork(g: Tas, actions: list, to: int) -> dict:
     """Copies the world at this minute, applies `actions` on the copy, plays the copy to minute `to` and deletes
     it. Returns the copy's answer: `results` of the actions and the `events` that are new on the copy. The main
-    world does not move. A copy holds a practice slot for its lifetime (a second or so)."""
-    with forked(g) as copy:
-        return copy.advance(to=min(g.ends_at, to), actions=actions)
+    world does not move. A copy holds a practice slot for its lifetime (a second or so). A server error on the copy
+    (HTTP 5xx) throws the copy away and tries a fresh one, up to 5 times: one bad answer must not end a long run."""
+    for attempt in range(5):
+        try:
+            with forked(g) as copy:
+                return copy.advance(to=min(g.ends_at, to), actions=actions)
+        except SpreadError as error:
+            if error.status < 500 or attempt == 4:
+                raise
+            print(f"  (fork: server error {error.status}; trying a fresh copy)", flush=True)
+            time.sleep(3 * (attempt + 1))
 
 
 @contextmanager
@@ -251,33 +259,39 @@ def forked(g: Tas):
         held, slot = None, Slot()
     else:
         held["busy"], slot = True, nullcontext()
-    with slot:
-        copy = None
-        for _ in range(240):
+    try:
+        with slot:
+            copy, errors = None, 0
+            for _ in range(240):
+                try:
+                    copy = g.world.fork()
+                    break
+                except SpreadError as error:
+                    if error.status >= 500 and errors < 10:   # a transient server error (seen 14 Nov 11:00): retry
+                        errors += 1
+                        time.sleep(3)
+                        continue
+                    if error.status != 409:
+                        raise
+                    time.sleep(5)   # the team holds 8 worlds: wait for another agent's world to end
+            if copy is None:
+                raise SystemExit("No practice slot came free for a fork in 20 minutes.")
+            entry = register(copy.id, {"seed": g.log["seed"], "level": 8, "tas": "fork of " + g.world.id})
             try:
-                copy = g.world.fork()
-                break
-            except SpreadError as error:
-                if error.status != 409:
-                    raise
-                time.sleep(5)   # the team holds 8 worlds: wait for another agent's world to end
-        if copy is None:
-            raise SystemExit("No practice slot came free for a fork in 20 minutes.")
-        entry = register(copy.id, {"seed": g.log["seed"], "level": 8, "tas": "fork of " + g.world.id})
-        try:
-            copy._last_seq = g.world._last_seq   # the first advance of a copy answers with its whole history: skip it
-            g.forks += 1
-            if g.forks % 200 == 0:   # a sign of life: a world day can take many minutes of forks
-                print(f"  … {clock(g.desk.now)}, {g.forks} forks", flush=True)
-            yield copy
-        finally:
-            try:
-                copy.delete()
-            except Exception:
-                pass
-            entry.unlink(missing_ok=True)
-            if held is not None:
-                held["busy"] = False
+                copy._last_seq = g.world._last_seq   # the first advance of a copy answers with its whole history: skip it
+                g.forks += 1
+                if g.forks % 200 == 0:   # a sign of life: a world day can take many minutes of forks
+                    print(f"  … {clock(g.desk.now)}, {g.forks} forks", flush=True)
+                yield copy
+            finally:
+                try:
+                    copy.delete()
+                except Exception:
+                    pass
+                entry.unlink(missing_ok=True)
+    finally:
+        if held is not None:
+            held["busy"] = False
 
 
 # --- ideas compared on forks --------------------------------------------------------------------------------------
