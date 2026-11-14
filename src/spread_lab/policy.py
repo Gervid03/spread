@@ -164,6 +164,10 @@ class Params:
     sup_fri_slow_min_supply: int = 0  # if > 0 (e.g. 3), Fri 08:00 surplus opens Monday-due slow options down to this supply
     sup_fri_sd_max_drive: int = 0     # if > 0 (e.g. 180), Fri 08:00 surplus relaxes fri_same_day_max_drive to this
     sup_fri_neutral_learn: bool = False  # if True, thin-town Friday surplus quotes skip learn() via ext_ring_reqs
+    # --- test-final rehearsal ------------------------------------------------------------------------
+    sim_start_day: int = 0            # 0 = off. If > 0, leave every request that arrives before this day
+                                      # (0 = Mon, 3 = Thu) unanswered, as in the 14:00 test final, whose
+                                      # world joined us on Thu 00:00 with Mon-Wed pre-played as lost
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -568,6 +572,9 @@ class Desk:
         self.maybe_supervise()
         self.requests[request["id"]] = request
         self.dealer_request_count[request["dealerId"]] += 1
+        if self.p.sim_start_day > 0 and request["arrivedAt"] < self.p.sim_start_day * DAY:
+            self.stats["sim_unanswered"] += 1  # rehearsal: the desk "was not there" yet
+            return
         prices, decision = self.price(request)
         self.stats[f"quote_{decision}"] += 1
         if self.level <= 3:  # every quote wins at its list price: send one only for what we take
