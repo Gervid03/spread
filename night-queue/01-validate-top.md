@@ -40,7 +40,10 @@ If the step3 check is clean (no seed loses more than 1 point of on-time share) a
 from your worktree: `bash scripts/promote.sh <W's branch> <W's flags>`. It merges W onto origin/main in a fresh
 worktree and runs dev, holdout and a restart against the current champion. If every gate passes, it promotes and
 pushes main: that is the only push to main you may make, and only through this script. Copy its last ten lines
-into your note. If it refuses, report which gate refused, and don't retry with other flags. If the step3 check is
+into your note. If it refuses, report which gate refused, and don't retry with other flags.
+**After PROMOTED, and only then,** update the root checkout so that the ranking rounds (`lab board --auto` runs
+there) and the sweep track use the new champion. `runs/` and `.env` are ignored, so they stay:
+`git -C $HOME/spread fetch -q origin && git -C $HOME/spread reset -q --hard origin/main && git -C $HOME/spread log --oneline -1`. If the step3 check is
 not clean, don't run it; say why in your first line.
 
 ## 4. The note
