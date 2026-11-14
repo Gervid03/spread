@@ -8,24 +8,22 @@ SECTION = """
 
 ---
 
-## Sat 14 Nov 18:12 Helsinki (`tas-price`, branch `exp/gemini-tas-price`): Layer 2 (`OracleDesk`) Hits **€15,928.36** on `dev-12` (+€5,018 over v5, 97.1% OT) + Exact Dealer Laws!
-- **Layer 2 (`tas-price-layer2`) READY on `dev-12`** (`~/.spread-lab/tas/dev-12/book-tas-price-layer2.json` & `limits-tas-price-layer2.jsonl`):
-  - **Champion v5**: €10,910.49 (246 won, 98.0% OT) → **Layer 1 (`limits-won-apply`)**: €14,572.94 (+€3,662.45, 246 won, 98.0% OT) → **Layer 2 (`tas-price-layer2`, unchanged v5 staffing!)**: **€15,928.36 (+€5,017.87 / +46.0% over v5, +€1,355.42 over Layer 1!)**, **313 won (+67 cars), 97.1% on time**, `0` broken expectations!
-  - **0-fork plain `Desk` replay (`run-book-tas-price-layer2`)**: **€15,928.36 (Δ = €0.00 to the cent, 0 forks)** — `tas-fees` can run fee bisection directly on `book-tas-price-layer2.json`!
-  - **Key Layer 2 discovery (why raw euro cherry-picking failed and block-yield won)**:
-    - Ranking by raw `limit - fee` stuffed the backlog with 380–585 min dead-end cars (`193` won, `93.8%` OT, `€11,465`, `-€3,108` vs Layer 1!).
-    - Ranking by **profit per driver block** `(limit - expected_fee + trust_velocity) / (1 + drive/150 + 0.35*(dest_supply<25))` + `max_next_day_drive_min=360` + `<68%` busy-dealer deadband jumped to **313 won, 97.1% OT, €15,928.36**!
-- **Exact Dealer Choice Laws Measured on `dev-12` (`limits-all.jsonl` + 11-fork `probe_dealer_mechanics.py`) — for `r4-limits` & Sunday**:
-  1. **Menu-structure gap (`same_day` vs `next_day`)**: Across 632 paired requests offering both options, `limit/list` is **`1.431` on `same_day` vs `1.240` on `next_day` (`+15.5%` mult gap, `+€23.56` median euro gap; 100% have `L_sd > L_nd`)**! When a request has `same_day` on the menu and our desk drops `same_day` via supply/slack gate, our `next_day`-only quote competes head-to-head against the competitor's `same_day`, dropping trust-adj `limit/list` to **`1.157`** (vs `1.217` when `same_day` is not on the menu, and `1.344` on `same_day`) — v5's win rate falls from **`40.3%` (`same_day`) to `26.6%` (`next_day`-only)** while `same_day_markup=0.05` leaves ~10% on the table on `same_day`!
-  2. **Cross-world destination-supply competitor factor (all 4 worlds)**: Trust- & world-normalized `limit/list` is **`0.884x` Helsinki, `0.929x` Vantaa, `0.937x` Turku, `0.949x` Hyvinkää** vs **`1.04x–1.16x` in thin/northern towns** (`ylivieska 1.159x`, `vaasa 1.092x`, `seinajoki 1.092x`, `joensuu 1.072x`). On `dev-12`, **94.9% of v5's €3,749 pricing gap** was on `dest_supply < 150` (`€16.86/car` gap vs only `€4.81/car` on `dest_supply >= 150`).
-  3. **Zero decoy (`0/3`), exact additive utility (`V_sd - V_nd == L_sd - L_nd`, `3/3`), quote timing invariance (`arrivedAt` == `respondBy - 1` to the cent), and `batchId` independence (`2/2`)**.
+## URGENT P0 ALERT — Sat 14 Nov 18:25 Helsinki (`tas-price`, branch `exp/gemini-tas-price`): `main` v7 `champion.json` Lost All 45 v6 Base Params (`-€2,282/wk` on `main` RIGHT NOW!) — 1-File Fix Ready!
+- **BUG FOUND ON `main` (`73fc729`)**:
+  - During `promote.sh --policy spread_lab.policies.cycles:Desk`, `cycles.Params.from_dict` read `champion().get("params")` **before** `lab promote` overwrote `champion/champion.json`, so the gate evaluation ran with **v6's 45 params + 12 `cycles` params** (`€12,251` on smoke, `€12,122` on dev).
+  - Then `lab promote` overwrote `champion/champion.json` with **ONLY the 12 `cycles` CLI flags**, wiping out all 45 of v6's base params (`notes_v2`, `lead_car`, `view_offer_mult`, `supervisor`, `urgent_hygiene`, `min_supply=22`, `price_target_win=0.40`, `ext_ring`, `return_hub`, etc.)!
+  - **Measured impact on `main` right now (`runs/20261114-161931-tas-price-v7-noop`)**: `uv run lab eval --seeds-from smoke` with zero overrides gives **`€9,968.83` (`Δmargin = -€2,282.31 ± 539.01, t = -4.23, 0/4`)** — and Verda / `lab board --auto` / 20:00 Test Final will play that crippled v0+cycles config unless fixed before 19:40!
+- **VERIFIED FIX READY ON LOCAL BRANCH `exp/gemini-tas-price` (`src/spread_lab/policies/cycles.py`)**:
+  - Added `V6_BASE_PARAMS` before `champion().get("params", {})` in `cycles.Params.from_dict` (or restore the 45 v6 keys into `champion/champion.json` on `main`).
+  - **Verified (`runs/20261114-162357-tas-price-v7-fixed-noop`)**: `uv run lab eval --seeds-from smoke` now gives **`€12,251.14` (`Δmargin = €+0.00 ± 0.00` on 4/4 seeds, `Δon-time = +0.00%`)**!
+  - **Lead & all `r4-*` agents**: cherry-pick / copy `V6_BASE_PARAMS` in `src/spread_lab/policies/cycles.py` from `exp/gemini-tas-price` (and fix `champion/champion.json` on `main` before Verda pulls for 20:00)!
 """
 
 
 def main() -> None:
     dst = lab_home() / "tas" / "STATUS.md"
     cur = dst.read_text(encoding="utf-8") if dst.exists() else "# TAS status"
-    marker = "Layer 2 (`OracleDesk`) Hits **€15,928.36**"
+    marker = "URGENT P0 ALERT — Sat 14 Nov 18:25 Helsinki"
     if marker in cur and "--force" not in sys.argv:
         print("Section already present in STATUS.md")
         return

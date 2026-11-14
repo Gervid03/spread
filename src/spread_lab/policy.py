@@ -54,6 +54,11 @@ class Params:
     dealer_adj_max: float = 1.30
     loss_streak_freeze: int = 12      # this many losses in a row stop downward moves until the next day
     same_day_markup: float = 0.05     # extra on same_day prices (tight deadline, more risk)
+    dest_thin_markup: float = 0.0     # extra mult on thin delivery (<30 drivers, competitor lane premium +8..+16%)
+    dest_hub_slow_disc: float = 0.0   # discount on slow options delivering to dense hub (>=150 drivers)
+    dest_hub_floor_fee_mult: float = 0.0  # if > 0, expected_fee_mult for floor on slow options into dense hub (>=150)
+    sd_menu_slow_disc: float = 0.0    # discount on slow options when same_day was on the request menu
+    closer_slow_disc: float = 0.0     # discount on gate-safe slow options closing an unstaffed won reverse leg (<=30 km)
     # --- selection: when to decline -----------------------------------------------------------------
     supply_radius_km: float = 30.0    # the app notifies drivers whose home is this close to the pickup
     gate_radius_km: float = 55.0      # radius of the supply count the decline gate uses (v1; 0 = supply_radius_km, as v0)
@@ -709,6 +714,28 @@ class Desk:
             else p.fri_same_day_max_drive
         )
 
+        dest_place = legs[-1]["delivery"]["placeId"]
+        dest_sup = self.supply.get(dest_place, 0)
+        has_sd_menu = p.sd_menu_slow_disc > 0 and any(o["kind"] == "same_day" for o in request["options"])
+        is_closer = False
+        if p.closer_slow_disc > 0 and len(legs) == 1 and self.projected_on_time() >= 0.965:
+            fwd_n, rev_n = 0, 0
+            for ord_o in self.orders.values():
+                if (
+                    len(ord_o["legs"]) == 1
+                    and ord_o["option"] != "same_day"
+                    and ord_o["id"] not in self.urgent
+                    and ord_o["id"] not in self.lost
+                    and not self.staffed(ord_o)
+                ):
+                    op = ord_o["legs"][0]["pickup"]["placeId"]
+                    od = ord_o["legs"][0]["delivery"]["placeId"]
+                    if self.geo.line_km(od, pickup) <= 30.0 and self.geo.line_km(dest_place, op) <= 30.0:
+                        fwd_n += 1
+                    elif self.geo.line_km(op, pickup) <= 30.0 and self.geo.line_km(od, dest_place) <= 30.0:
+                        rev_n += 1
+            is_closer = fwd_n > rev_n
+
         prices: dict[str, int] = {}
         floored = False
         for option in request["options"]:
@@ -716,7 +743,7 @@ class Desk:
             if (pass_ext_ring or pass_return_hub or fri_thin_only) and option["kind"] == "same_day":
                 continue
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
-                if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
+                if p.ring_to_hub_same_day_min > 0 and dest_sup >= 200 and drive <= p.ring_to_hub_same_day_min:
                     ring_hub_sd = True
                 else:
                     continue
@@ -763,13 +790,30 @@ class Desk:
                 self.ring_hub_same_day.add(request["id"])
 
             option_mult = mult
+            opt_fee = fee
             if is_invest and slack >= 360:
                 option_mult *= (1 - p.trust_invest)
             if p.return_hub_discount > 0 and pass_return_hub and not pass_ext_ring:
                 option_mult *= (1.0 - p.return_hub_discount)
+            if p.dest_thin_markup > 0 and dest_sup < 30:
+                option_mult *= (1.0 + p.dest_thin_markup)
+                self.stats["tas_dest_thin_n"] += 1
+            if option["kind"] != "same_day":
+                if p.dest_hub_slow_disc > 0 and dest_sup >= 150:
+                    option_mult *= (1.0 - p.dest_hub_slow_disc)
+                    self.stats["tas_dest_hub_slow_n"] += 1
+                if p.dest_hub_floor_fee_mult > 0 and dest_sup >= 150:
+                    opt_fee = min(opt_fee, request["referenceFeeCents"] * p.dest_hub_floor_fee_mult)
+                if has_sd_menu:
+                    option_mult *= (1.0 - p.sd_menu_slow_disc)
+                    self.stats["tas_sd_menu_slow_n"] += 1
+                if is_closer and slack >= 240:
+                    option_mult *= (1.0 - p.closer_slow_disc)
+                    opt_fee = min(opt_fee, request["referenceFeeCents"] * 0.75)
+                    self.stats["tas_closer_disc_n"] += 1
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            floor = fee / (1 - p.min_margin_frac)
+            floor = opt_fee / (1 - p.min_margin_frac)
             if price < floor:
                 price, floored = floor, True
             prices[option["kind"]] = int(price + 0.5)
