@@ -80,6 +80,8 @@ class Params:
     fee_step_min: int = 30            # minutes between steps of the rising schedule
     day_start: int = 7 * 60           # raises only between these minutes of the day
     day_end: int = 22 * 60
+    alarm_after_min: int = 0          # 0 = off; daytime minutes without a driver before jumping to alarm_fee (other options: 10:00 on deadline day)
+    alarm_fee: float = 1.40           # fee multiple jumped to when the staffing alarm triggers
     steep_open: float = 1.80          # after the deadline warning
     steep_step: float = 0.25          # added every half hour
     steep_max: float = 3.00
@@ -126,7 +128,10 @@ class Desk:
         self.leg_gigs: dict[str, dict[int, str]] = {}  # order id -> leg -> the gig that carries it
         self.booked: set[str] = set()                # gigs a driver holds now
         self.posts: dict[str, PostAction] = {}       # gig id -> the post that made it
+        self.posted_at: dict[str, int] = {}          # gig id -> minute it was posted
         self.urgent: set[str] = set()                # orders whose deadline warning has come
+        self.alarmed: set[str] = set()               # orders whose staffing alarm has fired
+        self.alarmed_gigs: set[str] = set()          # gigs posted or repriced under staffing alarm
         self.decided: dict[str, str] = {}            # request id -> "quote" | "floor" | "decline"
         self.mult = {8: params.price_mult_l8, 7: params.price_mult_l7}.get(level, params.price_mult_low)
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
@@ -174,15 +179,25 @@ class Desk:
             self.last_view[event["driverId"]] = event["at"]
         elif kind == "ledger":
             line = event["line"]
-            order = self.orders.get(line.get("orderId", "")) if line.get("orderId") else None
+            order_id = line.get("orderId") or ""
+            order = self.orders.get(order_id) if order_id else None
             is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
             if is_ring:
                 self.stats["margin_ring_cents"] += line["cents"]
-            if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
-                if line["orderId"] not in self.late:
+            if line["kind"] == "driver_fee" and (line.get("gigId") in self.alarmed_gigs or order_id in self.alarmed):
+                self.stats["alarm_fee_cents"] += -line["cents"]
+                self.stats["alarm_fee_gigs"] += 1
+                if order_id in self.requests:
+                    self.stats["alarm_ref_fee_cents"] += self.requests[order_id]["referenceFeeCents"]
+            if line["kind"] in ("late_refund", "undelivered_penalty") and order_id:
+                if order_id not in self.late:
                     if is_ring:
                         self.stats["late_ring"] += 1
-                self.late.add(line["orderId"])
+                    if order_id in self.alarmed:
+                        self.stats["late_alarmed"] += 1
+                    if order_id in self.urgent and self.p.alarm_after_min > 0:
+                        self.stats["late_deadline_close"] += 1
+                self.late.add(order_id)
         elif kind == "offer_answered":
             self.stats[f"offer_{event['answer']}"] += 1
         elif kind == "delivered":
@@ -191,7 +206,51 @@ class Desk:
                 self.orders[event["orderId"]]["deliveredAt"][event["leg"]] = event["at"]
 
     def tick(self) -> None:
-        """Called after every step (practice) or event (live). The baseline needs no timers."""
+        """Called after every step (practice) or event (live). Triggers early staffing alarms when enabled."""
+        if self.p.alarm_after_min <= 0 or self.level == 1:
+            return
+        for order_id, order in self.orders.items():
+            if order_id in self.urgent or order_id in self.alarmed:
+                continue
+            if not undelivered(order) or self.now >= order["lastPickupAt"] - 3 * HOUR:
+                continue
+            for gig_id in self.gigs_of(order_id):
+                if gig_id not in self.booked and self.should_alarm(order, gig_id):
+                    self.alarm(order_id)
+                    break
+
+    def should_alarm(self, order: Order, gig_id: str) -> bool:
+        p = self.p
+        posted_at = self.posted_at.get(gig_id)
+        if posted_at is None:
+            return False
+        if order["option"] != "same_day":
+            deadline_10am = (order["deadline"] // DAY) * DAY + 10 * HOUR
+            if self.now < deadline_10am:
+                return False
+        if daytime_minutes(posted_at, self.now, p.day_start, p.day_end) < p.alarm_after_min:
+            return False
+        post = self.posts.get(gig_id)
+        if post is None:
+            return False
+        base = self.requests[order["id"]]["referenceFeeCents"] * pickups(post) / len(order["legs"])
+        target_fee = max(1, int(base * p.alarm_fee + 0.5))
+        return current_fee(post["schedule"], self.now) < target_fee
+
+    def alarm(self, order_id: str) -> None:
+        order = self.orders.get(order_id)
+        if order is None or order_id in self.urgent or order_id in self.alarmed:
+            return
+        self.alarmed.add(order_id)
+        self.stats["alarms"] += 1
+        self.stats[f"alarms_{order['option']}"] += 1
+        self.send_post_of(order_id)
+        for gig_id in self.gigs_of(order_id):
+            if gig_id not in self.booked:
+                self.alarmed_gigs.add(gig_id)
+                schedule = self.fees_for(order, pickups(self.posts[gig_id]))
+                self.posts[gig_id] = {**self.posts[gig_id], "schedule": schedule}
+                self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": schedule})
 
     # --- quoting --------------------------------------------------------------------------------------
     def quote(self, request: PriceRequest) -> None:
@@ -331,11 +390,15 @@ class Desk:
         order = self.orders.get(order_id)
         if order is None:
             return
+        if order_id in self.alarmed:
+            self.stats["alarm_to_deadline_close"] += 1
         self.urgent.add(order_id)
         self.send_post_of(order_id)
         for gig_id in self.gigs_of(order_id):
             if gig_id not in self.booked:
-                self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": self.fees_for(order, pickups(self.posts[gig_id]))})
+                schedule = self.fees_for(order, pickups(self.posts[gig_id]))
+                self.posts[gig_id] = {**self.posts[gig_id], "schedule": schedule}
+                self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": schedule})
                 self.offer(gig_id, order)
 
     def offer(self, gig_id: str, order: Order) -> None:
@@ -370,11 +433,14 @@ class Desk:
             return [{"at": self.now, "feeCents": max(1, int(base * self.p.fee_open + 0.5))}]
         if order["id"] in self.urgent:
             return self.steep(base)
-        return self.rising(base, order["lastPickupAt"] - 3 * HOUR)
+        open_fee = self.p.alarm_fee if order["id"] in self.alarmed else self.p.fee_open
+        return self.rising(base, order["lastPickupAt"] - 3 * HOUR, open_fee)
 
-    def rising(self, base: float, until: int) -> list[FeeStep]:
+    def rising(self, base: float, until: int, fee_open: Optional[float] = None) -> list[FeeStep]:
         """From `fee_open` now to `fee_warn` at `until`, in daytime steps only, at most 48 steps."""
         p = self.p
+        open_mult = p.fee_open if fee_open is None else fee_open
+        warn_mult = max(open_mult, p.fee_warn)
         times = [self.now]
         t = (self.now // p.fee_step_min + 1) * p.fee_step_min
         while t <= until:
@@ -385,7 +451,7 @@ class Desk:
             k = len(times) - 1
             times = [times[round(i * k / 47)] for i in range(48)]
         n = len(times)
-        return [{"at": at, "feeCents": max(1, int(base * (p.fee_open + (p.fee_warn - p.fee_open) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
+        return [{"at": at, "feeCents": max(1, int(base * (open_mult + (warn_mult - open_mult) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
                 for i, at in enumerate(times)]
 
     def steep(self, base: float) -> list[FeeStep]:
@@ -430,10 +496,13 @@ class Desk:
     def gigs_of(self, order_id: str) -> list[str]:
         return list(dict.fromkeys(self.leg_gigs.get(order_id, {}).values()))
 
-    def carry(self, action: PostAction, gig_id: str) -> None:
+    def carry(self, action: PostAction, gig_id: str, posted_at: Optional[int] = None) -> None:
         for stop in action["stops"]:
             self.leg_gigs.setdefault(stop["orderId"], {})[stop["leg"]] = gig_id
+            if stop["orderId"] in self.alarmed:
+                self.alarmed_gigs.add(gig_id)
         self.posts[gig_id] = action
+        self.posted_at[gig_id] = posted_at if posted_at is not None else (action["schedule"][0]["at"] if action["schedule"] else self.now)
 
     def withdraw(self, order_id: str) -> bool:
         self.send_post_of(order_id)
@@ -471,12 +540,18 @@ class Desk:
         """Rebuilds the books from the world after a (re)start, then answers what it missed."""
         posted: dict[str, list[Gig]] = {}
         self.booked = {g["id"] for g in snapshot["gigs"] if g["status"] in ("booked", "working", "done")}
+        self.requests = {e["request"]["id"]: e["request"] for e in history if e["kind"] == "price_request"}
+        self.urgent = {e["orderId"] for e in history if e["kind"] == "deadline_close"}
+        if self.p.alarm_after_min > 0:
+            for gig in snapshot["gigs"]:
+                order_id = gig["stops"][0]["orderId"]
+                if order_id not in self.urgent and gig["schedule"] and gig["schedule"][0]["at"] > gig["postedAt"]:
+                    self.alarmed.add(order_id)
+                    self.alarmed_gigs.add(gig["id"])
         for gig in snapshot["gigs"]:
             posted.setdefault(gig["stops"][0]["orderId"], []).append(gig)
             if gig["status"] in ("open", "booked", "working"):
-                self.carry({"type": "post", "stops": gig["stops"], "audience": gig["audience"], "schedule": gig["schedule"]}, gig["id"])
-        self.requests = {e["request"]["id"]: e["request"] for e in history if e["kind"] == "price_request"}
-        self.urgent = {e["orderId"] for e in history if e["kind"] == "deadline_close"}
+                self.carry({"type": "post", "stops": gig["stops"], "audience": gig["audience"], "schedule": gig["schedule"]}, gig["id"], gig["postedAt"])
         for e in history:
             if e["kind"] == "gig_viewed":
                 self.last_view[e["driverId"]] = e["at"]
@@ -506,6 +581,23 @@ class Desk:
 
 
 # --- helpers (the starter's) --------------------------------------------------------------------------
+def daytime_minutes(start: int, end: int, day_start: int, day_end: int) -> int:
+    if end <= start:
+        return 0
+    total = 0
+    for day in range(start // DAY, end // DAY + 1):
+        a = max(start, day * DAY + day_start)
+        b = min(end, day * DAY + day_end)
+        if b > a:
+            total += b - a
+    return total
+
+
+def current_fee(schedule: list[FeeStep], now: int) -> int:
+    fees = [s["feeCents"] for s in schedule if s["at"] <= now]
+    return fees[-1] if fees else schedule[0]["feeCents"]
+
+
 def retry_from(order: Order, request: PriceRequest, leg: int, now: int) -> int:
     promised = next((o["deadline"] for o in request["options"] if o["kind"] == order["option"]), order["deadline"])
     delay = max(0, order["deadline"] - promised)
