@@ -30,7 +30,7 @@ from typing import Any, NamedTuple, Optional
 from spread.client import World
 from spread.types import (
     Action, ActionResult, Audience, DeskEvent, DeskSnapshot, DriverProfile, FeeStep, Gig, Order, PostAction,
-    PriceRequest, StopRef, TimeWindow,
+    PriceRequest, StopPlace, StopRef, TimeWindow,
 )
 
 from .geo import Geo
@@ -63,6 +63,7 @@ class Params:
     min_margin_frac: float = 0.08     # price is raised to keep (price - expected fee) / price at least this
     min_slack_min: int = 180          # an option needs deadline - max(now, ready) - drive minutes >= this (v2: was 120)
     slack_per_drive: float = 0.5      # an option needs slack of at least min_slack_min + slack_per_drive * drive (v1; v0 = 0)
+    slack_by_hours: bool = False      # measure option earliest pickup, last_pickup and slack using stop opening hours
     long_drive_min: int = 300         # if drive > this (and > 0), quote only options with deadline on a later day than ready (v1; v0 = 0)
     max_next_day_drive_min: int = 0   # if > 0 and drive > this, drop options with deadline <= ready day + 1
     thin_long_next_day_supply: int = 0  # if > 0, non-ring pickup with supply < this and drive > long_drive_min drops next_day
@@ -349,6 +350,12 @@ class Desk:
                 for leg in legs
             ]
         )
+        earliest_h = max(
+            (earliest_open_at(leg["pickup"], max(self.now + 15, ready)) for leg in legs),
+            key=lambda x: 10**9 if x is None else x,
+        )
+        if earliest_h == 10**9:
+            earliest_h = None
         fee = request["referenceFeeCents"] * p.expected_fee_mult
         mult = self.mult * self.dealer_adj[request["dealerId"]]
         if p.trust_gain > 0:
@@ -385,28 +392,47 @@ class Desk:
                     )["to"]
                     for leg in legs
                 )
+            eff_ready = (earliest_h if earliest_h is not None else ready) if p.slack_by_hours else ready
             if p.max_next_day_drive_min > 0 and drive > p.max_next_day_drive_min:
-                if deadline // DAY <= ready // DAY + 1:
+                if deadline // DAY <= eff_ready // DAY + 1:
                     self.stats["dropped_next_day_long"] += 1
                     continue
             if p.thin_long_next_day_supply > 0 and not is_ring and supply < p.thin_long_next_day_supply and drive > p.long_drive_min:
-                if deadline // DAY <= ready // DAY + 1:
+                if deadline // DAY <= eff_ready // DAY + 1:
                     self.stats["dropped_thin_long_next_day"] += 1
                     continue
-            if p.fri_same_day_max_drive > 0 and ready // DAY >= 4 and option["kind"] == "same_day" and drive >= p.fri_same_day_max_drive:
+            if p.fri_same_day_max_drive > 0 and eff_ready // DAY >= 4 and option["kind"] == "same_day" and drive >= p.fri_same_day_max_drive:
                 self.stats["dropped_fri_same_day"] += 1
                 continue
             if p.long_drive_min > 0 and drive > p.long_drive_min:
-                if deadline // DAY <= ready // DAY:
+                if deadline // DAY <= eff_ready // DAY:
                     self.stats["dropped_long_drive"] += 1
                     continue
             if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply and not ring_hub_sd:
                 self.stats["dropped_same_day_supply"] += 1
                 continue
-            slack = deadline - ready - drive
-            if slack < p.min_slack_min + p.slack_per_drive * drive:
-                self.stats["dropped_slack"] += 1
-                continue
+            old_slack = deadline - ready - drive
+            req_slack = p.min_slack_min + p.slack_per_drive * drive
+            if p.slack_by_hours:
+                last_pickup = last_pickup_for(legs[0]["pickup"], legs[-1]["delivery"], drive, deadline)
+                if earliest_h is None or last_pickup is None:
+                    if old_slack < req_slack:
+                        self.stats["dropped_slack"] += 1
+                    else:
+                        self.stats["dropped_hours"] += 1
+                    continue
+                slack = last_pickup - earliest_h
+                if slack < req_slack:
+                    if old_slack < req_slack:
+                        self.stats["dropped_slack"] += 1
+                    else:
+                        self.stats["dropped_hours"] += 1
+                    continue
+            else:
+                slack = old_slack
+                if slack < req_slack:
+                    self.stats["dropped_slack"] += 1
+                    continue
             if ring_hub_sd:
                 self.stats["quoted_ring_hub_same_day"] += 1
                 self.ring_hub_same_day.add(request["id"])
@@ -511,6 +537,25 @@ class Desk:
                 if self.p.return_hub_min_supply > 0 and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply:
                     self.stats["won_return_hub"] += 1
             self.stats[f"won_{order['option']}"] += 1
+            req = self.requests[order["id"]]
+            if len(order["legs"]) == 1 and not req.get("note"):
+                leg0 = order["legs"][0]
+                car0 = leg0["car"]
+                p_place = leg0["pickup"]["placeId"]
+                d_place = leg0["delivery"]["placeId"]
+                low_ev = (
+                    car0["electric"]
+                    and car0["chargePercent"] is not None
+                    and car0["chargePercent"] < 30
+                    and self.geo.road_km(p_place, d_place) > self.p.charge_min_km
+                )
+                if not low_ev:
+                    drive0 = self.geo.minutes(p_place, d_place)
+                    opt = next((o for o in req["options"] if o["kind"] == order["option"]), None)
+                    dl0 = opt["deadline"] if opt is not None else order["deadline"]
+                    pred_lp = last_pickup_for(leg0["pickup"], leg0["delivery"], drive0, dl0)
+                    self.stats["lastpickup_n"] += 1
+                    self.stats["lastpickup_err"] += abs((pred_lp or 0) - order["lastPickupAt"])
             self.post(order, undelivered(order))
 
     def change(self, order: Order) -> None:
@@ -937,3 +982,96 @@ def stops_for(
 
 def narrower(stop: StopRef, window: TimeWindow, base: TimeWindow) -> StopRef:
     return {**stop, "window": window} if window["from"] <= window["to"] and (window["from"] > base["from"] or window["to"] < base["to"]) else stop
+
+
+def open_at(stop: StopPlace, minute: int) -> bool:
+    """Whether `stop` is open at `minute` and inside its window."""
+    w = stop["window"]
+    if not (w["from"] <= minute <= w["to"]):
+        return False
+    if stop["privateAddress"] or not stop.get("hours"):
+        return True
+    h = stop["hours"]
+    wd = (minute // DAY) % 7
+    tod = minute % DAY
+    if wd in h["weekdays"]:
+        return h["opens"] <= tod < h["closes"]
+    if wd == 5 and h.get("saturday"):
+        sat = h["saturday"]
+        return sat["opens"] <= tod < sat["closes"]
+    return False
+
+
+def earliest_open_at(stop: StopPlace, start_min: int) -> Optional[int]:
+    """First minute >= `start_min` at which `stop` is open and inside its window."""
+    w = stop["window"]
+    t = max(start_min, w["from"])
+    while t <= w["to"]:
+        if open_at(stop, t):
+            return t
+        if stop["privateAddress"] or not stop.get("hours"):
+            return None
+        d = t // DAY
+        tod = t % DAY
+        h = stop["hours"]
+        wd = d % 7
+        opens = h["opens"] if wd in h["weekdays"] else (h["saturday"]["opens"] if wd == 5 and h.get("saturday") else None)
+        if opens is not None and tod < opens:
+            t = d * DAY + opens
+        else:
+            t = (d + 1) * DAY
+    return None
+
+
+def last_pickup_for(p_stop: StopPlace, d_stop: StopPlace, drive: int, deadline: int) -> Optional[int]:
+    """Last minute `t` such that `p_stop` is open at `t`, `d_stop` is open at `t + drive` (for dealer
+    deliveries; private deliveries only require `t + drive <= deadline`), and `t + drive <= deadline`,
+    searching back from `deadline` day by day."""
+    if p_stop["privateAddress"] or not p_stop.get("hours"):
+        t = min(p_stop["window"]["to"], deadline - drive)
+        return t if t >= p_stop["window"]["from"] else None
+    p_lo = p_stop["window"]["from"]
+    p_hi = min(p_stop["window"]["to"], deadline - drive)
+    if p_hi < p_lo:
+        return None
+    if d_stop["privateAddress"] or not d_stop.get("hours"):
+        d_intervals = [(0, deadline)]
+    else:
+        d_intervals = []
+        dh = d_stop["hours"]
+        dw_lo = d_stop["window"]["from"]
+        dw_hi = min(d_stop["window"]["to"], deadline)
+        for day in range(dw_hi // DAY, dw_lo // DAY - 1, -1):
+            wd = day % 7
+            if wd in dh["weekdays"]:
+                o, c = dh["opens"], dh["closes"]
+            elif wd == 5 and dh.get("saturday"):
+                o, c = dh["saturday"]["opens"], dh["saturday"]["closes"]
+            else:
+                continue
+            lo = max(dw_lo, day * DAY + o)
+            hi = min(dw_hi, day * DAY + c - 1)
+            if lo <= hi:
+                d_intervals.append((lo, hi))
+    ph = p_stop["hours"]
+    best: Optional[int] = None
+    for d_lo, d_hi in d_intervals:
+        t_lo = max(p_lo, d_lo - drive)
+        t_hi = min(p_hi, d_hi - drive)
+        if t_lo > t_hi:
+            continue
+        for day in range(t_hi // DAY, t_lo // DAY - 1, -1):
+            wd = day % 7
+            if wd in ph["weekdays"]:
+                o, c = ph["opens"], ph["closes"]
+            elif wd == 5 and ph.get("saturday"):
+                o, c = ph["saturday"]["opens"], ph["saturday"]["closes"]
+            else:
+                continue
+            cand = min(t_hi, day * DAY + c - 1)
+            if cand >= max(t_lo, day * DAY + o):
+                if best is None or cand > best:
+                    best = cand
+                break
+    return best
+
