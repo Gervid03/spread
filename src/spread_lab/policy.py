@@ -60,9 +60,17 @@ class Params:
     far_options: str = "slow"         # "slow": quote next_day and within_3_days only for ring pickups (v1; v0 = "all")
     min_supply: int = 30              # decline below this many drivers near the pickup (6 missed 90% on 3/5 worlds; 20 on 1/32)
     expected_fee_mult: float = 1.25   # expected fee as a multiple of the typical fee
+    slow_expected_fee_mult: float = 0.0  # if > 0, expected_fee_mult for next_day options
+    w3d_expected_fee_mult: float = 0.0   # if > 0, expected_fee_mult for within_3_days and Mon2+ slow options
+    w3d_discount: float = 0.0         # fractional price discount on within_3_days options
+    mon2_discount: float = 0.0        # fractional price discount on slow options due Week-2 Monday+ (deadline >= 7*DAY)
+    slow_comp_slope: float = 0.0      # win-target slope compensation in learn() for w3d/mon2 discounts
     min_margin_frac: float = 0.08     # price is raised to keep (price - expected fee) / price at least this
     min_slack_min: int = 180          # an option needs deadline - max(now, ready) - drive minutes >= this (v2: was 120)
     slack_per_drive: float = 0.5      # an option needs slack of at least min_slack_min + slack_per_drive * drive (v1; v0 = 0)
+    trade_in_seq_slack: bool = False  # evaluate 2-leg trade-in slack sequentially (leg0 handoff then leg1 return)
+    trade_in_max_drive_min: int = 450 # max total drive minutes when trade_in_seq_slack is True
+    trade_in_leg1_slack_min: int = 90 # min post-handoff slack minutes on leg 1 when trade_in_seq_slack is True
     long_drive_min: int = 300         # if drive > this (and > 0), quote only options with deadline on a later day than ready (v1; v0 = 0)
     max_next_day_drive_min: int = 0   # if > 0 and drive > this, drop options with deadline <= ready day + 1
     thin_long_next_day_supply: int = 0  # if > 0, non-ring pickup with supply < this and drive > long_drive_min drops next_day
@@ -112,6 +120,8 @@ class Params:
     lead_car_max_gap_km: float = 0.0
     lead_car_max_deliv_gap_km: float = 25.0
     lead_car_fee_mult: float = 1.00
+    lead_car_allow_benign_notes: bool = False
+    lead_car_cross_slow: bool = False
     # --- handling rules -----------------------------------------------------------------------------
     charge_min_km: float = 200.0      # rule 3: an EV under 30% charge needs a charging stop on a route over this
     notes_v2: bool = False            # v2 note reader + delivery hours / note deadlines shorten option slack
@@ -176,6 +186,7 @@ class Desk:
         self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
         self.ring_hub_same_day: set[str] = set()     # request/order ids where ring_to_hub_same_day_min allowed same_day
         self.ext_ring_reqs: set[str] = set()         # request/order ids admitted via pass_ext_ring or pass_return_hub
+        self.req_disc: dict[str, float] = {}         # request id -> average slow/Mon2 discount applied across quoted options
         self.lost: set[str] = set()                  # orders that can no longer be on time
         self.late_reposted: set[str] = set()         # orders already reposted in tick() upon becoming lost
         self.ends_at: int = 14280                    # second Wednesday 22:00
@@ -257,10 +268,16 @@ class Desk:
             dealer = self.requests[line["orderId"]]["dealerId"] if line.get("orderId") and line["orderId"] in self.requests else None
             is_ring = order and self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
             is_ext_ring = order and self.gate_supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply
+            is_trade_in = order and len(order["legs"]) == 2
+            is_mon2 = order and order["option"] != "same_day" and order["deadline"] >= 7 * DAY
             if is_ring:
                 self.stats["margin_ring_cents"] += line["cents"]
             if is_ext_ring:
                 self.stats["margin_ext_ring_cents"] += line["cents"]
+            if is_trade_in:
+                self.stats["margin_trade_in_cents"] += line["cents"]
+            if is_mon2:
+                self.stats["margin_mon2_cents"] += line["cents"]
             if line["kind"] in ("late_refund", "undelivered_penalty") and line["orderId"]:
                 if line["orderId"] not in self.late:
                     if is_ring:
@@ -269,6 +286,10 @@ class Desk:
                         self.stats["late_ring_hub_same_day"] += 1
                     if is_ext_ring:
                         self.stats["late_ext_ring"] += 1
+                    if is_trade_in:
+                        self.stats["late_trade_in"] += 1
+                    if is_mon2:
+                        self.stats["late_mon2"] += 1
                 self.late.add(line["orderId"])
                 if dealer:
                     self.dealer_trust[dealer] //= 2
@@ -369,6 +390,9 @@ class Desk:
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
         if len(legs) == 2:
             drive += self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
+            if p.trade_in_seq_slack and p.trade_in_max_drive_min > 0 and drive > p.trade_in_max_drive_min:
+                self.stats["dropped_trade_in_drive"] += 1
+                return {}, "decline"
         pass_ext_ring = False
         pass_return_hub = False
         if gate_supply < gate_min:
@@ -404,9 +428,9 @@ class Desk:
                 self.stats["dropped_trust_guard"] += 1
                 return {}, "decline"
 
-        ready = max(
-            [self.now]
-            + [
+        leg_readies = [
+            max(
+                self.now,
                 window_from_note(
                     request["note"],
                     leg["pickup"]["window"],
@@ -414,11 +438,14 @@ class Desk:
                     v2=p.notes_v2,
                     arrived_at=request["arrivedAt"],
                     private_address=leg["pickup"]["privateAddress"],
-                )["from"]
-                for leg in legs
-            ]
-        )
+                )["from"],
+            )
+            for leg in legs
+        ]
+        ready = max(leg_readies)
+        eff_ready = leg_readies[0] if (p.trade_in_seq_slack and len(legs) == 2) else ready
         fee = request["referenceFeeCents"] * p.expected_fee_mult
+        base_floor = fee / (1 - p.min_margin_frac)
         mult = self.mult * self.dealer_adj[request["dealerId"]]
         if p.trust_gain > 0:
             count = self.dealer_trust[request["dealerId"]]
@@ -430,6 +457,7 @@ class Desk:
             is_invest = request["dealerId"] in top3
 
         prices: dict[str, int] = {}
+        opt_discs: list[float] = []
         floored = False
         for option in request["options"]:
             ring_hub_sd = False
@@ -455,44 +483,92 @@ class Desk:
                     for leg in legs
                 )
             if p.max_next_day_drive_min > 0 and drive > p.max_next_day_drive_min:
-                if deadline // DAY <= ready // DAY + 1:
+                if deadline // DAY <= eff_ready // DAY + 1:
                     self.stats["dropped_next_day_long"] += 1
                     continue
             if p.thin_long_next_day_supply > 0 and not is_ring and supply < p.thin_long_next_day_supply and drive > p.long_drive_min:
-                if deadline // DAY <= ready // DAY + 1:
+                if deadline // DAY <= eff_ready // DAY + 1:
                     self.stats["dropped_thin_long_next_day"] += 1
                     continue
-            if p.fri_same_day_max_drive > 0 and ready // DAY >= 4 and option["kind"] == "same_day" and drive >= p.fri_same_day_max_drive:
+            if p.fri_same_day_max_drive > 0 and eff_ready // DAY >= 4 and option["kind"] == "same_day" and drive >= p.fri_same_day_max_drive:
                 self.stats["dropped_fri_same_day"] += 1
                 continue
             if p.long_drive_min > 0 and drive > p.long_drive_min:
-                if deadline // DAY <= ready // DAY:
+                if deadline // DAY <= eff_ready // DAY:
                     self.stats["dropped_long_drive"] += 1
                     continue
             if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply and not ring_hub_sd:
                 self.stats["dropped_same_day_supply"] += 1
                 continue
-            slack = deadline - ready - drive
-            if slack < p.min_slack_min + p.slack_per_drive * drive:
-                self.stats["dropped_slack"] += 1
-                continue
+            if p.trade_in_seq_slack and len(legs) == 2:
+                if legs[0]["delivery"]["window"]["to"] - legs[0]["delivery"]["window"]["from"] < 45:
+                    self.stats["dropped_slack"] += 1
+                    continue
+                d0 = self.geo.minutes(legs[0]["pickup"]["placeId"], legs[0]["delivery"]["placeId"])
+                d_mid = self.geo.minutes(legs[0]["delivery"]["placeId"], legs[1]["pickup"]["placeId"])
+                d1 = self.geo.minutes(legs[1]["pickup"]["placeId"], legs[1]["delivery"]["placeId"])
+                dl0_cap = min(legs[0]["delivery"]["window"]["to"], shift_business_days(option["deadline"], extra_days) if p.notes_v2 else option["deadline"])
+                if p.notes_v2:
+                    dl0 = window_from_note(
+                        request["note"],
+                        {"from": legs[0]["delivery"]["window"]["from"], "to": max(legs[0]["delivery"]["window"]["from"], dl0_cap)},
+                        "delivery",
+                        v2=True,
+                        arrived_at=request["arrivedAt"],
+                        private_address=legs[0]["delivery"]["privateAddress"],
+                    )["to"]
+                else:
+                    dl0 = dl0_cap
+                slack0 = dl0 - leg_readies[0] - d0
+                handoff = max(leg_readies[0] + d0 + d_mid + 30, leg_readies[1])
+                slack1 = deadline - handoff - d1
+                if slack0 < p.min_slack_min + p.slack_per_drive * d0 or slack1 < p.trade_in_leg1_slack_min + 0.25 * d1:
+                    self.stats["dropped_slack"] += 1
+                    continue
+                slack = min(slack0, slack1 + 90)
+            else:
+                slack = deadline - ready - drive
+                if slack < p.min_slack_min + p.slack_per_drive * drive:
+                    self.stats["dropped_slack"] += 1
+                    continue
             if ring_hub_sd:
                 self.stats["quoted_ring_hub_same_day"] += 1
                 self.ring_hub_same_day.add(request["id"])
 
+            is_mon2 = option["kind"] != "same_day" and deadline >= 7 * DAY
             option_mult = mult
             if is_invest and slack >= 360:
                 option_mult *= (1 - p.trust_invest)
             if p.return_hub_discount > 0 and pass_return_hub and not pass_ext_ring:
                 option_mult *= (1.0 - p.return_hub_discount)
+            opt_disc = 0.0
+            if option["kind"] == "within_3_days" and p.w3d_discount > 0:
+                opt_disc = max(opt_disc, p.w3d_discount)
+            if is_mon2 and p.mon2_discount > 0:
+                opt_disc = max(opt_disc, p.mon2_discount)
+            if opt_disc > 0:
+                option_mult *= (1.0 - opt_disc)
 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
-            floor = fee / (1 - p.min_margin_frac)
+            opt_fee_mult = p.expected_fee_mult
+            if (option["kind"] == "within_3_days" or is_mon2) and p.w3d_expected_fee_mult > 0:
+                opt_fee_mult = p.w3d_expected_fee_mult
+            elif option["kind"] == "next_day" and p.slow_expected_fee_mult > 0:
+                opt_fee_mult = p.slow_expected_fee_mult
+            floor = (request["referenceFeeCents"] * opt_fee_mult) / (1 - p.min_margin_frac)
+            if price < base_floor and price >= floor:
+                self.stats["floor_unblocked_slow"] += 1
             if price < floor:
                 price, floored = floor, True
             prices[option["kind"]] = int(price + 0.5)
+            opt_discs.append(opt_disc)
         if not prices:
             return {}, "decline"
+        if opt_discs and any(d > 0 for d in opt_discs):
+            self.req_disc[request["id"]] = sum(opt_discs) / len(opt_discs)
+            self.stats["quoted_slow_disc"] += 1
+        if len(legs) == 2:
+            self.stats["quoted_trade_in"] += 1
         if pass_ext_ring or pass_return_hub:
             self.ext_ring_reqs.add(request["id"])
             self.stats["quoted_ext_ring"] += 1
@@ -513,7 +589,10 @@ class Desk:
         if day != self.streak_day:
             self.loss_streak, self.streak_day = 0, day
         self.loss_streak = 0 if won else self.loss_streak + 1
-        step = (1 - p.price_target_win) if won else -p.price_target_win
+        target_win = p.price_target_win
+        if p.slow_comp_slope > 0 and request_id in self.req_disc:
+            target_win = clamp(target_win + p.slow_comp_slope * self.req_disc[request_id], 0.05, 0.85)
+        step = (1 - target_win) if won else -target_win
         if not won and self.loss_streak > p.loss_streak_freeze:
             return  # a price war or an outage elsewhere: sit it out rather than chase it down
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
@@ -579,6 +658,10 @@ class Desk:
                 self.stats["won_ext_ring"] += 1
                 if self.p.return_hub_min_supply > 0 and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply:
                     self.stats["won_return_hub"] += 1
+            if len(order["legs"]) == 2:
+                self.stats["won_trade_in"] += 1
+            if order["option"] != "same_day" and order["deadline"] >= 7 * DAY:
+                self.stats["won_mon2"] += 1
             self.stats[f"won_{order['option']}"] += 1
             self.post(order, undelivered(order))
 
@@ -752,13 +835,20 @@ class Desk:
         if order["option"] == "same_day" or order["id"] in self.urgent:
             return False
         req = self.requests.get(order["id"])
-        if req is None or req.get("note"):
+        if req is None:
+            return False
+        if req.get("note") and not p.lead_car_allow_benign_notes:
+            return False
+        flags_b = note_flags(req["note"], v2=p.notes_v2) if req.get("note") else None
+        if flags_b is not None and (flags_b.manual or flags_b.plates):
             return False
         stops_b = without_windows(
-            stops_for(order, legs, req["note"], retry, self.geo, p.charge_min_km, p.notes_v2, req["arrivedAt"]),
+            stops_for(order, legs, req["note"], retry, self.geo, p.charge_min_km, p.notes_v2, req["arrivedAt"], p.trade_in_seq_slack),
             self.now,
         )
         if any(s.get("withCharging") for s in stops_b):
+            return False
+        if req.get("note") and any("window" in s for s in stops_b):
             return False
         pb = order["legs"][0]["pickup"]["placeId"]
         db = order["legs"][0]["delivery"]["placeId"]
@@ -768,13 +858,20 @@ class Desk:
             if a["type"] == "post" and len(a["stops"]) == 2:
                 oid = a["stops"][0]["orderId"]
                 other = self.orders.get(oid)
+                other_req_out = self.requests.get(oid, {})
+                note_ok = (not other_req_out.get("note")) or (
+                    p.lead_car_allow_benign_notes
+                    and not a["audience"]["manualLicence"]
+                    and not any(s.get("withPlates") or "window" in s for s in a["stops"])
+                )
+                dl_ok = p.lead_car_cross_slow or (other is not None and other["deadline"] // DAY == order["deadline"] // DAY)
                 if (
                     other is not None
                     and oid != order["id"]
                     and other["option"] != "same_day"
                     and oid not in self.urgent
-                    and other["deadline"] // DAY == order["deadline"] // DAY
-                    and not self.requests.get(oid, {}).get("note")
+                    and dl_ok
+                    and note_ok
                 ):
                     pa = other["legs"][0]["pickup"]["placeId"]
                     da = other["legs"][0]["delivery"]["placeId"]
@@ -794,11 +891,18 @@ class Desk:
             other_order = self.orders.get(other_id)
             if other_order is None or len(other_order["legs"]) != 1 or undelivered(other_order) != [0]:
                 continue
-            if other_order["option"] == "same_day" or other_order["deadline"] // DAY != order["deadline"] // DAY:
+            if other_order["option"] == "same_day":
+                continue
+            if not p.lead_car_cross_slow and other_order["deadline"] // DAY != order["deadline"] // DAY:
                 continue
             other_req = self.requests.get(other_id)
-            if other_req is None or other_req.get("note"):
+            if other_req is None:
                 continue
+            if other_req.get("note"):
+                if not p.lead_car_allow_benign_notes:
+                    continue
+                if action["audience"]["manualLicence"] or any(s.get("withPlates") or "window" in s for s in action["stops"]):
+                    continue
             if any(s.get("withCharging") for s in action["stops"]):
                 continue
             pa = other_order["legs"][0]["pickup"]["placeId"]
@@ -857,7 +961,7 @@ class Desk:
         }
         retry = retry._replace(plates=retry.plates or flags.plates)
         stops = without_windows(
-            stops_for(order, legs, note, retry, self.geo, self.p.charge_min_km, self.p.notes_v2, req["arrivedAt"]),
+            stops_for(order, legs, note, retry, self.geo, self.p.charge_min_km, self.p.notes_v2, req["arrivedAt"], self.p.trade_in_seq_slack),
             self.now,
         )
         self.outbox.append({"type": "post", "stops": stops, "audience": audience, "schedule": self.fees_for(order, len(legs))})
@@ -995,7 +1099,15 @@ class Desk:
         for order in sorted(self.orders.values(), key=lambda o: self.requests[o["id"]]["arrivedAt"])[-30:]:
             option = next((o for o in self.requests[order["id"]]["options"] if o["kind"] == order["option"]), None)
             if option:
-                ratios.append(order["priceCents"] / option["listPriceCents"])
+                r_val = order["priceCents"] / option["listPriceCents"]
+                disc = 0.0
+                if order["option"] == "within_3_days" and self.p.w3d_discount > 0:
+                    disc = max(disc, self.p.w3d_discount)
+                if order["option"] != "same_day" and order["deadline"] >= 7 * DAY and self.p.mon2_discount > 0:
+                    disc = max(disc, self.p.mon2_discount)
+                if disc > 0 and disc < 0.9:
+                    r_val /= (1.0 - disc)
+                ratios.append(r_val)
         if ratios:
             self.mult = clamp(median(ratios), self.p.price_mult_min, self.p.price_mult_max)
         for order in self.orders.values():
@@ -1055,6 +1167,7 @@ def stops_for(
     charge_min_km: float = 0.0,
     notes_v2: bool = False,
     arrived_at: Optional[int] = None,
+    trade_in_seq_slack: bool = False,
 ) -> list[StopRef]:
     """A pickup and a delivery for each leg. A stop has its own window only when the note or the retry
     makes it narrower. Rule 3: an electric car under 30% on a route over 200 km needs a charging stop."""
@@ -1067,7 +1180,8 @@ def stops_for(
         )
         start = max(noted["from"], retry.pickup_from)
         pickup_window: TimeWindow = {"from": start, "to": max(noted["to"], start)}
-        delivery_base: TimeWindow = {"from": delivery["window"]["from"], "to": max(delivery["window"]["from"], order["deadline"])}
+        dl_cap = min(delivery["window"]["to"], order["deadline"]) if (trade_in_seq_slack and len(order["legs"]) == 2 and leg == 0) else order["deadline"]
+        delivery_base: TimeWindow = {"from": delivery["window"]["from"], "to": max(delivery["window"]["from"], dl_cap)}
         delivery_window = window_from_note(
             note, delivery_base, "delivery",
             v2=notes_v2, arrived_at=arrived_at, private_address=delivery["privateAddress"], stated_hours=delivery["hours"],
