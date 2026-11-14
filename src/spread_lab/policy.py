@@ -92,6 +92,8 @@ class Params:
     # --- trust --------------------------------------------------------------------------------------
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
+    trust_invest_cap: int = 25        # stop applying trust_invest discount once dealer trust >= this cap
+    trust_taper: bool = False         # multiply trust_invest by (trust_invest_cap - count) / trust_invest_cap
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
@@ -136,6 +138,7 @@ class Desk:
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
         self.dealer_trust: dict[str, int] = defaultdict(int)
         self.dealer_request_count: dict[str, int] = defaultdict(int)
+        self.invested_requests: set[str] = set()
         self.loss_streak, self.streak_day = 0, -1
         self.drivers = {d["id"]: d for d in roster}
         self.supply = geo.supply(roster, params.supply_radius_km)
@@ -209,8 +212,8 @@ class Desk:
         if not hasattr(self, "_last_day"):
             self._last_day = day
         elif day > self._last_day:
-            if self.dealer_trust:
-                self.stats[f"top_dealer_trust_d{self._last_day}"] = max(self.dealer_trust.values())
+            if self._last_day <= 4:
+                self.stats[f"top_dealer_trust_d{self._last_day}"] = max(self.dealer_trust.values(), default=0)
             self._last_day = day
 
     # --- quoting --------------------------------------------------------------------------------------
@@ -263,17 +266,21 @@ class Desk:
         ready = max([self.now] + [window_from_note(request["note"], leg["pickup"]["window"], "pickup")["from"] for leg in legs])
         fee = request["referenceFeeCents"] * p.expected_fee_mult
         mult = self.mult * self.dealer_adj[request["dealerId"]]
+        count = self.dealer_trust[request["dealerId"]]
         if p.trust_gain > 0:
-            count = self.dealer_trust[request["dealerId"]]
             mult *= (1 + p.trust_gain * count / 100.0)
 
         is_invest = False
-        if p.trust_invest > 0 and (self.now // DAY) <= 2 and self.dealer_trust[request["dealerId"]] < 25 and supply >= 100 and not request.get("note"):
+        invest_disc = p.trust_invest
+        if p.trust_invest > 0 and (self.now // DAY) <= 2 and count < p.trust_invest_cap and supply >= 100 and not request.get("note"):
             top3 = sorted(self.dealer_request_count.keys(), key=lambda d: self.dealer_request_count[d], reverse=True)[:3]
             is_invest = request["dealerId"] in top3
+            if is_invest and p.trust_taper and p.trust_invest_cap > 0:
+                invest_disc = p.trust_invest * (p.trust_invest_cap - count) / p.trust_invest_cap
 
         prices: dict[str, int] = {}
         floored = False
+        applied_invest = False
         for option in request["options"]:
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
                 continue
@@ -291,7 +298,8 @@ class Desk:
             
             option_mult = mult
             if is_invest and slack >= 360:
-                option_mult *= (1 - p.trust_invest)
+                option_mult *= (1 - invest_disc)
+                applied_invest = True
                 
             price = option["listPriceCents"] * option_mult * (1 + p.same_day_markup if option["kind"] == "same_day" else 1)
             floor = fee / (1 - p.min_margin_frac)
@@ -300,6 +308,9 @@ class Desk:
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if applied_invest:
+            self.stats["trust_invest_quotes"] += 1
+            self.invested_requests.add(request["id"])
         return prices, "floor" if floored else "quote"
 
     def learn(self, request_id: str, won: bool) -> None:
@@ -354,6 +365,8 @@ class Desk:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
             self.stats["won"] += 1
+            if order["id"] in self.invested_requests:
+                self.stats["trust_invest_won"] += 1
             if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
             self.stats[f"won_{order['option']}"] += 1
