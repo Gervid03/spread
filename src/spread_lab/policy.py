@@ -103,15 +103,33 @@ class Params:
     late_fee_open: float = 0.0        # if > 0, lost orders open at this x typical fee and climb to late_fee_max
     late_fee_max: float = 1.3         # fee ceiling for lost orders at the next refund-tier boundary minus drive
     late_repost: bool = False         # withdraw and repost without windows when an unstaffed order passes lastPickupAt
-    # --- direct offers after the deadline warning ---------------------------------------------------
+    fee_curve_power: float = 1.0      # 1.0 = linear rising(); > 1.0 = convex curve (gentle early, steep near warning)
+    max_rise_per_step: float = 0.0    # if > 0, cap pre-warning rise per step so short spans do not jump straight to fee_warn
+    inbound_hub_fee_open: float = 0.0 # if > 0, opening fee when delivery town has >= 150 drivers and >= 2h to warning
+    urgent_hygiene: bool = False      # clear stale urgent on order_changed, daytime-only steep(), and in-place late reprice
+    late_reprice_grace_min: int = 0   # extra minutes past nominal lastPickupAt before repricing unbooked gig to late_fee_open
+    drop_reprice_bump: float = -1.0   # if >= 0, reprice non-urgent dropped gigs to last_booked_mult + bump instead of stale high schedule
+    # --- direct offers after the deadline warning (and proactive viewer/homeward offers) ------------
     offers_per_warning: int = 0       # at most 3 open offers per gig, 3 per driver per day (rules) (v2: was 3; 3 of 218 offers were accepted)
     offer_mult: float = 2.20          # offer fee, times the typical fee of the cars
     offer_recent_view_min: int = 240  # drivers who viewed one of our gigs this recently go first
-    # --- lead-car multi-car gig pairing -------------------------------------------------------------
+    dest_offer_mult: float = 0.0      # if > 0, direct offer mult to active drivers living within dest_offer_km of delivery
+    dest_offer_delay_min: int = 10    # minutes unbooked before sending delivery-home direct offers
+    dest_offer_km: float = 30.0       # max home-to-delivery straight-line km for delivery-home direct offers
+    view_offer_mult: float = 0.0      # if > 0, direct offer mult (x current board fee) to local/dest viewers holding out
+    view_offer_after_min: int = 15    # gig age in minutes before answering non-booking local/dest views with an offer
+    view_offer_window_min: int = 15   # max minutes since gig_viewed to still answer with a direct offer
+    view_offer_cap: float = 1.12      # max direct offer fee multiple (x typical fee) for view_offer_mult
+    # --- lead-car multi-car gig pairing & posting order ---------------------------------------------
     lead_car: bool = False
     lead_car_max_gap_km: float = 0.0
     lead_car_max_deliv_gap_km: float = 25.0
     lead_car_fee_mult: float = 1.00
+    chain_pair_km: float = 0.0        # if > 0, allow round-trip/homeward A->B chains in try_pair_lead_car within this deadhead km
+    chain_pair_fee_mult: float = 0.85 # base fee multiplier on sum(referenceFeeCents) for round-trip chain pairs
+    chain_patience_min: int = 30      # split unbooked chain_pair back into solo gigs after this many daytime minutes
+    post_priority: bool = False       # sort outgoing posts so multi-car and tight/same_day gigs post before loose multi-day gigs
+    defer_multiday_min: int = 0       # if > 0, hold new loose multi-day posts up to this many min while a local urgent/same_day gig is unbooked
     # --- hitch multi-car chain pairing & volume (stage 1: unbooked outbound) ------------------------
     hitch: bool = False
     hitch_after_min: int = 20
@@ -225,6 +243,17 @@ class Desk:
         self.ext_ring_reqs: set[str] = set()         # request/order ids admitted via pass_ext_ring or pass_return_hub
         self.lost: set[str] = set()                  # orders that can no longer be on time
         self.late_reposted: set[str] = set()         # orders already reposted in tick() upon becoming lost
+        self.late_repriced: set[str] = set()         # orders already repriced in place upon becoming lost
+        self.last_booked_fee: dict[str, int] = {}    # gig id -> last booked feeCents before a drop
+        self.booked_driver: dict[str, str] = {}      # gig id -> driver id currently holding/working it
+        self.gig_posted_at: dict[str, int] = {}      # gig id -> minute posted
+        self.open_offers: dict[tuple[str, str], str] = {}  # (gig id, driver id) -> kind ("dest" | "view")
+        self.offered_pairs: set[tuple[str, str]] = set()   # (gig id, driver id) already offered
+        self.dest_offered_gigs: set[str] = set()     # gig ids already evaluated for dest_offer_mult
+        self.recent_views: list[tuple[int, str, str]] = [] # (at, gig id, driver id)
+        self.deferred_orders: dict[str, int] = {}    # order id -> minute deferred
+        self.chain_pairs: dict[str, int] = {}        # gig id -> minute paired via chain_pair_km
+        self.chain_split_orders: Counter = Counter() # order id -> times split from chain_pair
         self.ends_at: int = 14280                    # second Wednesday 22:00
         # --- hitch pairing & thin-quote state (stage 1) ---------------------------------------------
         self.single_open_since: dict[str, int] = {}
@@ -276,6 +305,7 @@ class Desk:
                     if any(e["order_id"] == event["order"]["id"] for e in self.booked_deliveries[gid]):
                         self.update_gig_deliveries(gid)
         elif kind == "order_cancelled":
+            self.deferred_orders.pop(event["orderId"], None)
             if self.p.hitch:
                 self.handle_cancelled_hitch(event)
             else:
@@ -321,11 +351,13 @@ class Desk:
                 if self.p.hitch and event["gigId"] in self.hitch_gigs:
                     for s in post["stops"]:
                         oid = s["orderId"]
-                        if oid in self.orders and self.now > self.orders[oid]["lastPickupAt"]:
+                        if oid in self.orders and (self.now > self.orders[oid]["lastPickupAt"] or (self.p.urgent_hygiene and self.cannot_be_on_time(self.orders[oid]))):
                             self.lost.add(oid)
                 else:
                     for s in post["stops"]:
-                        self.lost.add(s["orderId"])
+                        oid = s["orderId"]
+                        if not self.p.urgent_hygiene or oid not in self.orders or self.cannot_be_on_time(self.orders[oid]):
+                            self.lost.add(oid)
             self.repost(event["gigId"])
         elif kind == "deadline_close":
             self.stats["deadline_close"] += 1
@@ -333,6 +365,10 @@ class Desk:
         elif kind == "gig_booked":
             gid = event["gigId"]
             self.booked.add(gid)
+            self.last_booked_fee[gid] = event["feeCents"]
+            self.booked_driver[gid] = event["driverId"]
+            for ok in [k for k in self.open_offers if k[0] == gid]:
+                self.open_offers.pop(ok, None)
             self.stats["booked"] += 1
             if self.p.return_offer_km > 0:
                 self.open_gig_offers.pop(gid, None)
@@ -352,13 +388,20 @@ class Desk:
                     self.stats["hitch_booked_single_open_cents"] += info["single_open_sum"]
                     self.stats["hitch_booked_single_ref_cents"] += info["single_ref_sum"]
                     self.hitch_booked_orders.update(info["orders"])
+                elif gid in self.chain_pairs:
+                    self.stats["chain_pair_booked"] += 1
                 elif gid in self.posts and len(order_ids_of(self.posts[gid])) > 1:
                     self.stats["lead_car_booked"] += 1
+            elif gid in self.chain_pairs:
+                self.stats["chain_pair_booked"] += 1
             elif gid in self.posts and len(order_ids_of(self.posts[gid])) > 1:
                 self.stats["lead_car_booked"] += 1
             post = self.posts.get(gid)
             if post:
                 order_ids = list(dict.fromkeys(s["orderId"] for s in post["stops"]))
+                ref_cents = sum(self.requests[o]["referenceFeeCents"] for o in order_ids if o in self.requests)
+                self.stats["booked_fee_cents"] += event["feeCents"]
+                self.stats["booked_ref_cents"] += ref_cents
                 if self.p.return_offer_km > 0:
                     for oid in order_ids:
                         if oid in self.return_reqs:
@@ -377,6 +420,7 @@ class Desk:
         elif kind in ("gig_dropped", "no_show"):
             gid = event["gigId"]
             self.booked.discard(gid)
+            self.booked_driver.pop(gid, None)
             self.stats[kind] += 1
             if self.p.return_offer_km > 0:
                 self.clear_gig_tracking(gid)
@@ -402,16 +446,19 @@ class Desk:
                 elif post and len(post["stops"]) == 2 and len(order_ids_of(post)) == 1:
                     self.single_open_since[gid] = self.now
                 post = self.posts.get(gid)
-            if self.p.drop_urgent_margin_min > 0:
-                if post:
-                    for order_id in dict.fromkeys(s["orderId"] for s in post["stops"]):
-                        if (
-                            order_id in self.orders
-                            and undelivered(self.orders[order_id])
-                            and self.orders[order_id]["lastPickupAt"] - self.now <= self.p.drop_urgent_margin_min
-                        ):
-                            self.stats["drop_rescued"] += 1
-                            self.raise_fees(order_id)
+            rescued = False
+            if self.p.drop_urgent_margin_min > 0 and post:
+                for order_id in dict.fromkeys(s["orderId"] for s in post["stops"]):
+                    if (
+                        order_id in self.orders
+                        and undelivered(self.orders[order_id])
+                        and self.orders[order_id]["lastPickupAt"] - self.now <= self.p.drop_urgent_margin_min
+                    ):
+                        self.stats["drop_rescued"] += 1
+                        self.raise_fees(order_id)
+                        rescued = True
+            if not rescued and self.p.drop_reprice_bump >= 0.0 and post:
+                self.maybe_reprice_after_drop(gid, post)
         elif kind == "gig_started":
             if self.p.return_offer_km > 0:
                 self.gig_started_at[event["gigId"]] = event["at"]
@@ -426,6 +473,8 @@ class Desk:
                 self.update_gig_deliveries(event["gigId"])
         elif kind == "gig_viewed":
             self.last_view[event["driverId"]] = event["at"]
+            if self.p.view_offer_mult > 0:
+                self.recent_views.append((event["at"], event["gigId"], event["driverId"]))
         elif kind == "ledger":
             line = event["line"]
             oid = line.get("orderId", "") or ""
@@ -480,6 +529,9 @@ class Desk:
                         self.dealer_trust[dealer] = min(25, self.dealer_trust[dealer] + 1)
         elif kind == "offer_answered":
             self.stats[f"offer_{event['answer']}"] += 1
+            tag = self.open_offers.pop((event["gigId"], event["driverId"]), None)
+            if tag:
+                self.stats[f"{tag}_offer_{event['answer']}"] += 1
             if self.p.return_offer_km > 0:
                 gid = event["gigId"]
                 drv_id = event["driverId"]
@@ -491,6 +543,10 @@ class Desk:
                         self.return_declined_orders.add((ro_id, drv_id))
         elif kind == "delivered":
             self.leg_gigs.get(event["orderId"], {}).pop(event["leg"], None)
+            gid = event["gigId"]
+            post = self.posts.get(gid)
+            if post and not any(self.leg_gigs.get(s["orderId"], {}).get(s["leg"]) == gid for s in post["stops"]):
+                self.booked_driver.pop(gid, None)
             if event["orderId"] in self.orders:
                 order = self.orders[event["orderId"]]
                 order["deliveredAt"][event["leg"]] = event["at"]
@@ -524,6 +580,24 @@ class Desk:
                     for gid in list(self.gigs_of(order_id)):
                         if gid in self.hitch_gigs and gid not in self.booked:
                             self.split_hitch_gig(gid, reason="warn")
+                if (
+                    self.p.urgent_hygiene
+                    and self.p.late_fee_open > 0
+                    and not self.p.late_repost
+                    and order_id not in self.late_repriced
+                    and self.now > order["lastPickupAt"] + self.p.late_reprice_grace_min
+                ):
+                    self.send_post_of(order_id)
+                    gigs = self.gigs_of(order_id)
+                    if gigs and all(gig_id not in self.booked for gig_id in gigs):
+                        self.late_repriced.add(order_id)
+                        self.stats["late_repriced"] += 1
+                        for gig_id in gigs:
+                            post = self.posts.get(gig_id)
+                            if post is not None:
+                                sched = self.fees_for(order, pickups(post), post)
+                                self.posts[gig_id] = {**post, "schedule": sched}
+                                self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": sched})
                 if self.p.late_repost and order_id not in self.late_reposted:
                     self.send_post_of(order_id)
                     gigs = self.gigs_of(order_id)
@@ -538,10 +612,16 @@ class Desk:
                             if action is not None:
                                 stops = without_windows(action["stops"], float("inf"))
                                 self.outbox.append({**action, "stops": stops, "schedule": self.fees_for(order, pickups(action), action)})
+        if self.deferred_orders:
+            self.tick_deferred_posts()
+        if self.p.chain_pair_km > 0 and self.chain_pairs:
+            self.tick_chain_pairs()
         if self.p.hitch and self.level >= 3:
             self.tick_hitch()
         if self.p.return_offer_km > 0 and self.level >= 3:
             self.send_return_offers()
+        if self.p.dest_offer_mult > 0 or self.p.view_offer_mult > 0:
+            self.tick_proactive_offers()
 
     # --- quoting --------------------------------------------------------------------------------------
     def quote(self, request: PriceRequest) -> None:
@@ -849,9 +929,51 @@ class Desk:
         return all(gigs.get(leg) in self.booked for leg in legs)
 
     # --- orders and gigs (the starter's mechanics) ----------------------------------------------------
+    def cannot_be_on_time(self, order: Order) -> bool:
+        open_legs = undelivered(order)
+        if not open_legs:
+            return False
+        if self.now > order["lastPickupAt"]:
+            return True
+        rem_drive = sum(self.geo.minutes(order["legs"][i]["pickup"]["placeId"], order["legs"][i]["delivery"]["placeId"]) for i in open_legs)
+        if len(open_legs) == 2:
+            rem_drive += self.geo.minutes(order["legs"][open_legs[0]]["delivery"]["placeId"], order["legs"][open_legs[1]]["pickup"]["placeId"])
+        first_from = order["legs"][open_legs[0]]["pickup"]["window"]["from"]
+        return max(self.now, first_from) + rem_drive > order["deadline"]
+
+    def has_competing_urgent_gig(self, pickup: str) -> bool:
+        for gid, action in self.posts.items():
+            if gid in self.booked:
+                continue
+            oids = order_ids_of(action)
+            if not oids or not any(self.leg_gigs.get(s["orderId"], {}).get(s["leg"]) == gid for s in action["stops"]):
+                continue
+            o0 = self.orders.get(oids[0])
+            if o0 is None:
+                continue
+            p0 = o0["legs"][action["stops"][0]["leg"]]["pickup"]["placeId"]
+            if self.geo.line_km(pickup, p0) <= self.p.supply_radius_km:
+                if any(oid in self.urgent or (oid in self.orders and (self.orders[oid]["option"] == "same_day" or self.orders[oid]["lastPickupAt"] - self.now <= 6 * HOUR)) for oid in oids):
+                    return True
+        return False
+
+    def tick_deferred_posts(self) -> None:
+        for oid in list(self.deferred_orders):
+            deferred_at = self.deferred_orders[oid]
+            order = self.orders.get(oid)
+            if order is None or not undelivered(order):
+                self.deferred_orders.pop(oid, None)
+                continue
+            pickup = order["legs"][0]["pickup"]["placeId"]
+            if oid in self.urgent or self.now - deferred_at >= self.p.defer_multiday_min or not self.has_competing_urgent_gig(pickup):
+                self.deferred_orders.pop(oid, None)
+                self.post(order, undelivered(order))
+
     def win(self, order: Order) -> None:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
+            if self.p.urgent_hygiene and self.cannot_be_on_time(order):
+                self.lost.add(order["id"])
             self.stats["won"] += 1
             if order["id"] in self.hitch_quote_reqs:
                 self.stats["hitch_quote_won"] += 1
@@ -871,6 +993,17 @@ class Desk:
                 if self.p.return_hub_min_supply > 0 and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply:
                     self.stats["won_return_hub"] += 1
             self.stats[f"won_{order['option']}"] += 1
+            if (
+                self.p.defer_multiday_min > 0
+                and order["option"] != "same_day"
+                and len(order["legs"]) == 1
+                and order["id"] not in self.urgent
+                and order["lastPickupAt"] - self.now >= 18 * HOUR
+                and self.has_competing_urgent_gig(pickup)
+            ):
+                self.deferred_orders[order["id"]] = self.now
+                self.stats["deferred_multiday"] += 1
+                return
             self.post(order, undelivered(order))
             if self.p.return_offer_km > 0 and order["id"] in self.return_reqs and self.p.return_offer_on_win:
                 self.send_return_offers()
@@ -878,7 +1011,17 @@ class Desk:
     def change(self, order: Order) -> None:
         if order["id"] in self.orders:
             self.orders[order["id"]] = order
-            if self.withdraw(order["id"]):
+            if self.p.urgent_hygiene:
+                if order["lastPickupAt"] - self.now > 3 * HOUR and order["id"] in self.urgent:
+                    self.urgent.discard(order["id"])
+                    self.stats["urgent_cleared"] += 1
+                if self.cannot_be_on_time(order):
+                    self.lost.add(order["id"])
+                    self.stats["lost_on_change"] += 1
+                else:
+                    self.lost.discard(order["id"])
+            was_deferred = self.deferred_orders.pop(order["id"], None) is not None
+            if was_deferred or self.withdraw(order["id"]):
                 self.post(order, undelivered(order), self.saved_retry.get((order["id"], 0), Retry()) if self.p.hitch else Retry())
 
     def repost(self, gig_id: str) -> None:
@@ -886,6 +1029,7 @@ class Desk:
         action = self.posts.get(gig_id)
         if action is None or not any(self.leg_gigs.get(s["orderId"], {}).get(s["leg"]) == gig_id for s in action["stops"]):
             return
+        self.chain_pairs.pop(gig_id, None)
         for stop in action["stops"]:
             self.leg_gigs.get(stop["orderId"], {}).pop(stop["leg"], None)
         oids = order_ids_of(action)
@@ -921,6 +1065,9 @@ class Desk:
         if order is None:
             return
         self.urgent.add(order_id)
+        if order_id in self.deferred_orders:
+            self.deferred_orders.pop(order_id, None)
+            self.post(order, undelivered(order), allow_pair=False)
         self.send_post_of(order_id)
         for gig_id in list(self.gigs_of(order_id)):
             if gig_id not in self.booked and gig_id in self.posts and len(order_ids_of(self.posts[gig_id])) > 1:
@@ -928,6 +1075,7 @@ class Desk:
                     self.split_hitch_gig(gig_id, reason="warn")
                 else:
                     self.stats["lead_car_split"] += 1
+                    self.chain_pairs.pop(gig_id, None)
                     self.single_open_since.pop(gig_id, None)
                     self.outbox.append({"type": "withdraw", "gigId": gig_id})
                     oids = order_ids_of(self.posts[gig_id])
@@ -940,8 +1088,44 @@ class Desk:
         for gig_id in self.gigs_of(order_id):
             if gig_id not in self.booked:
                 self.single_open_since.pop(gig_id, None)
-                self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": self.fees_for(order, pickups(self.posts[gig_id]), self.posts[gig_id])})
+                sched = self.fees_for(order, pickups(self.posts[gig_id]), self.posts[gig_id])
+                self.posts[gig_id] = {**self.posts[gig_id], "schedule": sched}
+                self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": sched})
                 self.offer(gig_id, order)
+
+    def open_offer_count(self, gid: str) -> int:
+        if self.p.return_offer_km <= 0:
+            return sum(1 for k in self.open_offers if k[0] == gid)
+        return len(self.open_gig_offers[gid] | {d for (g, d) in self.open_offers if g == gid})
+
+    def maybe_reprice_after_drop(self, gig_id: str, post: PostAction) -> None:
+        if not any(self.leg_gigs.get(s["orderId"], {}).get(s["leg"]) == gig_id for s in post["stops"]):
+            return
+        oids = order_ids_of(post)
+        if not oids or any(oid not in self.orders or oid in self.urgent or oid in self.lost for oid in oids):
+            return
+        until = min(self.orders[oid]["lastPickupAt"] for oid in oids) - 3 * HOUR
+        if until - self.now < 60:
+            return
+        if gig_id in self.hitch_gigs:
+            base = self.hitch_gigs[gig_id]["single_ref_sum"] * self.p.hitch_fee
+        elif len(oids) > 1:
+            base = self.pair_base_cents(oids)
+        else:
+            o0 = self.orders[oids[0]]
+            base = self.requests[o0["id"]]["referenceFeeCents"] * pickups(post) / len(o0["legs"])
+        if base <= 0:
+            return
+        cur_fee = current_schedule_fee(post["schedule"], self.now)
+        cur_mult = cur_fee / base
+        last_fee = self.last_booked_fee.get(gig_id, 0)
+        last_mult = (last_fee / base) if last_fee > 0 else self.p.fee_open
+        new_open = clamp(last_mult + self.p.drop_reprice_bump, self.p.fee_open, self.p.fee_warn)
+        if new_open + 0.03 < cur_mult:
+            sched = self.rising(base, until, fee_open_override=new_open)
+            self.posts[gig_id] = {**post, "schedule": sched}
+            self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": sched})
+            self.stats["drop_repriced"] += 1
 
     def offer(self, gig_id: str, order: Order) -> None:
         """Direct offers to the drivers most likely to take the gig now: who viewed our gigs lately, then
@@ -966,7 +1150,7 @@ class Desk:
             candidates.append((0 if recent else 1, self.geo.minutes(d["homePlaceId"], pickup), d["id"]))
         candidates.sort()
         fee = int(self.requests[order["id"]]["referenceFeeCents"] * pickups(post) / len(order["legs"]) * p.offer_mult + 0.5)
-        limit = min(3 - len(self.open_gig_offers[gig_id]), p.offers_per_warning) if p.return_offer_km > 0 else min(3, p.offers_per_warning)
+        limit = min(3 - self.open_offer_count(gig_id), p.offers_per_warning) if p.return_offer_km > 0 else min(3, p.offers_per_warning)
         for _, _, driver_id in candidates[: max(0, limit)]:
             self.outbox.append({"type": "offer", "gigId": gig_id, "driverId": driver_id, "feeCents": fee})
             self.offers_sent[(driver_id, day)] += 1
@@ -976,12 +1160,127 @@ class Desk:
                     self.stats["ret_offered"] += 1
             self.stats["offers"] += 1
 
+    def tick_proactive_offers(self) -> None:
+        if self.level < 3 or not (7 * HOUR <= self.now % DAY < 21 * HOUR):
+            return
+        p, day = self.p, self.now // DAY
+        busy_drivers = set(self.booked_driver.values())
+
+        def gig_base_and_ends(gid: str, post: PostAction) -> Optional[tuple[float, str, str]]:
+            if not any(self.leg_gigs.get(s["orderId"], {}).get(s["leg"]) == gid for s in post["stops"]):
+                return None
+            oids = order_ids_of(post)
+            if not oids or any(oid not in self.orders or oid in self.lost for oid in oids):
+                return None
+            first_s, last_s = post["stops"][0], post["stops"][-1]
+            first_pick = self.orders[first_s["orderId"]]["legs"][first_s["leg"]]["pickup"]["placeId"]
+            last_dest = self.orders[last_s["orderId"]]["legs"][last_s["leg"]]["delivery"]["placeId"]
+            if gid in self.hitch_gigs:
+                base = self.hitch_gigs[gid]["single_ref_sum"] * p.hitch_fee
+            elif len(oids) > 1:
+                base = self.pair_base_cents(oids)
+            else:
+                o0 = self.orders[oids[0]]
+                base = self.requests[o0["id"]]["referenceFeeCents"] * pickups(post) / len(o0["legs"])
+            return base, first_pick, last_dest
+
+        if p.dest_offer_mult > 0:
+            for gid, post in list(self.posts.items()):
+                if gid in self.booked or gid in self.dest_offered_gigs:
+                    continue
+                if self.now - self.gig_posted_at.get(gid, self.now) < p.dest_offer_delay_min:
+                    continue
+                info = gig_base_and_ends(gid, post)
+                if info is None:
+                    continue
+                base, first_pick, last_dest = info
+                self.dest_offered_gigs.add(gid)
+                open_cnt = self.open_offer_count(gid)
+                if open_cnt >= 3:
+                    continue
+                audience = post["audience"]
+                cands = []
+                for d_id, d in self.drivers.items():
+                    if d_id in busy_drivers or (gid, d_id) in self.offered_pairs or self.offers_sent[(d_id, day)] >= 3:
+                        continue
+                    if audience["experienced"] and not (d["rating"] >= 4.8 and d["completedGigs"] >= 50):
+                        continue
+                    if audience["manualLicence"] and d["licence"] != "manual":
+                        continue
+                    lv = self.last_view.get(d_id, -10 ** 9)
+                    if lv // DAY != day:
+                        continue
+                    dk = self.geo.line_km(d["homePlaceId"], last_dest)
+                    pk = self.geo.line_km(d["homePlaceId"], first_pick)
+                    if dk <= p.dest_offer_km and pk > p.supply_radius_km:
+                        cands.append((-lv, dk, d_id))
+                cands.sort()
+                fee = max(1, int(base * p.dest_offer_mult + 0.5))
+                for _, _, d_id in cands[: 3 - open_cnt]:
+                    self.outbox.append({"type": "offer", "gigId": gid, "driverId": d_id, "feeCents": fee})
+                    self.offers_sent[(d_id, day)] += 1
+                    self.open_offers[(gid, d_id)] = "dest"
+                    self.offered_pairs.add((gid, d_id))
+                    self.stats["offers"] += 1
+                    self.stats["dest_offers_sent"] += 1
+
+        if p.view_offer_mult > 0 and self.recent_views:
+            win_m = max(15, p.view_offer_window_min)
+            self.recent_views = [(at, gid, d_id) for (at, gid, d_id) in self.recent_views if self.now - at <= win_m + 5]
+            for at, gid, d_id in list(self.recent_views):
+                if not (2 <= self.now - at <= win_m):
+                    continue
+                post = self.posts.get(gid)
+                if post is None or gid in self.booked or (gid, d_id) in self.offered_pairs:
+                    continue
+                if self.now - self.gig_posted_at.get(gid, self.now) < p.view_offer_after_min:
+                    continue
+                if d_id in busy_drivers or self.offers_sent[(d_id, day)] >= 3:
+                    continue
+                open_cnt = self.open_offer_count(gid)
+                if open_cnt >= 3:
+                    continue
+                d = self.drivers.get(d_id)
+                if d is None:
+                    continue
+                audience = post["audience"]
+                if audience["experienced"] and not (d["rating"] >= 4.8 and d["completedGigs"] >= 50):
+                    continue
+                if audience["manualLicence"] and d["licence"] != "manual":
+                    continue
+                info = gig_base_and_ends(gid, post)
+                if info is None:
+                    continue
+                base, first_pick, last_dest = info
+                if min(self.geo.line_km(d["homePlaceId"], first_pick), self.geo.line_km(d["homePlaceId"], last_dest)) > 35.0:
+                    continue
+                cur_fee = current_schedule_fee(post["schedule"], self.now)
+                fee = max(1, min(int(base * p.view_offer_cap + 0.5), int(cur_fee * p.view_offer_mult + 0.5)))
+                self.outbox.append({"type": "offer", "gigId": gid, "driverId": d_id, "feeCents": fee})
+                self.offers_sent[(d_id, day)] += 1
+                self.open_offers[(gid, d_id)] = "view"
+                self.offered_pairs.add((gid, d_id))
+                self.stats["offers"] += 1
+                self.stats["view_offers_sent"] += 1
+
+    def pair_base_cents(self, oids: list[str]) -> float:
+        p = self.p
+        raw = sum(self.requests[oid]["referenceFeeCents"] for oid in oids if oid in self.requests)
+        if p.chain_pair_km > 0 and len(oids) >= 2 and oids[0] in self.orders and oids[1] in self.orders:
+            pa = self.orders[oids[0]]["legs"][0]["pickup"]["placeId"]
+            da = self.orders[oids[0]]["legs"][0]["delivery"]["placeId"]
+            pb = self.orders[oids[1]]["legs"][0]["pickup"]["placeId"]
+            db = self.orders[oids[1]]["legs"][0]["delivery"]["placeId"]
+            if not (self.geo.line_km(pa, pb) <= p.lead_car_max_gap_km and self.geo.line_km(da, db) <= p.lead_car_max_deliv_gap_km):
+                return raw * p.chain_pair_fee_mult
+        return raw * p.lead_car_fee_mult
+
     def fees_for(self, order: Order, cars: int, action: Optional[PostAction] = None) -> list[FeeStep]:
         p = self.p
         if action is not None:
             oids = order_ids_of(action)
             if len(oids) > 1:
-                base = sum(self.requests[oid]["referenceFeeCents"] for oid in oids if oid in self.requests) * p.lead_car_fee_mult
+                base = self.pair_base_cents(oids)
                 if self.level == 1:
                     return [{"at": self.now, "feeCents": max(1, int(base * p.fee_open + 0.5))}]
                 if any(oid in self.urgent for oid in oids):
@@ -992,7 +1291,7 @@ class Desk:
         if self.level == 1:
             return [{"at": self.now, "feeCents": max(1, int(base * p.fee_open + 0.5))}]
         if p.late_fee_open > 0:
-            if undelivered(order) and not self.staffed(order) and self.now > order["lastPickupAt"]:
+            if undelivered(order) and not self.staffed(order) and (self.now > order["lastPickupAt"] or (p.urgent_hygiene and self.cannot_be_on_time(order))):
                 self.lost.add(order["id"])
             if order["id"] in self.lost:
                 if self.ends_at - self.now <= 36 * HOUR:
@@ -1009,11 +1308,15 @@ class Desk:
             return self.steep(base)
         until = order["lastPickupAt"] - 3 * HOUR
         supply = self.supply.get(order["legs"][0]["pickup"]["placeId"], 0)
+        dest_supply = self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0)
         fee_open_override: Optional[float] = None
         if p.return_offer_km > 0 and order["id"] in self.return_reqs:
             fee_open_override = p.return_fee_open
         elif p.hitch_thin_solo_open > 0 and order["id"] in self.hitch_quote_reqs:
             fee_open_override = p.hitch_thin_solo_open
+        elif p.inbound_hub_fee_open > 0 and dest_supply >= 150 and until - self.now >= 2 * HOUR:
+            fee_open_override = p.inbound_hub_fee_open
+            self.stats["inbound_hub_posts"] += 1
         elif p.hub_multiday_fee_open > 0 and order["option"] != "same_day" and supply >= 150 and until - self.now >= 6 * HOUR:
             fee_open_override = p.hub_multiday_fee_open
             self.stats["hub_multiday_posts"] += 1
@@ -1051,20 +1354,46 @@ class Desk:
             k = len(times) - 1
             times = [times[round(i * k / 47)] for i in range(48)]
         n = len(times)
-        return [{"at": at, "feeCents": max(1, int(base * (fee_open + (fee_warn - fee_open) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
-                for i, at in enumerate(times)]
+        if p.max_rise_per_step > 0 and fee_warn_override is None and n > 1:
+            fee_warn = max(fee_open, min(fee_warn, fee_open + p.max_rise_per_step * (n - 1)))
+        power = p.fee_curve_power if fee_warn_override is None else 1.0
+        return [
+            {
+                "at": at,
+                "feeCents": max(
+                    1,
+                    int(base * (fee_open + (fee_warn - fee_open) * (((i / (n - 1)) ** power) if n > 1 else 0.0)) + 0.5),
+                ),
+            }
+            for i, at in enumerate(times)
+        ]
 
     def steep(self, base: float) -> list[FeeStep]:
         p = self.p
-        steps, k = [], 0
-        while True:
+        if not p.urgent_hygiene:
+            steps, k = [], 0
+            while True:
+                mult = p.steep_open + k * p.steep_step
+                if mult > p.steep_max + 1e-9 or k >= 48:
+                    break
+                steps.append({"at": self.now + k * 30, "feeCents": max(1, int(base * mult + 0.5))})
+                k += 1
+                if p.steep_step <= 0:
+                    break
+            return steps
+        steps = [{"at": self.now, "feeCents": max(1, int(base * p.steep_open + 0.5))}]
+        if p.steep_step <= 0:
+            return steps
+        k, h = 1, 1
+        while k < 48 and h <= 144:
             mult = p.steep_open + k * p.steep_step
-            if mult > p.steep_max + 1e-9 or k >= 48:
+            if mult > p.steep_max + 1e-9:
                 break
-            steps.append({"at": self.now + k * 30, "feeCents": max(1, int(base * mult + 0.5))})
-            k += 1
-            if p.steep_step <= 0:
-                break
+            at = self.now + h * 30
+            if p.day_start <= at % DAY < p.day_end:
+                steps.append({"at": at, "feeCents": max(1, int(base * mult + 0.5))})
+                k += 1
+            h += 1
         return steps
 
     def retry(self, order_id: str, leg: int, reason: str) -> None:
@@ -1846,7 +2175,7 @@ class Desk:
             fee = max(1, int(req["referenceFeeCents"] * pickups(post) / len(order["legs"]) * p.return_offer_mult + 0.5))
             seen_drv: set[str] = set()
             for _, _, _, drv_id, stage in due_cands:
-                if drv_id in seen_drv or drv_id in self.open_gig_offers[gig_id]:
+                if drv_id in seen_drv or drv_id in self.open_gig_offers[gig_id] or (gig_id, drv_id) in self.offered_pairs:
                     continue
                 seen_drv.add(drv_id)
                 drv = self.drivers.get(drv_id)
@@ -1856,7 +2185,7 @@ class Desk:
                     continue
                 if audience["manualLicence"] and drv["licence"] != "manual":
                     continue
-                if len(self.open_gig_offers[gig_id]) >= 3:
+                if self.open_offer_count(gig_id) >= 3:
                     self.stats["ret_limit_gig"] += 1
                     break
                 if self.offers_sent[(drv_id, day)] >= 3:
@@ -1865,6 +2194,7 @@ class Desk:
                 self.outbox.append({"type": "offer", "gigId": gig_id, "driverId": drv_id, "feeCents": fee})
                 self.offers_sent[(drv_id, day)] += 1
                 self.open_gig_offers[gig_id].add(drv_id)
+                self.offered_pairs.add((gig_id, drv_id))
                 self.return_offer_gigs[gig_id] = order_id
                 if order_id not in self.return_offered_orders:
                     self.return_offered_orders.add(order_id)
@@ -1875,13 +2205,36 @@ class Desk:
                 if drv_id == target_drv:
                     break
 
+    def tick_chain_pairs(self) -> None:
+        if not (self.p.day_start <= self.now % DAY < self.p.day_end):
+            return
+        for gid, paired_at in list(self.chain_pairs.items()):
+            if gid in self.booked:
+                self.chain_pairs.pop(gid, None)
+                continue
+            post = self.posts.get(gid)
+            if post is None or not any(self.leg_gigs.get(s["orderId"], {}).get(s["leg"]) == gid for s in post["stops"]):
+                self.chain_pairs.pop(gid, None)
+                continue
+            if daytime_minutes_between(paired_at, self.now, self.p.day_start, self.p.day_end) >= self.p.chain_patience_min:
+                self.chain_pairs.pop(gid, None)
+                self.stats["chain_pair_split"] += 1
+                self.outbox.append({"type": "withdraw", "gigId": gid})
+                oids = order_ids_of(post)
+                for stop in post["stops"]:
+                    self.leg_gigs.get(stop["orderId"], {}).pop(stop["leg"], None)
+                for oid in oids:
+                    self.chain_split_orders[oid] += 1
+                    if oid in self.orders and undelivered(self.orders[oid]):
+                        self.post(self.orders[oid], undelivered(self.orders[oid]), Retry(), allow_pair=False)
+
     def try_pair_lead_car(self, order: Order, legs: list[int], retry: Retry) -> bool:
         p = self.p
         if not p.lead_car or self.level < 3:
             return False
         if len(legs) != 1 or len(order["legs"]) != 1 or retry != Retry():
             return False
-        if order["option"] == "same_day" or order["id"] in self.urgent:
+        if order["option"] == "same_day" or order["id"] in self.urgent or order["id"] in self.lost:
             return False
         if order["id"] in self.hitch_quote_reqs or order["id"] in self.return_reqs:
             return False
@@ -1909,28 +2262,29 @@ class Desk:
                     and oid not in self.return_reqs
                     and other["option"] != "same_day"
                     and oid not in self.urgent
-                    and other["deadline"] // DAY == order["deadline"] // DAY
                     and not self.requests.get(oid, {}).get("note")
                 ):
                     pa = other["legs"][0]["pickup"]["placeId"]
                     da = other["legs"][0]["delivery"]["placeId"]
-                    if self.geo.line_km(pa, pb) <= p.lead_car_max_gap_km and self.geo.line_km(da, db) <= p.lead_car_max_deliv_gap_km:
+                    same_par = other["deadline"] // DAY == order["deadline"] // DAY and self.geo.line_km(pa, pb) <= p.lead_car_max_gap_km and self.geo.line_km(da, db) <= p.lead_car_max_deliv_gap_km
+                    same_chn = p.chain_pair_km > 0 and (self.geo.line_km(da, pb) <= p.chain_pair_km or self.geo.line_km(db, pa) <= p.chain_pair_km)
+                    if same_par or same_chn:
                         self.send()
                         break
 
-        best: Optional[tuple[float, int, str, Order, PostAction]] = None
+        best: Optional[tuple[int, float, int, str, Order, PostAction, list[StopRef], bool]] = None
         for gig_id, action in list(self.posts.items()):
             if gig_id in self.booked or len(action["stops"]) != 2:
                 continue
             other_id = action["stops"][0]["orderId"]
-            if other_id == order["id"] or other_id in self.urgent or other_id in self.hitch_quote_reqs or other_id in self.return_reqs:
+            if other_id == order["id"] or other_id in self.urgent or other_id in self.lost or other_id in self.hitch_quote_reqs or other_id in self.return_reqs:
                 continue
             if self.leg_gigs.get(other_id, {}).get(action["stops"][0]["leg"]) != gig_id:
                 continue
             other_order = self.orders.get(other_id)
             if other_order is None or len(other_order["legs"]) != 1 or undelivered(other_order) != [0]:
                 continue
-            if other_order["option"] == "same_day" or other_order["deadline"] // DAY != order["deadline"] // DAY:
+            if other_order["option"] == "same_day":
                 continue
             other_req = self.requests.get(other_id)
             if other_req is None or other_req.get("note"):
@@ -1941,45 +2295,78 @@ class Desk:
             da = other_order["legs"][0]["delivery"]["placeId"]
             gap_p = self.geo.line_km(pa, pb)
             gap_d = self.geo.line_km(da, db)
-            if gap_p > p.lead_car_max_gap_km or gap_d > p.lead_car_max_deliv_gap_km:
+            if other_order["deadline"] // DAY == order["deadline"] // DAY and gap_p <= p.lead_car_max_gap_km and gap_d <= p.lead_car_max_deliv_gap_km:
+                drive_a = self.geo.minutes(pa, da)
+                deadhead_da_to_pb = self.geo.minutes(da, pb)
+                total_min = drive_a + deadhead_da_to_pb + drive_b + 4 * 15
+                if total_min <= 540:
+                    start_at = max(
+                        self.now,
+                        other_order["legs"][0]["pickup"]["window"]["from"],
+                        order["legs"][0]["pickup"]["window"]["from"],
+                    )
+                    if start_at + total_min + 240 <= min(order["deadline"], other_order["deadline"]):
+                        cand = (0, gap_p + gap_d, total_min, gig_id, other_order, action, without_windows(action["stops"], self.now) + stops_b, False)
+                        if best is None or cand[:3] < best[:3]:
+                            best = cand
                 continue
-            drive_a = self.geo.minutes(pa, da)
-            deadhead_da_to_pb = self.geo.minutes(da, pb)
-            total_min = drive_a + deadhead_da_to_pb + drive_b + 4 * 15
-            if total_min > 540:
-                continue
-            start_at = max(
-                self.now,
-                other_order["legs"][0]["pickup"]["window"]["from"],
-                order["legs"][0]["pickup"]["window"]["from"],
-            )
-            if start_at + total_min + 240 > min(order["deadline"], other_order["deadline"]):
-                continue
-            score = (gap_p + gap_d, total_min)
-            if best is None or score < (best[0], best[1]):
-                best = (gap_p + gap_d, total_min, gig_id, other_order, action)
+
+            if p.chain_pair_km > 0 and self.chain_split_orders[order["id"]] < 2 and self.chain_split_orders[other_id] < 2:
+                stops_a = without_windows(action["stops"], self.now)
+                for o1, s1, o2, s2 in ((other_order, stops_a, order, stops_b), (order, stops_b, other_order, stops_a)):
+                    p1, d1 = o1["legs"][0]["pickup"]["placeId"], o1["legs"][0]["delivery"]["placeId"]
+                    p2, d2 = o2["legs"][0]["pickup"]["placeId"], o2["legs"][0]["delivery"]["placeId"]
+                    if self.supply.get(p1, 0) < self.supply.get(p2, 0):
+                        continue
+                    gap_mid = self.geo.line_km(d1, p2)
+                    if gap_mid > p.chain_pair_km:
+                        continue
+                    gap_ret = self.geo.line_km(d2, p1)
+                    if gap_ret > max(45.0, self.geo.line_km(d1, p1) + 20.0):
+                        continue
+                    drv1 = self.geo.minutes(p1, d1)
+                    dh = self.geo.minutes(d1, p2)
+                    drv2 = self.geo.minutes(p2, d2)
+                    if drv1 + dh + drv2 > 660:
+                        continue
+                    start1 = max(self.now + 15, o1["legs"][0]["pickup"]["window"]["from"])
+                    if start1 + 180 > o1["lastPickupAt"] or start1 + drv1 + 30 > o1["deadline"]:
+                        continue
+                    arr2 = max(start1 + drv1 + 15 + dh, o2["legs"][0]["pickup"]["window"]["from"])
+                    if arr2 > o2["legs"][0]["pickup"]["window"]["to"] or not site_open_at(o2["legs"][0]["pickup"], arr2):
+                        continue
+                    if arr2 + drv2 + 15 + 180 > o2["deadline"]:
+                        continue
+                    cand = (1, gap_mid + 0.25 * gap_ret, drv1 + dh + drv2, gig_id, o1, action, s1 + s2, True)
+                    if best is None or cand[:3] < best[:3]:
+                        best = cand
 
         if best is None:
             return False
-        _, _, gig_id, other_order, action = best
+        _, _, _, gig_id, first_order, action, stops, is_chain = best
+        other_order = self.orders[action["stops"][0]["orderId"]]
+        self.chain_pairs.pop(gig_id, None)
         self.single_open_since.pop(gig_id, None)
         self.leg_gigs.get(other_order["id"], {}).pop(0, None)
         self.outbox.append({"type": "withdraw", "gigId": gig_id})
-        stops_a = without_windows(action["stops"], self.now)
-        stops = stops_a + stops_b
         audience: Audience = {
             "experienced": action["audience"]["experienced"] or any(leg["car"]["premium"] for leg in order["legs"]),
-            "manualLicence": action["audience"]["manualLicence"],
+            "manualLicence": action["audience"]["manualLicence"] or note_flags(req["note"], v2=p.notes_v2).manual,
         }
         post_action: PostAction = {"type": "post", "stops": stops, "audience": audience, "schedule": []}
-        post_action["schedule"] = self.fees_for(other_order, 2, post_action)
+        post_action["schedule"] = self.fees_for(first_order, 2, post_action)
         self.outbox.append(post_action)
         self.stats["posts"] += 1
         self.send()
         if not self.gigs_of(order["id"]):
             self.post(other_order, undelivered(other_order), Retry(), allow_pair=False)
             return False
-        self.stats["lead_car_paired"] += 1
+        if is_chain:
+            new_gid = self.gigs_of(order["id"])[0]
+            self.chain_pairs[new_gid] = self.now
+            self.stats["chain_pair_paired"] += 1
+        else:
+            self.stats["lead_car_paired"] += 1
         return True
 
     def post(self, order: Order, legs: list[int], retry: Retry = Retry(), allow_pair: bool = True) -> None:
@@ -2015,6 +2402,7 @@ class Desk:
             if self.p.hitch and stop["orderId"] not in self.first_posted_at:
                 self.first_posted_at[stop["orderId"]] = self.now
         self.posts[gig_id] = action
+        self.gig_posted_at.setdefault(gig_id, self.now)
         if self.p.return_offer_km > 0 and len(order_ids_of(action)) == 1:
             oid = action["stops"][0]["orderId"]
             if oid in self.return_reqs:
@@ -2030,6 +2418,7 @@ class Desk:
         self.leg_gigs.pop(order_id, None)
         self.outbox += [{"type": "withdraw", "gigId": gig_id} for gig_id in gigs]
         for gig_id in gigs:
+            self.chain_pairs.pop(gig_id, None)
             self.single_open_since.pop(gig_id, None)
             if gig_id in self.posts and len(order_ids_of(self.posts[gig_id])) > 1:
                 if self.p.hitch and gig_id in self.hitch_gigs:
@@ -2053,14 +2442,30 @@ class Desk:
         if any(a["type"] == "post" and any(s["orderId"] == order_id for s in a["stops"]) for a in self.outbox):
             self.send()
 
+    def sort_actions(self, actions: list[Action]) -> list[Action]:
+        if not self.p.post_priority or len(actions) <= 1:
+            return actions
+        posts = [a for a in actions if a["type"] == "post"]
+        if len(posts) <= 1:
+            return actions
+        def post_key(a: PostAction) -> tuple[int, int, int]:
+            oids = order_ids_of(a)
+            is_pair = 0 if len(oids) > 1 else 1
+            has_sd = 0 if any(oid in self.orders and (self.orders[oid]["option"] == "same_day" or oid in self.urgent) for oid in oids) else 1
+            min_lp = min((self.orders[oid]["lastPickupAt"] for oid in oids if oid in self.orders), default=10 ** 9)
+            return (is_pair, has_sd, min_lp)
+        posts.sort(key=post_key)
+        it = iter(posts)
+        return [next(it) if a["type"] == "post" else a for a in actions]
+
     def send(self) -> None:
         """Sends the outbox now (live mode always; practice only when the desk needs a gig id at once)."""
-        actions, self.outbox = self.outbox, []
+        actions, self.outbox = self.sort_actions(self.outbox), []
         if actions:
             self.read_results(actions, self.world.act(actions))
 
     def take_outbox(self) -> list[Action]:
-        actions, self.outbox = self.outbox, []
+        actions, self.outbox = self.sort_actions(self.outbox), []
         return actions
 
     def read_results(self, actions: list[Action], results: list[ActionResult]) -> None:
@@ -2154,6 +2559,9 @@ class Desk:
         gigs_by_id = {g["id"]: g for g in snapshot["gigs"]}
         self.booked = {g["id"] for g in snapshot["gigs"] if g["status"] in ("booked", "working", "done")}
         for gig in snapshot["gigs"]:
+            self.gig_posted_at[gig["id"]] = gig["postedAt"]
+            if gig["status"] in ("booked", "working") and gig.get("driverId"):
+                self.booked_driver[gig["id"]] = gig["driverId"]
             for oid in order_ids_of(gig):
                 posted.setdefault(oid, []).append(gig)
             if gig["status"] in ("open", "booked", "working"):
@@ -2161,7 +2569,15 @@ class Desk:
         self.requests = {e["request"]["id"]: e["request"] for e in history if e["kind"] == "price_request"}
         for req in self.requests.values():
             self.dealer_request_count[req["dealerId"]] += 1
-        self.urgent = {e["orderId"] for e in history if e["kind"] == "deadline_close"}
+        if self.p.urgent_hygiene:
+            self.urgent = set()
+            for e in history:
+                if e["kind"] == "deadline_close":
+                    self.urgent.add(e["orderId"])
+                elif e["kind"] == "order_changed" and e["order"]["lastPickupAt"] - e["at"] > 3 * HOUR:
+                    self.urgent.discard(e["order"]["id"])
+        else:
+            self.urgent = {e["orderId"] for e in history if e["kind"] == "deadline_close"}
         self.lost_requests = {e["requestId"] for e in history if e["kind"] == "order_lost"}
         
         # replay ledger to build trust exactly as handle() does
@@ -2204,13 +2620,16 @@ class Desk:
         for e in history:
             if e["kind"] == "gig_viewed":
                 self.last_view[e["driverId"]] = e["at"]
-            elif e["kind"] == "offer_answered":
-                self.offers_sent[(e["driverId"], e["at"] // DAY)] += 1
-            elif self.p.return_offer_km > 0:
-                if e["kind"] == "gig_booked":
+            elif e["kind"] == "gig_booked":
+                self.last_booked_fee[e["gigId"]] = e["feeCents"]
+                if self.p.return_offer_km > 0:
                     self.gig_driver[e["gigId"]] = e["driverId"]
                     self.gig_booked_at[e["gigId"]] = e["at"]
-                elif e["kind"] in ("gig_dropped", "no_show"):
+            elif e["kind"] == "offer_answered":
+                self.offers_sent[(e["driverId"], e["at"] // DAY)] += 1
+                self.offered_pairs.add((e["gigId"], e["driverId"]))
+            elif self.p.return_offer_km > 0:
+                if e["kind"] in ("gig_dropped", "no_show"):
                     self.clear_gig_tracking(e["gigId"])
                 elif e["kind"] == "gig_started":
                     self.gig_started_at[e["gigId"]] = e["at"]
@@ -2252,10 +2671,23 @@ class Desk:
                 g = gigs_by_id.get(e["gigId"])
                 if g:
                     for s in g["stops"]:
-                        self.lost.add(s["orderId"])
+                        oid = s["orderId"]
+                        if not self.p.urgent_hygiene or oid not in self.orders or self.cannot_be_on_time(self.orders[oid]):
+                            self.lost.add(oid)
         for order_id, order in self.orders.items():
-            if undelivered(order) and not self.staffed(order) and self.now > order["lastPickupAt"]:
+            if undelivered(order) and not self.staffed(order) and (self.now > order["lastPickupAt"] or (self.p.urgent_hygiene and self.cannot_be_on_time(order))):
                 self.lost.add(order_id)
+        if self.p.chain_pair_km > 0:
+            for gig in snapshot["gigs"]:
+                if gig["status"] == "open":
+                    oids = order_ids_of(gig)
+                    if len(oids) >= 2 and oids[0] in self.orders and oids[1] in self.orders:
+                        pa = self.orders[oids[0]]["legs"][0]["pickup"]["placeId"]
+                        da = self.orders[oids[0]]["legs"][0]["delivery"]["placeId"]
+                        pb = self.orders[oids[1]]["legs"][0]["pickup"]["placeId"]
+                        db = self.orders[oids[1]]["legs"][0]["delivery"]["placeId"]
+                        if not (self.geo.line_km(pa, pb) <= self.p.lead_car_max_gap_km and self.geo.line_km(da, db) <= self.p.lead_car_max_deliv_gap_km):
+                            self.chain_pairs[gig["id"]] = gig["postedAt"]
         for order_id, g_list in posted.items():
             if any(g["status"] == "withdrawn" for g in g_list):
                 self.late_reposted.add(order_id)
@@ -2291,6 +2723,18 @@ class Desk:
 
 
 # --- helpers (the starter's) --------------------------------------------------------------------------
+def current_schedule_fee(schedule: list[FeeStep], minute: int) -> int:
+    if not schedule:
+        return 0
+    cur = schedule[0]["feeCents"]
+    for step in schedule:
+        if step["at"] <= minute:
+            cur = step["feeCents"]
+        else:
+            break
+    return cur
+
+
 def daytime_minutes(t0: int, t1: int, day_start: int, day_end: int) -> int:
     if t1 <= t0:
         return 0
@@ -2303,19 +2747,26 @@ def daytime_minutes(t0: int, t1: int, day_start: int, day_end: int) -> int:
     return total
 
 
-def site_open_at(stop_place: StopPlace, t: int) -> bool:
-    if stop_place["privateAddress"] or stop_place["hours"] is None:
-        w = stop_place["window"]
-        return w["from"] <= t <= w["to"]
-    h = stop_place["hours"]
-    dow = (t // DAY) % 7
-    tod = t % DAY
-    if dow == 6:
+def daytime_minutes_between(t0: int, t1: int, day_start: int, day_end: int) -> int:
+    return daytime_minutes(t0, t1, day_start, day_end)
+
+
+def site_open_at(stop_place: Any, minute: int) -> bool:
+    if stop_place.get("privateAddress"):
+        w = stop_place.get("window")
+        return True if not w else (w["from"] <= minute <= w["to"])
+    hours = stop_place.get("hours")
+    if hours is None:
+        w = stop_place.get("window")
+        return True if not w else (w["from"] <= minute <= w["to"])
+    wd = (minute // DAY) % 7
+    tod = minute % DAY
+    if wd == 6:
         return False
-    if dow == 5:
-        sat = h["saturday"]
-        return sat is not None and sat["opens"] <= tod < sat["closes"]
-    return dow in h["weekdays"] and h["opens"] <= tod < h["closes"]
+    if wd == 5:
+        sat = hours.get("saturday")
+        return bool(sat and sat["opens"] <= tod < sat["closes"])
+    return wd in hours.get("weekdays", [0, 1, 2, 3, 4]) and hours["opens"] <= tod < hours["closes"]
 
 
 def next_dealer_open_at(stop_place: StopPlace, t: int, limit_t: int) -> Optional[int]:

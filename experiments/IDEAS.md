@@ -422,6 +422,16 @@ levels of 1.26–1.54) can be read off it: `prior_from_roster` (default off).
 - **Guess.** Unknown; the jury's creative entry if it works. Differs from 26 in three ways: every open gig, not only
   declined thin requests; redundancy; the home-bound fee.
 
+### 32. `taken (exp/gemini-tas-price, -fees, -routes, -state)` The TAS: the perfect week, as a ceiling and a map (the user, 14 Nov)
+Not a candidate for the final: a measurement. A practice world has savestates (`fork`), re-recording (determinism)
+and foresight (every team gets the same requests). With them a week can be played at each dealer's limit, each car
+staffed at the lowest fee a driver would take, and the cars planned into closed tours before Monday's first quote
+(the travelling salesman on arcs). Four Carbon co-players build one layer each (`experiments/prompts/tas/`,
+`scripts/tas.py`), on dev-12, dev-01, dev-08 and dev-07. The result is a waterfall: the champion's week → perfect
+prices → perfect fees → tours → the hidden state steered (trust, the competitor, the event days), with the on-time
+share at each step, and for each layer the rule a desk without forks could use. For the jury: "the perfect dispatcher
+makes €X on this week; our desk takes Y% of it, and here is where the rest is."
+
 ## Still open from round 1
 ### 10. `open` **The brake.** Insurance for the final; do the cheap form before Sunday
 - **Mechanism.** The minimum is a share: nine on-time orders pay for one late one. One world of 32 is at
