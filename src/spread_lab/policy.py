@@ -70,6 +70,7 @@ class Params:
     thin_long_next_day_supply: int = 0  # if > 0, non-ring pickup with supply < this and drive > long_drive_min drops next_day
     fri_same_day_max_drive: int = 0   # if > 0, on Friday (ready // DAY >= 4), drop same_day with drive >= this
     ring_to_hub_same_day_min: int = 0  # if > 0, allow ring same_day into dense hub (supply >= 200) when drive <= this
+    ring_hub_min_supply: int = 200    # ... the hub: at least this many drivers within supply_radius_km of the delivery
     same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
@@ -720,7 +721,7 @@ class Desk:
             if (pass_ext_ring or pass_return_hub or fri_thin_only) and option["kind"] == "same_day":
                 continue
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
-                if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
+                if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= p.ring_hub_min_supply and drive <= p.ring_to_hub_same_day_min:
                     ring_hub_sd = True
                 else:
                     continue
@@ -1583,7 +1584,7 @@ class Desk:
                 drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in req["legs"])
                 if len(req["legs"]) == 2:
                     drive += self.geo.minutes(req["legs"][0]["delivery"]["placeId"], req["legs"][1]["pickup"]["placeId"])
-                if self.supply.get(req["legs"][-1]["delivery"]["placeId"], 0) >= 200 and drive <= self.p.ring_to_hub_same_day_min:
+                if self.supply.get(req["legs"][-1]["delivery"]["placeId"], 0) >= self.p.ring_hub_min_supply and drive <= self.p.ring_to_hub_same_day_min:
                     self.ring_hub_same_day.add(req_id)
 
         for e in history:
