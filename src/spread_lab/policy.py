@@ -69,6 +69,8 @@ class Params:
     fri_same_day_max_drive: int = 0   # if > 0, on Friday (ready // DAY >= 4), drop same_day with drive >= this
     ring_to_hub_same_day_min: int = 0  # if > 0, allow ring same_day into dense hub (supply >= 200) when drive <= this
     same_day_min_supply: int = 100    # quote same_day only where at least this many drivers live within supply_radius_km (v1; v0 = 0)
+    same_day_quota: float = 0.0       # if > 0, cap daily same_day wins + target_win * in_flight near pickup at max(1.0, quota * supply)
+    same_day_quota_min_supply: int = 35  # min supply for same_day when same_day_quota > 0
     backlog_ratio: float = 0.06       # unstaffed orders near a pickup may be at most max(backlog_min, ratio * supply)
     backlog_min: int = 2
     backlog_multiday_weight: float = 1.0  # weight in backlog_near for unurgent orders due on a future day
@@ -158,6 +160,8 @@ class Desk:
         self.stats: Counter = Counter()
         self.late: set[str] = set()                  # orders known late: a late refund, a penalty, or past deadline
         self.ring_hub_same_day: set[str] = set()     # request/order ids where ring_to_hub_same_day_min allowed same_day
+        self.same_day_in_flight: dict[str, tuple[str, int]] = {}  # request id -> (pickup placeId, deadline day)
+        self.same_day_won: dict[str, tuple[str, int]] = {}        # order id -> (pickup placeId, deadline day)
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -165,15 +169,17 @@ class Desk:
         if kind == "price_request":
             self.quote(event["request"])
         elif kind == "order_won":
+            self.same_day_in_flight.pop(event["order"]["id"], None)
             self.learn(event["order"]["id"], won=True)
             self.win(event["order"])
         elif kind == "order_lost":
+            self.same_day_in_flight.pop(event["requestId"], None)
             self.lost_requests.add(event["requestId"])
             self.learn(event["requestId"], won=False)
         elif kind == "order_changed":
             self.change(event["order"])
         elif kind == "order_cancelled":
-            for books in (self.orders, self.leg_gigs):
+            for books in (self.orders, self.leg_gigs, self.same_day_won):
                 books.pop(event["orderId"], None)
         elif kind == "visit_failed":
             self.stats["visit_failed"] += 1
@@ -215,8 +221,11 @@ class Desk:
                 if line["orderId"] not in self.late:
                     if is_ring:
                         self.stats["late_ring"] += 1
-                    if order and order["option"] == "same_day" and line["orderId"] in self.ring_hub_same_day:
-                        self.stats["late_ring_hub_same_day"] += 1
+                    if order and order["option"] == "same_day":
+                        if line["orderId"] in self.ring_hub_same_day:
+                            self.stats["late_ring_hub_same_day"] += 1
+                        pickup_supply = self.supply.get(order["legs"][0]["pickup"]["placeId"], 0)
+                        self.stats[f"sd_late_{sd_pool_bucket(pickup_supply)}"] += 1
                 self.late.add(line["orderId"])
                 if dealer:
                     self.dealer_trust[dealer] //= 2
@@ -250,10 +259,15 @@ class Desk:
         if self.level <= 3:  # every quote wins at its list price: send one only for what we take
             if prices:
                 first = request["options"][0]
+                if first["kind"] == "same_day":
+                    self.same_day_in_flight[request["id"]] = (request["legs"][0]["pickup"]["placeId"], first["deadline"] // DAY)
                 self.outbox.append({"type": "quote", "requestId": request["id"], "prices": {first["kind"]: first["listPriceCents"]}})
             return
         self.decided[request["id"]] = decision
         if prices:
+            if "same_day" in prices:
+                sd_opt = next(o for o in request["options"] if o["kind"] == "same_day")
+                self.same_day_in_flight[request["id"]] = (request["legs"][0]["pickup"]["placeId"], sd_opt["deadline"] // DAY)
             quoted_kind = next(iter(prices))
             quoted_option = next(o for o in request["options"] if o["kind"] == quoted_kind)
             ratio = prices[quoted_kind] / quoted_option["listPriceCents"]
@@ -369,9 +383,17 @@ class Desk:
                 if deadline // DAY <= ready // DAY:
                     self.stats["dropped_long_drive"] += 1
                     continue
-            if option["kind"] == "same_day" and p.same_day_min_supply > 0 and supply < p.same_day_min_supply and not ring_hub_sd:
-                self.stats["dropped_same_day_supply"] += 1
-                continue
+            if option["kind"] == "same_day":
+                if p.same_day_quota > 0:
+                    if p.same_day_quota_min_supply > 0 and supply < p.same_day_quota_min_supply and not ring_hub_sd:
+                        self.stats["dropped_same_day_supply"] += 1
+                        continue
+                    if self.same_day_load_near(pickup, option["deadline"] // DAY) + 1e-9 >= max(1.0, p.same_day_quota * supply):
+                        self.stats["dropped_same_day_quota"] += 1
+                        continue
+                elif p.same_day_min_supply > 0 and supply < p.same_day_min_supply and not ring_hub_sd:
+                    self.stats["dropped_same_day_supply"] += 1
+                    continue
             slack = deadline - ready - drive
             if slack < p.min_slack_min + p.slack_per_drive * drive:
                 self.stats["dropped_slack"] += 1
@@ -407,6 +429,21 @@ class Desk:
         self.mult = clamp(self.mult * math.exp(p.price_lr * step), p.price_mult_min, p.price_mult_max)
         dealer = self.requests[request_id]["dealerId"]
         self.dealer_adj[dealer] = clamp(self.dealer_adj[dealer] * math.exp(p.dealer_lr * step), p.dealer_adj_min, p.dealer_adj_max)
+
+    def same_day_load_near(self, place: str, day: int) -> float:
+        """Today's won same_day orders plus price_target_win * in-flight same_day quotes within supply_radius_km of `place`."""
+        radius = self.p.supply_radius_km
+        won = sum(
+            1
+            for pickup, d in self.same_day_won.values()
+            if d == day and self.geo.line_km(pickup, place) <= radius
+        )
+        in_flight = sum(
+            1
+            for pickup, d in self.same_day_in_flight.values()
+            if d == day and self.geo.line_km(pickup, place) <= radius
+        )
+        return won + self.p.price_target_win * in_flight
 
     def backlog_near(self, place: str, include_in_flight: bool = True) -> float:
         """Won orders without a driver for every undelivered car, picked up within the radius of `place`."""
@@ -458,10 +495,17 @@ class Desk:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
             self.stats["won"] += 1
-            if self.supply.get(order["legs"][0]["pickup"]["placeId"], 0) < self.p.min_supply:
+            pickup = order["legs"][0]["pickup"]["placeId"]
+            pickup_supply = self.supply.get(pickup, 0)
+            if pickup_supply < self.p.min_supply:
                 self.stats["won_ring"] += 1
-            if order["option"] == "same_day" and order["id"] in self.ring_hub_same_day:
-                self.stats["won_ring_hub_same_day"] += 1
+            if order["option"] == "same_day":
+                req = self.requests[order["id"]]
+                sd_day = next((o["deadline"] // DAY for o in req["options"] if o["kind"] == "same_day"), req["arrivedAt"] // DAY)
+                self.same_day_won[order["id"]] = (pickup, sd_day)
+                if order["id"] in self.ring_hub_same_day:
+                    self.stats["won_ring_hub_same_day"] += 1
+                self.stats[f"sd_won_{sd_pool_bucket(pickup_supply)}"] += 1
             self.stats[f"won_{order['option']}"] += 1
             self.post(order, undelivered(order))
 
@@ -676,6 +720,15 @@ class Desk:
             elif e["kind"] == "offer_answered":
                 self.offers_sent[(e["driverId"], e["at"] // DAY)] += 1
         self.orders = {o["id"]: o for o in snapshot["orders"] if o["id"] in self.requests and o["status"] != "cancelled"}
+        self.same_day_in_flight.clear()
+        self.same_day_won = {
+            o["id"]: (
+                o["legs"][0]["pickup"]["placeId"],
+                next((opt["deadline"] // DAY for opt in self.requests[o["id"]]["options"] if opt["kind"] == "same_day"), self.requests[o["id"]]["arrivedAt"] // DAY),
+            )
+            for o in self.orders.values()
+            if o["option"] == "same_day"
+        }
         if self.p.drop_urgent_margin_min > 0:
             for e in history:
                 if e["kind"] in ("gig_dropped", "no_show"):
@@ -708,6 +761,16 @@ class Desk:
 
 
 # --- helpers (the starter's) --------------------------------------------------------------------------
+def sd_pool_bucket(supply: int) -> str:
+    if supply >= 200:
+        return "200"
+    if supply >= 100:
+        return "100"
+    if supply >= 50:
+        return "50"
+    return "thin"
+
+
 def retry_from(order: Order, request: PriceRequest, leg: int, now: int) -> int:
     promised = next((o["deadline"] for o in request["options"] if o["kind"] == order["option"]), order["deadline"])
     delay = max(0, order["deadline"] - promised)
