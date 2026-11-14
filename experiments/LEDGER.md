@@ -102,3 +102,7 @@ drivers: cp-fees (v5) and cp-routes both work on the driver side, the binding co
   worth its slots.
 - Three promote.sh runs against one champion race each other: the first to pass wins main, the others must
   merge onto it and gate again.
+
+## r4-wild (Sat 19:25 Helsinki, `exp/gemini-r4-wild`, note `experiments/20261114-1925-gemini-r4-wild.md`)
+- **Adopted candidate (on v7 `cycles:Desk`):** full-physics 2-leg `A->B->A` round-trip trade-in unlocker (no-note slow options, `supply >= 100`, `drive <= 440m`, `ref <= 0.64*list`, sequential swap slack, tracker-neutral) + Friday/cycle supervisor hygiene (`sup_fri_soon_only`, `sup_tour_hygiene`, `sup_stress_backlog=8`, `sup_fri_max_backlog=7`): **dev16 Δ +€44.77 ± 19.33 (t 2.32, 6/1), Δon-time +0.09%, min on-time 94.05% (0/16 < 92%, SAFE)** (`20261114-171549-r4-wild-v7-hubti-dev16`). With `ti_min_supply=50`: **Δ +€95.28 ± 50.35 (t 1.89, 7/0 worse!), Δon-time +0.19%, min OT 94.05%** (`20261114-171950-r4-wild-v7-sup50-dev16`).
+- **Measured & rejected:** overnight multi-day fee hold (`fee_ramp_min=360/450`: smoke +€37 / −€110 — saves fees on shortage `dev-01` +€822, loses regional afternoon next-day planners on `dev-03/04`); uncapping `price_mult_max=2.35` + 18:00/08:00 war/outage reverts (smoke −€675 / −€625 / −€157 — `1.80` ceiling acts as a profitable volume floor during outages); `pickup_hub_fee_open=0.76` (smoke +€3.50 ± 321 — lower opening fee raises `booked/first_view` learned ratio on `next_day` gigs).

@@ -108,6 +108,7 @@ class Params:
     fee_curve_power: float = 1.0      # 1.0 = linear rising(); > 1.0 = convex curve (gentle early, steep near warning)
     max_rise_per_step: float = 0.0    # if > 0, cap pre-warning rise per step so short spans do not jump straight to fee_warn
     inbound_hub_fee_open: float = 0.0 # if > 0, opening fee when delivery town has >= 150 drivers and >= 2h to warning
+    pickup_hub_fee_open: float = 0.0  # if > 0, opening fee when pickup town has >= 150 drivers and >= 2h to warning
     urgent_hygiene: bool = False      # clear stale urgent on order_changed, daytime-only steep(), and in-place late reprice
     late_reprice_grace_min: int = 0   # extra minutes past nominal lastPickupAt before repricing unbooked gig to late_fee_open
     drop_reprice_bump: float = -1.0   # if >= 0, reprice non-urgent dropped gigs to last_booked_mult + bump instead of stale high schedule
@@ -163,9 +164,14 @@ class Params:
     sup_emerg_slack_add: int = 50     # add to min_slack_min on emergency days
     sup_fri_ot: float = 0.965         # Fri 08:00 projected_on_time threshold for endgame slow-gate opening
     sup_fri_max_backlog: int = 5      # max total unstaffed orders at Fri 08:00 to open Friday surplus gates
+    sup_fri_soon_only: bool = False   # if True, Fri 08:00 checks unstaffed_soon (<=24h) instead of next-week within_3_days
+    sup_fri_max_warns: int = 0        # if > 0, Fri 08:00 max warnings in prior 24h (0 = sup_calm_warns + 1)
+    sup_tour_hygiene: bool = False    # if True, exclude held cycle/staged cars and dedup open multi-car tours in supervisor
     sup_fri_slow_min_supply: int = 0  # if > 0 (e.g. 3), Fri 08:00 surplus opens Monday-due slow options down to this supply
     sup_fri_sd_max_drive: int = 0     # if > 0 (e.g. 180), Fri 08:00 surplus relaxes fri_same_day_max_drive to this
     sup_fri_neutral_learn: bool = False  # if True, thin-town Friday surplus quotes skip learn() via ext_ring_reqs
+    trade_in_roundtrip: bool = False  # if True, evaluate 2-leg A->B->A trade-ins with sequential timeline + one-way drive caps
+    ti_min_supply: int = 100          # min local pickup supply required to rescue a 2-leg round-trip trade-in
     # --- practice runner ----------------------------------------------------------------------------
     step_min: int = 10                # practice clock step in business hours (<= 14 keeps every quote in time)
 
@@ -434,6 +440,23 @@ class Desk:
 
         proj_ot = self.projected_on_time()
         unstaffed_orders = [o for o in self.orders.values() if undelivered(o) and not self.staffed(o)]
+        if p.sup_tour_hygiene:
+            held_cyc = getattr(self, "cyc_held", ())
+            held_stg = getattr(self, "staged_orders", ())
+            tgigs = getattr(self, "tour_gigs", {})
+            seen_tg: set[str] = set()
+            clean_u: list[Order] = []
+            for o in unstaffed_orders:
+                oid = o["id"]
+                if oid in held_cyc or oid in held_stg:
+                    continue
+                gids = [g for g in self.gigs_of(oid) if g in tgigs and g not in self.booked]
+                if gids:
+                    if gids[0] in seen_tg:
+                        continue
+                    seen_tg.add(gids[0])
+                clean_u.append(o)
+            unstaffed_orders = clean_u
         unstaffed_all = len(unstaffed_orders)
         unstaffed_soon = sum(1 for o in unstaffed_orders if o["lastPickupAt"] - self.now <= 24 * HOUR)
         busy_gigs = sum(
@@ -515,8 +538,8 @@ class Desk:
             day == 4
             and not is_stressed
             and proj_ot >= p.sup_fri_ot
-            and unstaffed_all <= p.sup_fri_max_backlog
-            and warns_yday <= p.sup_calm_warns + 1
+            and (unstaffed_soon if p.sup_fri_soon_only else unstaffed_all) <= p.sup_fri_max_backlog
+            and warns_yday <= (p.sup_fri_max_warns if p.sup_fri_max_warns > 0 else p.sup_calm_warns + 1)
             and free_share >= p.sup_min_free_share
             and (p.sup_fri_slow_min_supply > 0 or p.sup_fri_sd_max_drive > 0)
         ):
@@ -676,6 +699,58 @@ class Desk:
                 self.stats["dropped_trust_guard"] += 1
                 return {}, "decline"
 
+        ti_rt_ok = False
+        ti_one_way = drive
+        ti_finish_at = 0
+        ti_d12 = drive
+        if (
+            p.trade_in_roundtrip
+            and len(legs) == 2
+            and supply >= p.ti_min_supply
+            and not request.get("note")
+            and drive <= 440
+            and sum(1 for wt in self.warn_times if self.now - 24 * HOUR < wt <= self.now) < 10
+        ):
+            p0, d0 = legs[0]["pickup"]["placeId"], legs[0]["delivery"]["placeId"]
+            p1, d1 = legs[1]["pickup"]["placeId"], legs[1]["delivery"]["placeId"]
+            if self.geo.line_km(p0, d1) <= 25.0 and self.geo.line_km(d0, p1) <= 25.0:
+                d01 = self.geo.minutes(p0, d0)
+                d_mid = self.geo.minutes(d0, p1)
+                d12 = self.geo.minutes(p1, d1)
+                w0_pck = window_from_note(
+                    request["note"], legs[0]["pickup"]["window"], "pickup",
+                    v2=p.notes_v2, arrived_at=request["arrivedAt"], private_address=legs[0]["pickup"]["privateAddress"],
+                )
+                w1_dlv = legs[0]["delivery"]["window"]
+                w1_pck = window_from_note(
+                    request["note"], legs[1]["pickup"]["window"], "pickup",
+                    v2=p.notes_v2, arrived_at=request["arrivedAt"], private_address=legs[1]["pickup"]["privateAddress"],
+                )
+                flags_ti = note_flags(request["note"], v2=p.notes_v2)
+                extra0 = (30 if flags_ti.plates else 0) + (
+                    40 if (legs[0]["car"]["electric"] and legs[0]["car"]["chargePercent"] is not None and legs[0]["car"]["chargePercent"] < 30 and self.geo.road_km(p0, d0) > p.charge_min_km) else 0
+                )
+                extra1 = (30 if flags_ti.plates else 0) + (
+                    40 if (legs[1]["car"]["electric"] and legs[1]["car"]["chargePercent"] is not None and legs[1]["car"]["chargePercent"] < 30 and self.geo.road_km(p1, d1) > p.charge_min_km) else 0
+                )
+                earliest_dep0 = max(self.now + 30, w0_pck["from"])
+                latest_dep0 = w0_pck["to"]
+                earliest_arr_b = earliest_dep0 + extra0 + d01
+                latest_arr_b = latest_dep0 + extra0 + d01
+                cust_close = min(w1_dlv["to"], w1_pck["to"])
+                dead_wait = max(0, w1_pck["from"] - (latest_arr_b + d_mid))
+                if (
+                    earliest_dep0 <= latest_dep0 - 20
+                    and earliest_arr_b + d_mid + 25 <= cust_close
+                    and dead_wait <= 60
+                    and drive + extra0 + extra1 <= 580
+                ):
+                    ti_rt_ok = True
+                    ti_one_way = max(d01, d12)
+                    ti_d12 = d12
+                    dep_b = max(earliest_arr_b + d_mid, w1_pck["from"]) + 15 + extra1
+                    ti_finish_at = dep_b + d12
+
         ready = max(
             [self.now]
             + [
@@ -711,6 +786,7 @@ class Desk:
 
         prices: dict[str, int] = {}
         floored = False
+        ti_rescued_any = False
         for option in request["options"]:
             ring_hub_sd = False
             if (pass_ext_ring or pass_return_hub or fri_thin_only) and option["kind"] == "same_day":
@@ -736,28 +812,49 @@ class Desk:
                 )
             if fri_thin_only and deadline // DAY < 7:
                 continue
-            if p.max_next_day_drive_min > 0 and drive > p.max_next_day_drive_min and not (fri_thin_only and deadline // DAY >= 7):
-                if deadline // DAY <= ready // DAY + 1:
+            use_ti_rt = (
+                ti_rt_ok
+                and option["kind"] != "same_day"
+                and request["referenceFeeCents"] <= 0.64 * option["listPriceCents"]
+            )
+            chk_drive = ti_one_way if use_ti_rt else drive
+            legacy_fail = False
+            if p.max_next_day_drive_min > 0 and drive > p.max_next_day_drive_min and not (fri_thin_only and deadline // DAY >= 7) and deadline // DAY <= ready // DAY + 1:
+                legacy_fail = True
+                if chk_drive > p.max_next_day_drive_min:
                     self.stats["dropped_next_day_long"] += 1
                     continue
-            if p.thin_long_next_day_supply > 0 and not is_ring and supply < p.thin_long_next_day_supply and drive > p.long_drive_min and not (fri_thin_only and deadline // DAY >= 7):
-                if deadline // DAY <= ready // DAY + 1:
+            if p.thin_long_next_day_supply > 0 and not is_ring and supply < p.thin_long_next_day_supply and drive > p.long_drive_min and not (fri_thin_only and deadline // DAY >= 7) and deadline // DAY <= ready // DAY + 1:
+                legacy_fail = True
+                if chk_drive > p.long_drive_min:
                     self.stats["dropped_thin_long_next_day"] += 1
                     continue
             if eff_fri_sd_drive > 0 and ready // DAY >= 4 and option["kind"] == "same_day" and drive >= eff_fri_sd_drive:
-                self.stats["dropped_fri_same_day"] += 1
-                continue
-            if p.long_drive_min > 0 and drive > p.long_drive_min:
-                if deadline // DAY <= ready // DAY:
+                legacy_fail = True
+                if not use_ti_rt or chk_drive >= eff_fri_sd_drive:
+                    self.stats["dropped_fri_same_day"] += 1
+                    continue
+            if p.long_drive_min > 0 and drive > p.long_drive_min and deadline // DAY <= ready // DAY:
+                legacy_fail = True
+                if chk_drive > p.long_drive_min:
                     self.stats["dropped_long_drive"] += 1
                     continue
             if option["kind"] == "same_day" and eff_sd_supply > 0 and supply < eff_sd_supply and not ring_hub_sd:
                 self.stats["dropped_same_day_supply"] += 1
                 continue
             slack = deadline - ready - drive
+            min_ti_seq_slack = max(150 if option["kind"] == "same_day" else 120, int(0.65 * eff_min_slack + 0.5 * ti_d12))
             if slack < eff_min_slack + p.slack_per_drive * drive:
+                legacy_fail = True
+                if not use_ti_rt or (deadline - ti_finish_at) < min_ti_seq_slack:
+                    self.stats["dropped_slack"] += 1
+                    continue
+                slack = deadline - ti_finish_at
+            elif use_ti_rt and (deadline - ti_finish_at) < 90:
                 self.stats["dropped_slack"] += 1
                 continue
+            if legacy_fail and use_ti_rt:
+                ti_rescued_any = True
             if ring_hub_sd:
                 self.stats["quoted_ring_hub_same_day"] += 1
                 self.ring_hub_same_day.add(request["id"])
@@ -775,6 +872,10 @@ class Desk:
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
+        if ti_rescued_any:
+            self.stats["ti_rescued_quoted"] += 1
+            if p.ext_ring_neutral_learn:
+                self.ext_ring_reqs.add(request["id"])
         if fri_thin_only:
             self.sup_fri_thin_reqs.add(request["id"])
             self.stats["sup_fri_thin_quoted"] += 1
@@ -1193,7 +1294,10 @@ class Desk:
         supply = self.supply.get(order["legs"][0]["pickup"]["placeId"], 0)
         dest_supply = self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0)
         fee_open_override: Optional[float] = None
-        if p.inbound_hub_fee_open > 0 and dest_supply >= 150 and until - self.now >= 2 * HOUR:
+        if p.pickup_hub_fee_open > 0 and supply >= 150 and until - self.now >= 2 * HOUR:
+            fee_open_override = p.pickup_hub_fee_open
+            self.stats["pickup_hub_posts"] += 1
+        elif p.inbound_hub_fee_open > 0 and dest_supply >= 150 and until - self.now >= 2 * HOUR:
             fee_open_override = p.inbound_hub_fee_open
             self.stats["inbound_hub_posts"] += 1
         elif p.hub_multiday_fee_open > 0 and order["option"] != "same_day" and supply >= 150 and until - self.now >= 6 * HOUR:
