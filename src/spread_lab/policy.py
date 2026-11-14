@@ -91,8 +91,12 @@ class Params:
     offers_per_warning: int = 0       # at most 3 open offers per gig, 3 per driver per day (rules) (v2: was 3; 3 of 218 offers were accepted)
     offer_mult: float = 2.20          # offer fee, times the typical fee of the cars
     offer_recent_view_min: int = 240  # drivers who viewed one of our gigs this recently go first
+    pre_warn_lead_min: int = 0        # > 0: minutes before deadline warning on deadline day to nudge fees & send offers
+    pre_warn_fee: float = 1.35        # fee multiple used when pre_warn_lead_min triggers
     # --- handling rules -----------------------------------------------------------------------------
     charge_min_km: float = 200.0      # rule 3: an EV under 30% charge needs a charging stop on a route over this
+    delivery_buffer_min: int = 0      # minutes to shave off delivery window upper bound when slack is ample
+    buffer_min_slack_min: int = 210   # minimum slack (deadline - start - leg_drive) required to apply delivery_buffer_min
     notes_v2: bool = False            # v2 note reader + delivery hours / note deadlines shorten option slack
     note_unsure: str = "quote"        # "quote" or "decline" when a note has a time the reader cannot place
     # --- trust --------------------------------------------------------------------------------------
@@ -137,6 +141,7 @@ class Desk:
         self.booked: set[str] = set()                # gigs a driver holds now
         self.posts: dict[str, PostAction] = {}       # gig id -> the post that made it
         self.urgent: set[str] = set()                # orders whose deadline warning has come
+        self.pre_warned: set[str] = set()            # orders whose pre-warning fee nudge has fired
         self.decided: dict[str, str] = {}            # request id -> "quote" | "floor" | "decline"
         self.mult = {8: params.price_mult_l8, 7: params.price_mult_l7}.get(level, params.price_mult_low)
         self.dealer_adj: dict[str, float] = defaultdict(lambda: 1.0)
@@ -222,6 +227,35 @@ class Desk:
             if self.dealer_trust:
                 self.stats[f"top_dealer_trust_d{self._last_day}"] = max(self.dealer_trust.values())
             self._last_day = day
+        p = self.p
+        if p.pre_warn_lead_min > 0 and self.level >= 3:
+            for order_id, order in self.orders.items():
+                if order_id in self.urgent or order_id in self.pre_warned:
+                    continue
+                if day != order["deadline"] // DAY:
+                    continue
+                if not undelivered(order) or self.staffed(order):
+                    continue
+                warn_at = order["lastPickupAt"] - 3 * HOUR
+                if 0 < warn_at - self.now <= p.pre_warn_lead_min:
+                    self.pre_warn(order_id, order, warn_at)
+
+    def pre_warn(self, order_id: str, order: Order, warn_at: int) -> None:
+        p = self.p
+        self.pre_warned.add(order_id)
+        self.stats["pre_warned"] += 1
+        self.send_post_of(order_id)
+        for gig_id in self.gigs_of(order_id):
+            if gig_id not in self.booked and gig_id in self.posts:
+                post = self.posts[gig_id]
+                base = self.requests[order_id]["referenceFeeCents"] * pickups(post) / len(order["legs"])
+                schedule: list[FeeStep] = [
+                    {"at": self.now, "feeCents": max(1, int(base * p.pre_warn_fee + 0.5))},
+                    {"at": max(self.now + 30, warn_at), "feeCents": max(1, int(base * p.fee_warn + 0.5))},
+                ]
+                self.posts[gig_id] = {**post, "schedule": schedule}
+                self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": schedule})
+                self.offer(gig_id, order, count=2, mult=p.pre_warn_fee)
 
     # --- quoting --------------------------------------------------------------------------------------
     def quote(self, request: PriceRequest) -> None:
@@ -459,11 +493,13 @@ class Desk:
                 self.outbox.append({"type": "reprice", "gigId": gig_id, "schedule": self.fees_for(order, pickups(self.posts[gig_id]))})
                 self.offer(gig_id, order)
 
-    def offer(self, gig_id: str, order: Order) -> None:
+    def offer(self, gig_id: str, order: Order, count: Optional[int] = None, mult: Optional[float] = None) -> None:
         """Direct offers to the drivers most likely to take the gig now: who viewed our gigs lately, then
         who lives closest to the first pickup. A driver may get 3 offers a day, a gig 3 open offers."""
         p, post = self.p, self.posts[gig_id]
-        if p.offers_per_warning <= 0 or self.level < 3:
+        n_offers = p.offers_per_warning if count is None else count
+        offer_mult = p.offer_mult if mult is None else mult
+        if n_offers <= 0 or self.level < 3:
             return
         audience, day = post["audience"], self.now // DAY
         first = post["stops"][0]
@@ -479,8 +515,8 @@ class Desk:
             recent = self.now - self.last_view.get(d["id"], -10 ** 9) <= p.offer_recent_view_min
             candidates.append((0 if recent else 1, self.geo.minutes(d["homePlaceId"], pickup), d["id"]))
         candidates.sort()
-        fee = int(self.requests[order["id"]]["referenceFeeCents"] * pickups(post) / len(order["legs"]) * p.offer_mult + 0.5)
-        for _, _, driver_id in candidates[: min(3, p.offers_per_warning)]:
+        fee = int(self.requests[order["id"]]["referenceFeeCents"] * pickups(post) / len(order["legs"]) * offer_mult + 0.5)
+        for _, _, driver_id in candidates[: min(3, n_offers)]:
             self.outbox.append({"type": "offer", "gigId": gig_id, "driverId": driver_id, "feeCents": fee})
             self.offers_sent[(driver_id, day)] += 1
             self.stats["offers"] += 1
@@ -540,7 +576,20 @@ class Desk:
         }
         retry = retry._replace(plates=retry.plates or flags.plates)
         stops = without_windows(
-            stops_for(order, legs, note, retry, self.geo, self.p.charge_min_km, self.p.notes_v2, req["arrivedAt"]),
+            stops_for(
+                order,
+                legs,
+                note,
+                retry,
+                self.geo,
+                self.p.charge_min_km,
+                self.p.notes_v2,
+                req["arrivedAt"],
+                self.p.delivery_buffer_min,
+                self.p.buffer_min_slack_min,
+                self.now,
+                self.stats,
+            ),
             self.now,
         )
         self.outbox.append({"type": "post", "stops": stops, "audience": audience, "schedule": self.fees_for(order, len(legs))})
@@ -604,6 +653,11 @@ class Desk:
         for req in self.requests.values():
             self.dealer_request_count[req["dealerId"]] += 1
         self.urgent = {e["orderId"] for e in history if e["kind"] == "deadline_close"}
+        if self.p.pre_warn_lead_min > 0:
+            for gig in snapshot["gigs"]:
+                order_id = gig["stops"][0]["orderId"]
+                if order_id not in self.urgent and len(gig["schedule"]) == 2 and gig["schedule"][0]["at"] > gig["postedAt"]:
+                    self.pre_warned.add(order_id)
         
         # replay ledger to build trust exactly as handle() does
         _late_replay = set()
@@ -679,6 +733,10 @@ def stops_for(
     charge_min_km: float = 0.0,
     notes_v2: bool = False,
     arrived_at: Optional[int] = None,
+    delivery_buffer_min: int = 0,
+    buffer_min_slack_min: int = 210,
+    now: int = 0,
+    stats: Optional[Counter] = None,
 ) -> list[StopRef]:
     """A pickup and a delivery for each leg. A stop has its own window only when the note or the retry
     makes it narrower. Rule 3: an electric car under 30% on a route over 200 km needs a charging stop."""
@@ -696,6 +754,18 @@ def stops_for(
             note, delivery_base, "delivery",
             v2=notes_v2, arrived_at=arrived_at, private_address=delivery["privateAddress"], stated_hours=delivery["hours"],
         )
+        if delivery_buffer_min > 0 and geo is not None:
+            leg_drive = geo.minutes(pickup["placeId"], delivery["placeId"])
+            eff_start = max(now, start)
+            if (
+                order["deadline"] - eff_start - leg_drive >= buffer_min_slack_min
+                and order["deadline"] - delivery_buffer_min >= max(delivery["window"]["from"], eff_start + leg_drive + 60)
+            ):
+                buffered_to = order["deadline"] - delivery_buffer_min
+                if buffered_to < delivery_window["to"]:
+                    delivery_window = {"from": delivery_window["from"], "to": buffered_to}
+                    if stats is not None:
+                        stats["buffered_stops"] += 1
         low_battery = car["electric"] and car["chargePercent"] is not None and car["chargePercent"] < 30
         if low_battery and geo is not None:
             low_battery = geo.road_km(pickup["placeId"], delivery["placeId"]) > charge_min_km
