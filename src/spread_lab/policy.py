@@ -116,6 +116,9 @@ class Params:
     charge_min_km: float = 200.0      # rule 3: an EV under 30% charge needs a charging stop on a route over this
     notes_v2: bool = False            # v2 note reader + delivery hours / note deadlines shorten option slack
     note_unsure: str = "quote"        # "quote" or "decline" when a note has a time the reader cannot place
+    ready_from_deadline: bool = False # (23a) move first pickup window by deadline shift from order_won
+    eligible_supply: bool = False     # (23b) count only experienced / manual-licence drivers when required
+    use_release: bool = False         # (23c) align retry pickup_from with release event / parsed release time
     # --- trust --------------------------------------------------------------------------------------
     trust_gain: float = 0.0           # multiply dealer's quote by 1 + trust_gain * count/100
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
@@ -170,6 +173,19 @@ class Desk:
         r = params.gate_radius_km if params.gate_radius_km > 0 else params.supply_radius_km
         self.gate_supply = geo.supply(roster, r)
         self.ext_supply = geo.supply(roster, params.ext_ring_radius_km) if params.ext_ring_min_supply > 0 else {}
+        exp_roster = [d for d in roster if d["rating"] >= 4.8 and d["completedGigs"] >= 50]
+        man_roster = [d for d in roster if d.get("manualLicence", True) and d.get("licence", "manual") == "manual"]
+        both_roster = [d for d in exp_roster if d.get("manualLicence", True) and d.get("licence", "manual") == "manual"]
+        self.supply_exp = geo.supply(exp_roster, params.supply_radius_km)
+        self.gate_supply_exp = geo.supply(exp_roster, r)
+        self.ext_supply_exp = geo.supply(exp_roster, params.ext_ring_radius_km) if params.ext_ring_min_supply > 0 else {}
+        self.supply_man = geo.supply(man_roster, params.supply_radius_km)
+        self.gate_supply_man = geo.supply(man_roster, r)
+        self.ext_supply_man = geo.supply(man_roster, params.ext_ring_radius_km) if params.ext_ring_min_supply > 0 else {}
+        self.supply_both = geo.supply(both_roster, params.supply_radius_km)
+        self.gate_supply_both = geo.supply(both_roster, r)
+        self.ext_supply_both = geo.supply(both_roster, params.ext_ring_radius_km) if params.ext_ring_min_supply > 0 else {}
+        self.release_at: dict[tuple[str, int], int] = {}  # (order id, leg) -> release minute
         self.last_view: dict[str, int] = {}          # driver id -> minute of their last view of our gigs
         self.offers_sent: Counter = Counter()        # (driver id, day) -> direct offers sent
         self.stats: Counter = Counter()
@@ -179,6 +195,23 @@ class Desk:
         self.lost: set[str] = set()                  # orders that can no longer be on time
         self.late_reposted: set[str] = set()         # orders already reposted in tick() upon becoming lost
         self.ends_at: int = 14280                    # second Wednesday 22:00
+
+    def _req_eligibility(self, request: PriceRequest) -> tuple[bool, bool]:
+        is_prem = any(leg["car"]["premium"] for leg in request["legs"])
+        is_man = note_flags(request["note"], v2=self.p.notes_v2).manual if request.get("note") else False
+        return is_prem, is_man
+
+    def _supply_tables_for_req(self, request: PriceRequest) -> tuple[dict[str, int], dict[str, int], dict[str, int]]:
+        if not self.p.eligible_supply:
+            return self.supply, self.gate_supply, self.ext_supply
+        is_prem, is_man = self._req_eligibility(request)
+        if is_prem and is_man:
+            return self.supply_both, self.gate_supply_both, self.ext_supply_both
+        if is_prem:
+            return self.supply_exp, self.gate_supply_exp, self.ext_supply_exp
+        if is_man:
+            return self.supply_man, self.gate_supply_man, self.ext_supply_man
+        return self.supply, self.gate_supply, self.ext_supply
 
     # --- events ---------------------------------------------------------------------------------------
     def handle(self, event: DeskEvent) -> None:
@@ -251,6 +284,8 @@ class Desk:
                             self.raise_fees(order_id)
         elif kind == "gig_viewed":
             self.last_view[event["driverId"]] = event["at"]
+        elif kind == "release":
+            self.release_at[(event["orderId"], event["leg"])] = event.get("releaseAt", event["at"])
         elif kind == "ledger":
             line = event["line"]
             order = self.orders.get(line.get("orderId", "")) if line.get("orderId") else None
@@ -269,6 +304,13 @@ class Desk:
                         self.stats["late_ring_hub_same_day"] += 1
                     if is_ext_ring:
                         self.stats["late_ext_ring"] += 1
+                    req = self.requests.get(line["orderId"])
+                    if req is not None:
+                        is_prem, is_man = self._req_eligibility(req)
+                        if is_prem:
+                            self.stats["prem_late"] += 1
+                        if is_man:
+                            self.stats["manual_late"] += 1
                 self.late.add(line["orderId"])
                 if dealer:
                     self.dealer_trust[dealer] //= 2
@@ -326,6 +368,12 @@ class Desk:
         self.dealer_request_count[request["dealerId"]] += 1
         prices, decision = self.price(request)
         self.stats[f"quote_{decision}"] += 1
+        if prices:
+            is_prem, is_man = self._req_eligibility(request)
+            if is_prem:
+                self.stats["prem_q"] += 1
+            if is_man:
+                self.stats["manual_q"] += 1
         if self.level <= 3:  # every quote wins at its list price: send one only for what we take
             if prices:
                 first = request["options"][0]
@@ -362,8 +410,9 @@ class Desk:
                     default=0,
                 )
         pickup = legs[0]["pickup"]["placeId"]
-        supply = self.supply.get(pickup, 0)
-        gate_supply = self.gate_supply.get(pickup, 0)
+        sup_table, gate_sup_table, ext_sup_table = self._supply_tables_for_req(request)
+        supply = sup_table.get(pickup, 0)
+        gate_supply = gate_sup_table.get(pickup, 0)
         tight = self.tightening()
         gate_min = p.min_supply * (1 + (p.guard_supply_mult - 1) * tight)
         drive = sum(self.geo.minutes(leg["pickup"]["placeId"], leg["delivery"]["placeId"]) for leg in legs)
@@ -374,12 +423,12 @@ class Desk:
         if gate_supply < gate_min:
             pass_ext_ring = (
                 p.ext_ring_min_supply > 0
-                and self.ext_supply.get(pickup, 0) >= p.ext_ring_min_supply
+                and ext_sup_table.get(pickup, 0) >= p.ext_ring_min_supply
                 and drive <= p.ext_ring_max_drive_min
             )
             pass_return_hub = (
                 p.return_hub_min_supply > 0
-                and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= p.return_hub_min_supply
+                and sup_table.get(legs[-1]["delivery"]["placeId"], 0) >= p.return_hub_min_supply
                 and drive <= p.return_hub_max_drive_min
             )
             if not (pass_ext_ring or pass_return_hub):
@@ -436,7 +485,7 @@ class Desk:
             if (pass_ext_ring or pass_return_hub) and option["kind"] == "same_day":
                 continue
             if is_ring and p.far_options == "slow" and option["kind"] == "same_day":
-                if p.ring_to_hub_same_day_min > 0 and self.supply.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
+                if p.ring_to_hub_same_day_min > 0 and sup_table.get(legs[-1]["delivery"]["placeId"], 0) >= 200 and drive <= p.ring_to_hub_same_day_min:
                     ring_hub_sd = True
                 else:
                     continue
@@ -570,6 +619,11 @@ class Desk:
         if order["id"] in self.requests and order["id"] not in self.orders:
             self.orders[order["id"]] = order
             self.stats["won"] += 1
+            is_prem, is_man = self._req_eligibility(self.requests[order["id"]])
+            if is_prem:
+                self.stats["prem_won"] += 1
+            if is_man:
+                self.stats["manual_won"] += 1
             pickup = order["legs"][0]["pickup"]["placeId"]
             if self.supply.get(pickup, 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1
@@ -741,6 +795,17 @@ class Desk:
             self.leg_gigs.get(order_id, {}).pop(leg, None)
             car_not_there = reason in ("not_ready", "closed")
             pickup_from = retry_from(order, self.requests[order_id], leg, self.now) if car_not_there else 0
+            if self.p.use_release:
+                rel_at = self.release_at.get((order_id, leg))
+                if rel_at is None and self.requests[order_id].get("note"):
+                    pn = parse_note_v2(self.requests[order_id]["note"], self.requests[order_id]["arrivedAt"])
+                    rel_at = pn.released_at
+                if rel_at is not None:
+                    self.stats["release_aligned"] += 1
+                    if rel_at > self.now:
+                        pickup_from = max(pickup_from, rel_at)
+                    elif reason == "not_ready":
+                        pickup_from = self.now
             self.post(order, [leg], Retry(pickup_from, manual_licence=reason == "licence", plates=reason == "no_plates"))
 
     def try_pair_lead_car(self, order: Order, legs: list[int], retry: Retry) -> bool:
@@ -856,8 +921,25 @@ class Desk:
             "manualLicence": retry.manual_licence or flags.manual,
         }
         retry = retry._replace(plates=retry.plates or flags.plates)
+        delay_days = 0
+        if self.p.ready_from_deadline:
+            won_option = next((o for o in req["options"] if o["kind"] == order["option"]), None)
+            if won_option is not None:
+                delay_days = max(0, (order["deadline"] - won_option["deadline"]) // DAY)
+                if delay_days >= 1:
+                    self.stats["ready_moved"] += 1
+        release_for_legs: Optional[dict[int, int]] = None
+        if self.p.use_release:
+            release_for_legs = {}
+            for leg in legs:
+                rel_at = self.release_at.get((order["id"], leg))
+                if rel_at is not None:
+                    release_for_legs[leg] = rel_at
         stops = without_windows(
-            stops_for(order, legs, note, retry, self.geo, self.p.charge_min_km, self.p.notes_v2, req["arrivedAt"]),
+            stops_for(
+                order, legs, note, retry, self.geo, self.p.charge_min_km, self.p.notes_v2, req["arrivedAt"],
+                delay_days=delay_days, day_start=self.p.day_start, release_for_legs=release_for_legs, now=self.now,
+            ),
             self.now,
         )
         self.outbox.append({"type": "post", "stops": stops, "audience": audience, "schedule": self.fees_for(order, len(legs))})
@@ -969,6 +1051,8 @@ class Desk:
                 self.last_view[e["driverId"]] = e["at"]
             elif e["kind"] == "offer_answered":
                 self.offers_sent[(e["driverId"], e["at"] // DAY)] += 1
+            elif e["kind"] == "release":
+                self.release_at[(e["orderId"], e["leg"])] = e.get("releaseAt", e["at"])
         self.orders = {o["id"]: o for o in snapshot["orders"] if o["id"] in self.requests and o["status"] != "cancelled"}
         for e in history:
             if e["kind"] == "gig_expired":
@@ -1055,17 +1139,34 @@ def stops_for(
     charge_min_km: float = 0.0,
     notes_v2: bool = False,
     arrived_at: Optional[int] = None,
+    delay_days: int = 0,
+    day_start: int = 7 * 60,
+    release_for_legs: Optional[dict[int, int]] = None,
+    now: int = 0,
 ) -> list[StopRef]:
     """A pickup and a delivery for each leg. A stop has its own window only when the note or the retry
     makes it narrower. Rule 3: an electric car under 30% on a route over 200 km needs a charging stop."""
     stops: list[StopRef] = []
-    for leg in legs:
+    for i, leg in enumerate(legs):
         car, pickup, delivery = order["legs"][leg]["car"], order["legs"][leg]["pickup"], order["legs"][leg]["delivery"]
+        pickup_base = pickup["window"]
+        eff_arrived_at = arrived_at
+        if delay_days >= 1 and i == 0 and not pickup["privateAddress"]:
+            moved_from = max(pickup["window"]["from"] + delay_days * DAY, (pickup["window"]["from"] // DAY + delay_days) * DAY + day_start)
+            pickup_base = {"from": moved_from, "to": max(pickup["window"]["to"], moved_from)}
+            if eff_arrived_at is not None:
+                eff_arrived_at = max(eff_arrived_at, moved_from)
         noted = window_from_note(
-            note, pickup["window"], "pickup",
-            v2=notes_v2, arrived_at=arrived_at, private_address=pickup["privateAddress"], stated_hours=pickup["hours"],
+            note, pickup_base, "pickup",
+            v2=notes_v2, arrived_at=eff_arrived_at, private_address=pickup["privateAddress"], stated_hours=pickup["hours"],
         )
         start = max(noted["from"], retry.pickup_from)
+        if release_for_legs and leg in release_for_legs:
+            rel_at = release_for_legs[leg]
+            if rel_at > now:
+                start = max(start, rel_at)
+            elif retry.pickup_from == now and now > 0:
+                start = now
         pickup_window: TimeWindow = {"from": start, "to": max(noted["to"], start)}
         delivery_base: TimeWindow = {"from": delivery["window"]["from"], "to": max(delivery["window"]["from"], order["deadline"])}
         delivery_window = window_from_note(
