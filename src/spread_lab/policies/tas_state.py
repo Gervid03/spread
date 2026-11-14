@@ -45,13 +45,13 @@ class TasStateParams(Params):
     tas_late_edge: bool = False        # Lever 4: >=90% ranked edge allowance on zero-downstream-trust orders
     tas_dp_select: bool = False        # Full Lagrangian DP foresight order & option selection (for `limits --apply`)
     # Tunable capacity & margin dials for DP selection
-    tas_pool_rate: float = 0.098       # base daily solo orders per local pool driver in Lagrangian DP (Mon..Wed)
-    tas_sd_share_cap: float = 0.34     # max fraction of a pool's daily capacity usable by same_day orders
-    tas_fri_pool_mult: float = 1.55    # Friday slow-option capacity multiplier (Sat+Sun+Mon+ 72h buffer)
-    tas_backlog_mult: float = 1.50     # live backlog_ratio multiplier when tas_dp_select or tas_event_plan active
+    tas_pool_rate: float = 0.122       # base daily solo orders per local pool driver in Lagrangian DP (Mon..Wed)
+    tas_sd_share_cap: float = 0.32     # max fraction of a pool's daily capacity usable by same_day orders
+    tas_fri_pool_mult: float = 1.70    # Friday slow-option capacity multiplier (Sat+Sun+Mon+ 72h buffer)
+    tas_backlog_mult: float = 2.50     # live backlog_ratio multiplier when tas_dp_select or tas_event_plan active
     tas_min_profit_eur: float = 16.0   # minimum acceptable (limit - expected_fee) in euros
-    tas_protect_rev_eur: float = 1500.0  # remaining dealer list € threshold for early 5h rescue
-    tas_early_warn_h: float = 5.0      # hours before lastPickupAt to trigger rescue for protected dealers
+    tas_protect_rev_eur: float = 1500.0  # remaining dealer list € threshold for early rescue
+    tas_early_warn_h: float = 0.0      # off by default (jumping to 1.65x steep_open at -5h overpays ~€950/wk)
     tas_flat_fees: bool = False        # Experimental state test: post flat fees to prevent driver holdout learning
 
 
@@ -151,6 +151,17 @@ def _detect_events(seed: str, tape: dict, geo: Geo, place_ids: list[str], use_ev
                             best_out = (m_in, d, pid)
             if best_out:
                 outage = (best_out[1], best_out[2])
+
+    lall = dpath / "limits-all.jsonl"
+    if lall.exists() and lall.stat().st_size > 10_000:
+        for line in lall.read_text(encoding="utf-8").splitlines():
+            if not line.strip():
+                continue
+            row = json.loads(line)
+            if row.get("x") and row.get("option"):
+                known_base_x[f"{row['rid']}:{row['option']}"] = row["x"] / (1.0 + 0.01 * row.get("trust", 0))
+                if row["rid"] not in known_base_x:
+                    known_base_x[row["rid"]] = row["x"] / (1.0 + 0.01 * row.get("trust", 0))
 
     return {"snow": snow, "flu_day": flu_day, "war_day": war_day, "outage": outage, "known_base_x": known_base_x}
 
@@ -456,20 +467,23 @@ class TasStateDesk(Desk):
                 if eff_drive > 240 or (d == 4 and eff_drive >= 150 and not late_edge_cand):
                     continue
             else:
+                if eff_drive > 310 and ds30 < 160:
+                    continue
                 if eff_drive > 410 and dl // DAY <= ready // DAY + 1:
                     continue
-                if s30 < 60 and s55 < 200 and eff_drive > 280 and dl // DAY <= ready // DAY + 1:
+                if s30 < 60 and s55 < 200 and eff_drive > 240 and dl // DAY <= ready // DAY + 1:
                     continue
 
             if not pass_std and kind == "same_day":
                 continue
 
+            opt_base_x = known_base_x.get(f"{r['id']}:{kind}", base_x)
             opt_fee = ref_eur * (fee_mult + (0.11 if kind == "same_day" else (-0.04 if kind == "within_3_days" else 0.0)))
             if late_edge_cand:
                 # Discount expected revenue by 10% late refund probability
-                eff_base_lim = (o["listPriceCents"] / 100.0) * base_x * 0.92
+                eff_base_lim = (o["listPriceCents"] / 100.0) * opt_base_x * 0.92
             else:
-                eff_base_lim = (o["listPriceCents"] / 100.0) * base_x
+                eff_base_lim = (o["listPriceCents"] / 100.0) * opt_base_x
 
             # Pool load weights across days (plus dedicated sd:pool constraint for same_day)
             if kind == "same_day":
