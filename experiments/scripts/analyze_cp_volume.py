@@ -20,7 +20,7 @@ def agg(rows: list[dict]) -> tuple[Counter, Counter]:
         for k, v in r.get("stats", {}).items():
             if isinstance(v, (int, float)):
                 s[k] += v
-        for k, v in r.get("account", {}).items():
+        for k, v in r.get("ledger", {}).items():
             if isinstance(v, (int, float)):
                 a[k] += v
     return s, a

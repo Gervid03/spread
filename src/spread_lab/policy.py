@@ -71,6 +71,7 @@ class Params:
     trade_in_seq_slack: bool = False  # evaluate 2-leg trade-in slack sequentially (leg0 handoff then leg1 return)
     trade_in_max_drive_min: int = 450 # max total drive minutes when trade_in_seq_slack is True
     trade_in_leg1_slack_min: int = 90 # min post-handoff slack minutes on leg 1 when trade_in_seq_slack is True
+    trade_in_handoff_pace: bool = False  # pace rising fees and early warning on 2-leg orders to leg0 handoff window
     long_drive_min: int = 300         # if drive > this (and > 0), quote only options with deadline on a later day than ready (v1; v0 = 0)
     max_next_day_drive_min: int = 0   # if > 0 and drive > this, drop options with deadline <= ready day + 1
     thin_long_next_day_supply: int = 0  # if > 0, non-ring pickup with supply < this and drive > long_drive_min drops next_day
@@ -325,7 +326,21 @@ class Desk:
                 self.stats[f"top_dealer_trust_d{self._last_day}"] = max(self.dealer_trust.values())
             self._last_day = day
         for order_id, order in list(self.orders.items()):
-            if undelivered(order) and not self.staffed(order) and self.now > order["lastPickupAt"]:
+            open_legs = undelivered(order)
+            if (
+                self.p.trade_in_handoff_pace
+                and len(order["legs"]) == 2
+                and 0 in open_legs
+                and not self.staffed(order)
+                and order_id not in self.urgent
+                and order_id not in self.lost
+            ):
+                d0 = self.geo.minutes(order["legs"][0]["pickup"]["placeId"], order["legs"][0]["delivery"]["placeId"])
+                leg0_last_pk = order["legs"][0]["delivery"]["window"]["to"] - d0 - 15
+                if leg0_last_pk - 3 * HOUR <= self.now <= leg0_last_pk:
+                    self.stats["trade_in_early_warn"] += 1
+                    self.raise_fees(order_id)
+            if open_legs and not self.staffed(order) and self.now > order["lastPickupAt"]:
                 self.lost.add(order_id)
                 if self.p.late_repost and order_id not in self.late_reposted:
                     self.send_post_of(order_id)
@@ -771,6 +786,9 @@ class Desk:
         if order["id"] in self.urgent:
             return self.steep(base)
         until = order["lastPickupAt"] - 3 * HOUR
+        if p.trade_in_handoff_pace and len(order["legs"]) == 2 and 0 in undelivered(order):
+            d0 = self.geo.minutes(order["legs"][0]["pickup"]["placeId"], order["legs"][0]["delivery"]["placeId"])
+            until = min(until, order["legs"][0]["delivery"]["window"]["to"] - d0 - 15 - 3 * HOUR)
         supply = self.supply.get(order["legs"][0]["pickup"]["placeId"], 0)
         fee_open_override: Optional[float] = None
         if p.hub_multiday_fee_open > 0 and order["option"] != "same_day" and supply >= 150 and until - self.now >= 6 * HOUR:
@@ -1083,6 +1101,16 @@ class Desk:
         for order_id, order in self.orders.items():
             if undelivered(order) and not self.staffed(order) and self.now > order["lastPickupAt"]:
                 self.lost.add(order_id)
+            elif (
+                self.p.trade_in_handoff_pace
+                and len(order["legs"]) == 2
+                and 0 in undelivered(order)
+                and not self.staffed(order)
+            ):
+                d0 = self.geo.minutes(order["legs"][0]["pickup"]["placeId"], order["legs"][0]["delivery"]["placeId"])
+                leg0_last_pk = order["legs"][0]["delivery"]["window"]["to"] - d0 - 15
+                if leg0_last_pk - 3 * HOUR <= self.now <= leg0_last_pk:
+                    self.urgent.add(order_id)
         for order_id, g_list in posted.items():
             if any(g["status"] == "withdrawn" for g in g_list):
                 self.late_reposted.add(order_id)
