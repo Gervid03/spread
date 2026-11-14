@@ -2,6 +2,7 @@
 test finals and the final). Both drive the same desk, so what is measured in practice is what
 plays in the final."""
 from __future__ import annotations
+import json
 
 import sys
 import time
@@ -68,20 +69,28 @@ def play_live(world: World, make_desk: Callable[[World, dict, int], object], log
     desk.rejoin(snapshot, history)
     desk.send()
     log(f"Rejoined at {clock(snapshot['now'])}: {len(desk.orders)} orders, {len(desk.requests)} requests seen.")
-    last_day = desk.now // DAY
+    last_hour = desk.now // HOUR
+    kinds: dict = {}
     for event in world.stream(after=history[-1]["seq"] if history else -1, idle=1.0):
         if event is None:
             desk.now = max(desk.now, world.client.final()["now"])
         else:
             desk.now = max(desk.now, event["at"])
+            kinds[event.get("type", "?")] = kinds.get(event.get("type", "?"), 0) + 1
             desk.handle(event)
         desk.tick()
         desk.send()
-        if desk.now // DAY > last_day:
-            last_day = desk.now // DAY
-            score = world.score()
-            log(f"{clock(desk.now)}  margin €{score['marginCents'] / 100:,.2f}  {score['wonOrders']} orders  "
-                f"{score['onTimeShare']:.1%} on time  stats {dict(desk.stats)}")
+        if desk.now // HOUR > last_hour:  # live play logs every game hour (it was every day)
+            last_hour = desk.now // HOUR
+            try:
+                score = world.score()
+                log(f"{clock(desk.now)}  margin €{score['marginCents'] / 100:,.2f}  {score['wonOrders']} orders  "
+                    f"{score['onTimeShare']:.1%} on time  orders {len(desk.orders)}  requests {len(desk.requests)}  "
+                    f"events this hour {kinds}  stats {dict(desk.stats)}")
+                log("score " + json.dumps(score, default=str))
+            except Exception as error:  # noqa: BLE001 - logging must never stop the desk
+                log(f"{clock(desk.now)}  log failed: {error}")
+            kinds = {}
         if desk.now >= snapshot["endsAt"]:
             return
 
