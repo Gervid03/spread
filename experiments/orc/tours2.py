@@ -22,7 +22,9 @@ from spread_lab.env import lab_home  # noqa: E402
 SEED = sys.argv[1] if len(sys.argv) > 1 else "dev-12"
 T = int(sys.argv[2]) if len(sys.argv) > 2 else 1100
 MULTS = [float(x) for x in sys.argv[3].split(",")] if len(sys.argv) > 3 else [0.35, 0.45, 0.55, 0.7]
-UNTIL = (T // DAY + 1) * DAY + 570          # the next morning 09:30
+EVENING = T % DAY >= 720                    # posted in the evening for the next day, or in the morning for today
+DAY0 = (T // DAY + 1) * DAY if EVENING else T // DAY * DAY
+UNTIL = DAY0 + 570 if EVENING else T + 180  # the next morning 09:30, or three hours after a morning post
 MAXROAD = 690
 
 mp = json.loads((lab_home() / "map.json").read_text(encoding="utf-8"))
@@ -103,7 +105,7 @@ with world(SEED, what="tours2") as w:
                      "phours": leg["pickup"]["hours"], "dhours": leg["delivery"]["hours"]}
     ids = sorted(cars)
     nxt = {a: [b for b in ids if b != a and km(cars[a]["D"], cars[b]["P"]) <= 30] for a in ids}
-    day0 = (T // DAY + 1) * DAY
+    day0 = DAY0
 
     def best_rotation(seq):
         best = None
@@ -111,6 +113,8 @@ with world(SEED, what="tours2") as w:
             rot = seq[r:] + seq[:r]
             cs = [cars[x] for x in rot]
             for start in (day0 + 420, day0 + 480, day0 + 540, day0 + 600, day0 + 660):
+                if start < T + 60:
+                    continue
                 sim = simulate(cs, start)
                 if sim and sim[1] <= MAXROAD:
                     key = (near[cs[0]["P"]], -start)
