@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-dlr01-plr06-fine -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g dealer_lr=0.009,0.011 -g price_lr=0.055,0.06,0.065
+# started 2026-11-14T06:55:57Z
+
+=== dealer_lr=0.009,price_lr=0.055
+  mean margin €10,411.59  (median €9,517.33, min €7,401.94)  ranked 16/16  on time min 91.5% mean 96.7%  won 283  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €-117.83 ± 180.60 (SE) t=-0.65  better on 9, worse on 7  Δon-time -0.42%
+
+=== dealer_lr=0.009,price_lr=0.06
+  mean margin €10,430.83  (median €9,708.20, min €7,894.33)  ranked 16/16  on time min 92.6% mean 96.5%  won 285  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €-98.58 ± 133.01 (SE) t=-0.74  better on 7, worse on 9  Δon-time -0.64%
+
+=== dealer_lr=0.009,price_lr=0.065
+  mean margin €10,812.50  (median €10,421.28, min €7,411.80)  ranked 16/16  on time min 92.8% mean 96.8%  won 284  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+283.08 ± 178.78 (SE) t=1.58  better on 11, worse on 5  Δon-time -0.33%
+
+=== dealer_lr=0.011,price_lr=0.055
+  mean margin €10,406.35  (median €10,104.22, min €7,785.92)  ranked 16/16  on time min 91.7% mean 96.6%  won 280  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €-123.07 ± 185.54 (SE) t=-0.66  better on 6, worse on 10  Δon-time -0.60%
+
+=== dealer_lr=0.011,price_lr=0.06
+  mean margin €10,399.44  (median €9,403.05, min €8,030.33)  ranked 16/16  on time min 91.2% mean 96.6%  won 282  failed 0  -> NOT SAFE (a seed unranked or under 92% on time, or a failure)
+  vs champion on 16 paired seeds: Δmargin €-129.98 ± 178.84 (SE) t=-0.73  better on 6, worse on 10  Δon-time -0.60%
+
+=== dealer_lr=0.011,price_lr=0.065
+  mean margin €10,633.56  (median €10,300.92, min €7,428.33)  ranked 16/16  on time min 92.5% mean 97.0%  won 287  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+104.14 ± 200.91 (SE) t=0.52  better on 10, worse on 6  Δon-time -0.14%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  dealer_lr=0.009,price_lr=0.065                     €    10,812  on-time min 92.8%  SAFE  Δ €+283±179  20261114-065744-n-dlr01-plr06-fine-dealer_lr0.009-price_lr0.065
+  dealer_lr=0.011,price_lr=0.065                     €    10,634  on-time min 92.5%  SAFE  Δ €+104±201  20261114-070014-n-dlr01-plr06-fine-dealer_lr0.011-price_lr0.065
+  dealer_lr=0.009,price_lr=0.06                      €    10,431  on-time min 92.6%  SAFE  Δ €-99±133  20261114-065639-n-dlr01-plr06-fine-dealer_lr0.009-price_lr0.06
+  dealer_lr=0.009,price_lr=0.055                     €    10,412  on-time min 91.5%  unsafe  Δ €-118±181  20261114-065557-n-dlr01-plr06-fine-dealer_lr0.009-price_lr0.055
+  dealer_lr=0.011,price_lr=0.055                     €    10,406  on-time min 91.7%  unsafe  Δ €-123±186  20261114-065847-n-dlr01-plr06-fine-dealer_lr0.011-price_lr0.055
+  dealer_lr=0.011,price_lr=0.06                      €    10,399  on-time min 91.2%  unsafe  Δ €-130±179  20261114-065938-n-dlr01-plr06-fine-dealer_lr0.011-price_lr0.06
+# exit 0 at 2026-11-14T07:01:03Z

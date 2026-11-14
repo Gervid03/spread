@@ -1,0 +1,35 @@
+# uv run lab sweep --seeds-from dev --name n-steep15-dlr-ptw -s min_slack_min=135 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.48 -s fee_step_min=20 -s steep_open=1.50 -g dealer_lr=0.01,0.015 -g price_target_win=0.35,0.36,0.37
+# started 2026-11-14T06:43:34Z
+
+=== dealer_lr=0.01,price_target_win=0.35
+  mean margin €10,582.55  (median €10,050.83, min €7,858.55)  ranked 16/16  on time min 94.6% mean 97.2%  won 249  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+53.13 ± 187.38 (SE) t=0.28  better on 7, worse on 9  Δon-time +0.01%
+
+=== dealer_lr=0.01,price_target_win=0.36
+  mean margin €10,595.28  (median €9,914.85, min €7,951.87)  ranked 16/16  on time min 94.5% mean 97.1%  won 258  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+65.86 ± 177.52 (SE) t=0.37  better on 9, worse on 7  Δon-time -0.10%
+
+=== dealer_lr=0.01,price_target_win=0.37
+  mean margin €10,760.78  (median €10,133.76, min €7,873.25)  ranked 16/16  on time min 93.6% mean 97.3%  won 261  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+231.36 ± 193.08 (SE) t=1.2  better on 10, worse on 6  Δon-time +0.17%
+
+=== dealer_lr=0.015,price_target_win=0.35
+  mean margin €10,603.76  (median €9,876.31, min €7,553.67)  ranked 16/16  on time min 94.3% mean 97.0%  won 246  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+74.35 ± 186.50 (SE) t=0.4  better on 7, worse on 9  Δon-time -0.13%
+
+=== dealer_lr=0.015,price_target_win=0.36
+  mean margin €10,757.34  (median €10,099.89, min €8,071.19)  ranked 16/16  on time min 94.7% mean 97.6%  won 257  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+227.92 ± 154.55 (SE) t=1.47  better on 10, worse on 6  Δon-time +0.41%
+
+=== dealer_lr=0.015,price_target_win=0.37
+  mean margin €10,681.65  (median €10,497.38, min €7,618.18)  ranked 16/16  on time min 94.5% mean 97.3%  won 260  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+152.23 ± 140.00 (SE) t=1.09  better on 7, worse on 9  Δon-time +0.18%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  dealer_lr=0.01,price_target_win=0.37               €    10,761  on-time min 93.6%  SAFE  Δ €+231±193  20261114-064539-n-steep15-dlr-ptw-dealer_lr0.01-price_target_win0.37
+  dealer_lr=0.015,price_target_win=0.36              €    10,757  on-time min 94.7%  SAFE  Δ €+228±155  20261114-064809-n-steep15-dlr-ptw-dealer_lr0.015-price_target_win0.36
+  dealer_lr=0.015,price_target_win=0.37              €    10,682  on-time min 94.5%  SAFE  Δ €+152±140  20261114-064939-n-steep15-dlr-ptw-dealer_lr0.015-price_target_win0.37
+  dealer_lr=0.015,price_target_win=0.35              €    10,604  on-time min 94.3%  SAFE  Δ €+74±186  20261114-064637-n-steep15-dlr-ptw-dealer_lr0.015-price_target_win0.35
+  dealer_lr=0.01,price_target_win=0.36               €    10,595  on-time min 94.5%  SAFE  Δ €+66±178  20261114-064424-n-steep15-dlr-ptw-dealer_lr0.01-price_target_win0.36
+  dealer_lr=0.01,price_target_win=0.35               €    10,583  on-time min 94.6%  SAFE  Δ €+53±187  20261114-064334-n-steep15-dlr-ptw-dealer_lr0.01-price_target_win0.35
+# exit 0 at 2026-11-14T06:50:28Z

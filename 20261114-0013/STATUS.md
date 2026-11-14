@@ -1,4 +1,4 @@
-# Night status, 2026-11-14 06:42 UTC (ends 2026-11-14T10:13:17Z)
+# Night status, 2026-11-14 07:02 UTC (ends 2026-11-14T10:13:17Z)
 
 ## Workers
 
@@ -68,13 +68,16 @@
 | n14-05166-quota | 05:57 | done 06:33 (36 min) | 63 | yes | Dev (`q=0.06, m=35`, mean €9,901.98): Δmargin €-675.94 ± 201.25 (t=-3.36, 4/12) vs A, €+911.68 ± 279.62 (t=3.26, 13/3) vs champion, worst on-time 92.95% (`dev-0 |
 | n14-06041-capacity-steps | 06:04 | done 06:26 (21 min) | 71 | yes | 480.3 requests/world and 10.21 s/world vs base 645.1 requests/world and 16.49 s/world (dev Δmargin +€26.08 ± 148.85, t=0.18, Δon-time +0.09%, worst world on-tim |
 | n14-06042-costprice-on-a | 06:06 | done 06:35 (28 min) | 59 | yes | Dev paired Δmargin: `€-342.23 ± 154.44 (t=-2.22, 4/12) vs A` / `€+1,245.38 ± 185.95 (t=6.70, 16/0) vs champion`, worst on-time `95.1%` (SAFE, `driver_fee / reve |
-| n14-06043-feeclock-on-a | 06:16 | running | 65 | no |  |
-| n14-06044-friday-on-a | 06:17 | running | 50 | no | I will run the noop smoke evaluation with Policy A's parameters to verify that the new parameter defaults reproduce Policy A's behavior (+0.00 delta on all 4 sm |
-| n14-06261-hours-on-v3 | 06:27 | running | 56 | no |  |
-| n14-06262-signals-on-v3 | 06:33 | running | 21 | no |  |
-| n14-06263-snow-and-hitch-research | 06:35 | running | 32 | no |  |
+| n14-06043-feeclock-on-a | 06:16 | running | 86 | yes |  |
+| n14-06044-friday-on-a | 06:17 | done 06:55 (37 min) | 68 | yes | (a)+(b) dev: worst on-time 94.1% (SAFE), vs Policy A Δmargin €+22.26 ± 99.73 (SE, t=0.22, 10W/4L, Δon-time -0.25%), vs champion (v3) Δmargin €+70.76 ± 118.53 (S |
+| n14-06261-hours-on-v3 | 06:27 | done 06:50 (23 min) | 69 | yes | dev paired `Δmargin €+7.56 ± 113.42` (`t=+0.07`, 8 better / 8 worse), worst on-time `94.39%` (SAFE; `dropped_hours=782`, `lastpickup_err=2` across `2,545` order |
+| n14-06262-signals-on-v3 | 06:33 | running | 33 | no |  |
+| n14-06263-snow-and-hitch-research | 06:35 | done 06:53 (18 min) | 43 | yes | Dev paired delta ± SE and worst on-time share: +0.00 ± 0.00 (no policy change; Champion v3 dev mean €10,529.42, worst on-time 94.39%). |
+| n14-06264-triage-and-feedrop-on-v3 | 06:50 | running | 31 | no |  |
+| n14-06591-final-champion | 06:59 | running | 17 | no |  |
+| n14-06592-hours-and-sweep-stack-on-v3 | 07:00 | running | 15 | no |  |
 
-Queued prompts: 06264-triage-and-feedrop-on-v3.md
+Queued prompts: 06593-inbound-discount-and-thin-on-v3.md, 06594-safety-brake-and-view-offer-on-v3.md
 
 ## Sweeps started (in order; logs/sweep-NN.txt has each table)
 
@@ -141,6 +144,10 @@ Queued prompts: 06264-triage-and-feedrop-on-v3.md
 61. `sweep --seeds-from dev --name n-slack-steep-feeopen -s min_slack_min=150 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.5 -g fee_open=0.82,0.84,0.85 -g day_start=360,420`
 62. `sweep --seeds-from dev --name n-fw148-steep -s min_slack_min=135 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_step_min=20 -g fee_warn=1.45,1.48,1.50 -g steep_open=1.50,1.60`
 63. `sweep --seeds-from dev --name n-slack130-steep15 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.50 -g min_slack_min=130,135,140 -g slack_per_drive=0.75,0.80`
+64. `sweep --seeds-from dev --name n-steep15-dlr-ptw -s min_slack_min=135 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.48 -s fee_step_min=20 -s steep_open=1.50 -g dealer_lr=0.01,0.015 -g price_target_win=0.35,0.36,0.37`
+65. `sweep --seeds-from dev --name n-steep15-backlog -s min_slack_min=135 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.50 -s dealer_lr=0.01 -g backlog_ratio=0.06,0.07,0.08 -g min_supply=26,28`
+66. `sweep --seeds-from dev --name n-dlr01-plr06-fine -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g dealer_lr=0.009,0.011 -g price_lr=0.055,0.06,0.065`
+67. `sweep --seeds-from dev --name n-slack130-ptw-fine -s min_slack_min=130 -s slack_per_drive=0.80 -s same_day_min_supply=50 -s dealer_lr=0.01 -g price_target_win=0.34,0.36,0.37 -g min_supply=18,20`
 
 ## Every evaluation since the night began
 
@@ -480,4 +487,24 @@ Champion v2 on dev: margin mean 8,990, on-time min 94.4%. Δ is paired on seeds 
 | 20261114-063938-n-slack130-steep15-min_slack_min135-slack_per_drive0.75 | 16 | 10,798 | 7,614 | 93.8% | SAFE | +269 ± 155 (t +1.7, 10/16 better) |
 | 20261114-064018-n-slack130-steep15-min_slack_min135-slack_per_drive0.80 | 16 | 10,738 | 7,614 | 93.8% | SAFE | +209 ± 153 (t +1.4, 10/16 better) |
 | 20261114-064056-n-slack130-steep15-min_slack_min140-slack_per_drive0.75 | 16 | 10,622 | 7,614 | 93.7% | SAFE | +92 ± 161 (t +0.6, 8/16 better) |
-| 20261114-064158-n-slack130-steep15-min_slack_min140-slack_per_drive0.80 (running) | 10 | 11,012 | 7,614 | 92.5% | no | +230 ± 212 (t +1.1, 7/10 better) |
+| 20261114-064158-n-slack130-steep15-min_slack_min140-slack_per_drive0.80 | 16 | 10,665 | 7,614 | 92.5% | SAFE | +135 ± 141 (t +1.0, 10/16 better) |
+| 20261114-064334-n-steep15-dlr-ptw-dealer_lr0.01-price_target_win0.35 | 16 | 10,583 | 7,859 | 94.6% | SAFE | +53 ± 187 (t +0.3, 7/16 better) |
+| 20261114-064424-n-steep15-dlr-ptw-dealer_lr0.01-price_target_win0.36 | 16 | 10,595 | 7,952 | 94.5% | SAFE | +66 ± 178 (t +0.4, 9/16 better) |
+| 20261114-064539-n-steep15-dlr-ptw-dealer_lr0.01-price_target_win0.37 | 16 | 10,761 | 7,873 | 93.6% | SAFE | +231 ± 193 (t +1.2, 10/16 better) |
+| 20261114-064637-n-steep15-dlr-ptw-dealer_lr0.015-price_target_win0.35 | 16 | 10,604 | 7,554 | 94.3% | SAFE | +74 ± 186 (t +0.4, 7/16 better) |
+| 20261114-064809-n-steep15-dlr-ptw-dealer_lr0.015-price_target_win0.36 | 16 | 10,757 | 8,071 | 94.7% | SAFE | +228 ± 155 (t +1.5, 10/16 better) |
+| 20261114-064939-n-steep15-dlr-ptw-dealer_lr0.015-price_target_win0.37 | 16 | 10,682 | 7,618 | 94.5% | SAFE | +152 ± 140 (t +1.1, 7/16 better) |
+| 20261114-065056-n-steep15-backlog-backlog_ratio0.06-min_supply26 | 16 | 10,722 | 7,770 | 93.8% | SAFE | +193 ± 197 (t +1.0, 9/16 better) |
+| 20261114-065159-n-steep15-backlog-backlog_ratio0.06-min_supply28 | 16 | 10,681 | 7,770 | 93.8% | SAFE | +151 ± 203 (t +0.7, 9/16 better) |
+| 20261114-065233-n-steep15-backlog-backlog_ratio0.07-min_supply26 | 16 | 10,789 | 7,770 | 94.3% | SAFE | +259 ± 193 (t +1.3, 10/16 better) |
+| 20261114-065310-n-steep15-backlog-backlog_ratio0.07-min_supply28 | 16 | 10,736 | 7,770 | 94.3% | SAFE | +207 ± 201 (t +1.0, 9/16 better) |
+| 20261114-065343-n-steep15-backlog-backlog_ratio0.08-min_supply26 | 16 | 10,750 | 7,770 | 94.3% | SAFE | +221 ± 199 (t +1.1, 10/16 better) |
+| 20261114-065417-n-steep15-backlog-backlog_ratio0.08-min_supply28 | 16 | 10,692 | 7,770 | 94.3% | SAFE | +163 ± 207 (t +0.8, 9/16 better) |
+| 20261114-065557-n-dlr01-plr06-fine-dealer_lr0.009-price_lr0.055 | 16 | 10,412 | 7,402 | 91.5% | no | -118 ± 181 (t -0.7, 9/16 better) |
+| 20261114-065639-n-dlr01-plr06-fine-dealer_lr0.009-price_lr0.06 | 16 | 10,431 | 7,894 | 92.6% | SAFE | -99 ± 133 (t -0.7, 7/16 better) |
+| 20261114-065744-n-dlr01-plr06-fine-dealer_lr0.009-price_lr0.065 | 16 | 10,812 | 7,412 | 92.8% | SAFE | +283 ± 179 (t +1.6, 11/16 better) |
+| 20261114-065847-n-dlr01-plr06-fine-dealer_lr0.011-price_lr0.055 | 16 | 10,406 | 7,786 | 91.7% | no | -123 ± 186 (t -0.7, 6/16 better) |
+| 20261114-065938-n-dlr01-plr06-fine-dealer_lr0.011-price_lr0.06 | 16 | 10,399 | 8,030 | 91.2% | no | -130 ± 179 (t -0.7, 6/16 better) |
+| 20261114-070014-n-dlr01-plr06-fine-dealer_lr0.011-price_lr0.065 | 16 | 10,634 | 7,428 | 92.5% | SAFE | +104 ± 201 (t +0.5, 10/16 better) |
+| 20261114-070137-n-slack130-ptw-fine-price_target_win0.34-min_supply18 | 16 | 10,411 | 7,435 | 95.2% | SAFE | -118 ± 125 (t -0.9, 7/16 better) |
+| 20261114-070232-n-slack130-ptw-fine-price_target_win0.34-min_supply20 | 0 failed | | | | | |

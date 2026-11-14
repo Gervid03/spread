@@ -22,3 +22,14 @@
   vs champion on 16 paired seeds: Δmargin €+92.33 ± 160.95 (SE) t=0.57  better on 8, worse on 8  Δon-time -0.77%
 
 === min_slack_min=140,slack_per_drive=0.80
+  mean margin €10,664.87  (median €10,020.67, min €7,614.17)  ranked 16/16  on time min 92.5% mean 96.4%  won 279  failed 0  -> SAFE
+  vs champion on 16 paired seeds: Δmargin €+135.45 ± 141.37 (SE) t=0.96  better on 10, worse on 6  Δon-time -0.74%
+
+=== sweep, best mean margin first (SAFE = every seed ranked and >= 92% on time)
+  min_slack_min=130,slack_per_drive=0.75             €    10,862  on-time min 93.4%  SAFE  Δ €+333±174  20261114-063828-n-slack130-steep15-min_slack_min130-slack_per_drive0.75
+  min_slack_min=135,slack_per_drive=0.75             €    10,798  on-time min 93.8%  SAFE  Δ €+269±155  20261114-063938-n-slack130-steep15-min_slack_min135-slack_per_drive0.75
+  min_slack_min=135,slack_per_drive=0.80             €    10,738  on-time min 93.8%  SAFE  Δ €+209±153  20261114-064018-n-slack130-steep15-min_slack_min135-slack_per_drive0.80
+  min_slack_min=130,slack_per_drive=0.80             €    10,668  on-time min 93.8%  SAFE  Δ €+139±166  20261114-063905-n-slack130-steep15-min_slack_min130-slack_per_drive0.80
+  min_slack_min=140,slack_per_drive=0.80             €    10,665  on-time min 92.5%  SAFE  Δ €+135±141  20261114-064158-n-slack130-steep15-min_slack_min140-slack_per_drive0.80
+  min_slack_min=140,slack_per_drive=0.75             €    10,622  on-time min 93.7%  SAFE  Δ €+92±161  20261114-064056-n-slack130-steep15-min_slack_min140-slack_per_drive0.75
+# exit 0 at 2026-11-14T06:42:42Z

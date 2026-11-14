@@ -227,3 +227,15 @@
 06:35:08 worker n14-06042-costprice-on-a finished after 28 min
 06:35:08 worker n14-06263-snow-and-hitch-research started (pid 64337)
 06:38:28 sweep 63 started: sweep --seeds-from dev --name n-slack130-steep15 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.50 -g min_slack_min=130,135,140 -g slack_per_drive=0.75,0.80
+06:42:34 published to night/20261114
+06:43:34 sweep 64 started: sweep --seeds-from dev --name n-steep15-dlr-ptw -s min_slack_min=135 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.48 -s fee_step_min=20 -s steep_open=1.50 -g dealer_lr=0.01,0.015 -g price_target_win=0.35,0.36,0.37
+06:50:34 worker n14-06261-hours-on-v3 finished after 23 min
+06:50:34 worker n14-06264-triage-and-feedrop-on-v3 started (pid 70029)
+06:50:56 lead tick started (pid 70232)
+06:50:56 sweep 65 started: sweep --seeds-from dev --name n-steep15-backlog -s min_slack_min=135 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.45 -s fee_step_min=25 -s steep_open=1.50 -s dealer_lr=0.01 -g backlog_ratio=0.06,0.07,0.08 -g min_supply=26,28
+06:53:56 worker n14-06263-snow-and-hitch-research finished after 18 min
+06:55:56 worker n14-06044-friday-on-a finished after 37 min
+06:55:57 sweep 66 started: sweep --seeds-from dev --name n-dlr01-plr06-fine -s min_slack_min=140 -s slack_per_drive=0.75 -s same_day_min_supply=50 -s fee_warn=1.50 -s fee_step_min=20 -g dealer_lr=0.009,0.011 -g price_lr=0.055,0.06,0.065
+06:59:57 worker n14-06591-final-champion started (pid 71189)
+07:00:17 worker n14-06592-hours-and-sweep-stack-on-v3 started (pid 71292)
+07:01:37 sweep 67 started: sweep --seeds-from dev --name n-slack130-ptw-fine -s min_slack_min=130 -s slack_per_drive=0.80 -s same_day_min_supply=50 -s dealer_lr=0.01 -g price_target_win=0.34,0.36,0.37 -g min_supply=18,20

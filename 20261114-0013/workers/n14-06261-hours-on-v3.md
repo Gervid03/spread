@@ -1,6 +1,8 @@
 # n14-06261-hours-on-v3
-tool calls 56; result {}
+tool calls 69; result {"total_tokens": 6315629, "input_tokens": 6280265, "output_tokens": 34589, "cached": 5773094, "input": 507171, "duration_ms": 1338248, "tool_calls": 69, "models": {"gemini-4-argon": {"total_tokens": 6260861, "input_tokens": 6226486, "output_tokens": 34375, "cached": 5773094, "input": 453392}, "gemini-3-flash-preview": {"total_tokens": 54768, "input_tokens": 53779, "output_tokens": 214, "cached": 0, "input": 53779}}}
 
 ## Its last words
 
-
+Stage, commit, and push `src/spread_lab/policy.py` and `experiments/20261114-0645-gemini-hours-on-v3.md` to `origin` on the current branch. (Note: running outside a sandbox container.)Push the committed branch to `origin` and check `git status`. (Note: running outside a sandbox container.)Push the branch using `GIT_SSH_COMMAND=ssh` so git does not fail on an empty `GIT_SSH` environment variable. (Note: running outside a sandbox container.)Push the branch to `origin` after unsetting empty `GIT_*` environment variables. (Note: running outside a sandbox container.)Push the branch to `origin` with `GIT_CONFIG_COUNT=0`. (Note: running outside a sandbox container.)`-s slack_by_hours=True -s min_slack_min=120` (and `-s slack_by_hours=True` at Champion v3's `min_slack_min=150`)
+dev paired `Δmargin €+7.56 ± 113.42` (`t=+0.07`, 8 better / 8 worse), worst on-time `94.39%` (SAFE; `dropped_hours=782`, `lastpickup_err=2` across `2,545` orders, late orders `114` vs `128`, `deadline_close=198` vs `279`); at `min_slack_min=150`: `Δmargin €-189.11 ± 125.01` (`t=-1.51`), worst on-time `95.24%` (SAFE; `dropped_hours=1,104`, `lastpickup_err=0` across `2,480` orders, late orders `98` vs `128`, `deadline_close=182` vs `279`)
+`runs/20261114-063952-hours-noop`, `runs/20261114-064034-hours-s1`, `runs/20261114-064101-hours-s2-slack135`, `runs/20261114-064155-hours-s3-slack120`, `runs/20261114-064309-hours-dev`, `runs/20261114-064348-hours-slack120-dev`
