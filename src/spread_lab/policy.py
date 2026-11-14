@@ -141,7 +141,7 @@ class Params:
     trust_invest: float = 0.0         # discount on safe requests for top 3 dealers, Mon-Wed
     trust_guard: bool = False         # decline same_day thin town or >300min if count >= 13
     # --- oracle-fitted relative prices (claude-price-oracle, Sat 14 Nov; fit on tas-price's limits-all, dev-12) ---
-    nd_sdmenu_disc: float = 0.0       # slow options x (1 - this) when same_day is on the menu but we don't quote it
+    nd_sdmenu_disc: float = 0.0       # slow options x (1 - this) when same_day is on the menu but we don't quote it; negative = a markup
                                       # (fit: the dealer's limit on such a quote is ~16% lower, log -0.17)
     dest_supply_exp: float = 0.0      # price x (dest_supply_ref / drivers within 30 km of the delivery) ** this
                                       # (fit: log limit -0.036 per log of delivery supply; Helsinki 359, Kemi 0)
@@ -785,7 +785,7 @@ class Desk:
             prices[option["kind"]] = int(price + 0.5)
         if not prices:
             return {}, "decline"
-        if p.nd_sdmenu_disc > 0 and "same_day" not in prices and any(o["kind"] == "same_day" for o in request["options"]):
+        if p.nd_sdmenu_disc != 0 and "same_day" not in prices and any(o["kind"] == "same_day" for o in request["options"]):
             floor = fee / (1 - p.min_margin_frac)
             for kind in prices:
                 prices[kind] = int(max(prices[kind] * (1 - p.nd_sdmenu_disc), floor) + 0.5)
