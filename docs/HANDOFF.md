@@ -1,6 +1,24 @@
 # Handoff: where the lab stands
 
+## Sat 14 Nov, 13:05 Helsinki (the laptop lead): v5, the TAS track running, two co-players stopped
+- **v5 = cp-fees** (promote.sh, 12:51): dev +€794 ± 139 (t 5.73, 16/16 better), holdout +€567, worst holdout world
+  93.7%. Verda picks it up by itself before the 14:00 test final.
+- **What worked and what didn't is now in [`experiments/LEDGER.md`](../experiments/LEDGER.md)** (new): every day-run
+  and co-play result, and the verdicts. Next biggest: cp-routes +€685 (t 3.87, still running), cp-volume +€564 (a
+  tail on fresh worlds), cp-demand +€495 (refused on holdout; a guarded form is ready). cp-margin and cp-chains are in
+  promote.sh against v4, so they must merge onto v5 and pass the gates again. **Nobody is stacking the winners on v5
+  yet**: that is the next lead job (the families overlap: see the ledger).
+- **Stopped at 12:58 (not achieving):** cp-buffer (+€221, t 1.27 after 158 tool calls) and cp-classes (+€260, t 1.42).
+  Their code is on their branches. That frees slots for the TAS agents.
+- **TAS is on main** and checked on the real server: `run` reproduces the champion's week to the cent; the oracle
+  bracketed 32 of 32 orders exactly on Monday morning (€396 left on the table by 14:00 alone), and repriced quotes
+  win as their forks said. Two fixes: a forking game keeps its fork slot (before, each fork queued behind the evals:
+  one order in 13 minutes; now ~190 forks a minute), and forks retry server errors. The four agents run from main
+  (`bash scripts/tas-swarm.sh` in `~/spread`); the findings are in `~lab/.spread-lab/tas/STATUS.md`.
+
 ## Sat 14 Nov, 13:30 Helsinki (the user's TAS session, cloud): four Carbon co-players on the perfect week
+> Superseded 13:05 by the laptop lead: the TAS track is merged into main, the launcher's `SRC` defaults to main, and
+> the agents run. The paste below is history.
 The user's ask: a theoretically perfect, tool-assisted ("TAS") week, to see the bare potential: every order at the
 best achievable margin, plus the travelling salesman's ideas. It can never play the final (no forks, no foresight
 there), so nothing in this track is promoted. It gives the ceiling as a waterfall on the same worlds, and for each

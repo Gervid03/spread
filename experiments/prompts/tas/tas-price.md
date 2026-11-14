@@ -6,10 +6,13 @@ do step 0 before anything else. After that the steps are a first path, and you h
 learns what a dealer would have paid, only won or lost. A fork tells: quote, advance to `respondBy`, read the answer,
 delete the copy. Bisected, that is each dealer's limit to within 0.4% of the list price.
 
-**0. Validate the instrument on the real server** (it has only seen a toy world), in this order:
+**0. Validate the instrument on the real server.** The laptop lead did part of it on Sat 12:45–13:00 (read
+`~/.spread-lab/tas/STATUS.md` first): `run` gave v4's dev-12 week to the cent; `limits` and `limits --apply` to
+Mon 14:00 measured 32 of 32 won orders exactly, with no `CHECK`, at ~190 forks a minute. The champion is now **v5**
+(cp-fees). What is left, in this order:
 - `uv run python experiments/scripts/tas_selftest.py` passes.
-- `uv run python scripts/tas.py run --seed dev-12` must give the champion's week **to the cent** (€10,418.xx, 254
-  won, 96.5%). Co-play's engine does; if `tas.py` does not, the wrapper around `world.act`/`world.advance` is the
+- `uv run python scripts/tas.py run --seed dev-12` must give v5's week **to the cent** (`tas.py show --seed dev-12`
+  prints it: €10,910.49, 246 won, 98.0%). If it does not, the wrapper around `world.act`/`world.advance` is the
   suspect.
 - `tas.py tape --seed dev-12`: about 1,036 requests. Check the foresight claim: the tape's requests are the ones the
   desk saw in its own week (same ids, list prices, `respondBy`).
