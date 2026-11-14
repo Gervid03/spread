@@ -26,13 +26,15 @@ Don't stop or edit other agents' worktrees.
   more than one eval at a time. Practice pauses itself in the quiet hours (19:40–20:50 Helsinki, Sun 07:20–09:00).
 
 **The one constraint that decides what counts: the final is live.** The test finals and the final are played in real
-time, once, with no forks, no what-ifs, no replay and no agent in the loop. The 14:00 test final ran Thursday to the
-next Wednesday in about 19 minutes of wall time, so a request's 15-minute answer window was a few wall seconds. So:
+time, once, with no forks, no what-ifs, no replay and no agent in the loop. The 20:00 test final and the final play
+the whole week from Monday in about 34 wall minutes (the organisers, Discord): ~7 game minutes per wall second, so a
+request's 15-minute answer window is about 2 wall seconds. The team's API rate (~1,000 requests a minute) is shared by
+every agent. So:
 - forks, co-play and TAS are for **finding** a rule; what ships is deterministic code in the Desk (`policy.py`) that
   decides in milliseconds from what the desk can see at that moment (a table computed beforehand is fine);
-- the test final's world **started at Thursday 00:00** with Monday–Wednesday already played as lost (614 requests, no
-  orders, no trust). Measure that case too: `-s live_from_min=4320` makes the desk decline everything until Thursday
-  00:00 (on main from Sat 15:50; if your branch doesn't have it, `git merge origin/main`).
+- the 14:00 test final's world **started at Thursday 00:00** with Monday–Wednesday already played as lost (614
+  requests, no orders, no trust). A side check for that case: `-s live_from_min=4320` makes the desk sit out until
+  Thursday 00:00. Read `~/.spread-lab/tas/STATUS.md` with `cat` (it is outside your workspace).
 
 The champion is **v6 = cp-fees + cp-supervisor** (`champion/champion.json`). The lead is merging the other winners
 (cp-routes, cp-chains, cp-wild, cp-margin, cp-volume, cp-demand) into `exp/stack-v7`; when it lands on main the
