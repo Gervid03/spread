@@ -1112,6 +1112,26 @@ class Desk:
                 self.deferred_orders.pop(oid, None)
                 self.post(order, undelivered(order))
 
+    def _r4v_on_win(self, order: Order) -> None:
+        oid = order["id"]
+        sponsor = self.r4v_sponsor_map.pop(oid, None)
+        sp_grp = self.r4v_sponsor_groups.pop(oid, None)
+        if sp_grp is not None:
+            for sp_oid in sp_grp:
+                self.r4v_used_sponsors.discard(sp_oid)
+        if sponsor or (sp_grp is not None and oid not in self.r4v_return_closed_reqs):
+            if sponsor:
+                self.r4v_used_sponsors.discard(sponsor)
+            self.r4v_sponsored_oids.add(oid)
+            self.r4v_sponsor_wins_day[self.now // DAY] += 1
+            self.stats["r4v_sponsor_won"] += 1
+        if oid in self.r4v_seed_reqs:
+            self.stats["r4v_seed_won"] += 1
+        if oid in self.r4v_return_closed_reqs:
+            self.stats["r4v_return_closing_won"] += 1
+        if oid in self.r4v_tradein_reqs:
+            self.stats["r4v_tradein_won"] += 1
+
     def win(self, order: Order) -> None:
         if order["id"] in self.requests and order["id"] not in self.orders:
             oid = order["id"]
@@ -1119,23 +1139,7 @@ class Desk:
             if self.p.urgent_hygiene and self.cannot_be_on_time(order):
                 self.lost.add(oid)
             self.stats["won"] += 1
-            sponsor = self.r4v_sponsor_map.pop(oid, None)
-            sp_grp = self.r4v_sponsor_groups.pop(oid, None)
-            if sp_grp is not None:
-                for sp_oid in sp_grp:
-                    self.r4v_used_sponsors.discard(sp_oid)
-            if sponsor or (sp_grp is not None and oid not in self.r4v_return_closed_reqs):
-                if sponsor:
-                    self.r4v_used_sponsors.discard(sponsor)
-                self.r4v_sponsored_oids.add(oid)
-                self.r4v_sponsor_wins_day[self.now // DAY] += 1
-                self.stats["r4v_sponsor_won"] += 1
-            if oid in self.r4v_seed_reqs:
-                self.stats["r4v_seed_won"] += 1
-            if oid in self.r4v_return_closed_reqs:
-                self.stats["r4v_return_closing_won"] += 1
-            if oid in self.r4v_tradein_reqs:
-                self.stats["r4v_tradein_won"] += 1
+            self._r4v_on_win(order)
             pickup = order["legs"][0]["pickup"]["placeId"]
             if self.supply.get(pickup, 0) < self.p.min_supply:
                 self.stats["won_ring"] += 1

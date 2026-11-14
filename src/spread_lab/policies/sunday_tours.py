@@ -330,11 +330,14 @@ class Desk(TasRoutesDesk):
         if self.p.urgent_hygiene and self.cannot_be_on_time(order):
             self.lost.add(oid)
         self.stats["won"] += 1
+        self._r4v_on_win(order)
         pickup = order["legs"][0]["pickup"]["placeId"]
         if self.supply.get(pickup, 0) < self.p.min_supply:
             self.stats["won_ring"] += 1
         if self.gate_supply.get(pickup, 0) < self.p.min_supply:
             self.stats["won_ext_ring"] += 1
+            if self.p.return_hub_min_supply > 0 and self.supply.get(order["legs"][-1]["delivery"]["placeId"], 0) >= self.p.return_hub_min_supply:
+                self.stats["won_return_hub"] += 1
         self.stats[f"won_{order['option']}"] += 1
 
         if len(order["legs"]) == 1 and not (self.requests[oid].get("note") and parse_note_v2(self.requests[oid]["note"], self.requests[oid]["arrivedAt"]).unsure):
