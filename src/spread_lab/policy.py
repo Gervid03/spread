@@ -82,6 +82,11 @@ class Params:
     guard_supply_mult: float = 3.0    # at full tightening min_supply is this many times higher, backlog limit 0
     # --- fees ---------------------------------------------------------------------------------------
     fee_open: float = 0.85            # opening fee, times the typical fee (v2: was 1.00)
+    fee_open_dense: float = -1.0      # opening fee for pickups with >= dense_supply drivers (-1.0 = off)
+    dense_supply: int = 200           # threshold for fee_open_dense
+    open_ramp_min_same_day: int = 45  # minutes to ramp to 1.0x for same_day if dense
+    open_ramp_min_other: int = 120    # minutes to ramp to 1.0x for next_day/within_3_days if dense
+    night_hold: bool = False          # if True, gigs posted after 17:00 for a later day keep opening fee until 08:00
     fee_warn: float = 1.60            # fee reached at the deadline warning (lastPickupAt - 3 h)
     fee_step_min: int = 30            # minutes between steps of the rising schedule
     day_start: int = 7 * 60           # raises only between these minutes of the day
@@ -180,6 +185,16 @@ class Desk:
         elif kind == "gig_booked":
             self.booked.add(event["gigId"])
             self.stats["booked"] += 1
+            post = self.posts.get(event["gigId"])
+            if post and post["stops"]:
+                order = self.orders.get(post["stops"][0]["orderId"])
+                if order:
+                    typical = self.requests[order["id"]]["referenceFeeCents"] * pickups(post) / len(order["legs"])
+                    if typical > 0:
+                        self.stats["fee_multiple_sum"] += event.get("feeCents", 0) / typical
+                        self.stats["fee_multiple_count"] += 1
+                    self.stats["minutes_to_book_sum"] += self.now - post["schedule"][0]["at"]
+                    self.stats["minutes_to_book_count"] += 1
         elif kind in ("gig_dropped", "no_show"):
             self.booked.discard(event["gigId"])
             self.stats[kind] += 1
@@ -435,13 +450,25 @@ class Desk:
             return [{"at": self.now, "feeCents": max(1, int(base * self.p.fee_open + 0.5))}]
         if order["id"] in self.urgent:
             return self.steep(base)
-        return self.rising(base, order["lastPickupAt"] - 3 * HOUR)
+        return self.rising(base, order, order["lastPickupAt"] - 3 * HOUR)
 
-    def rising(self, base: float, until: int) -> list[FeeStep]:
+    def rising(self, base: float, order: Order, until: int) -> list[FeeStep]:
         """From `fee_open` now to `fee_warn` at `until`, in daytime steps only, at most 48 steps."""
         p = self.p
+        pickup = order["legs"][0]["pickup"]["placeId"]
+        supply = self.supply.get(pickup, 0)
+        
+        is_dense = supply >= p.dense_supply
+        fee_open_mult = p.fee_open_dense if (is_dense and p.fee_open_dense >= 0) else p.fee_open
+
         times = [self.now]
         t = (self.now // p.fee_step_min + 1) * p.fee_step_min
+        
+        if p.night_hold and (self.now % DAY) >= 17 * 60 and (order["deadline"] // DAY > self.now // DAY):
+            hold_until = (self.now // DAY + 1) * DAY + 8 * 60
+            while t < hold_until and t <= until:
+                t += p.fee_step_min
+
         while t <= until:
             if p.day_start <= t % DAY < p.day_end:
                 times.append(t)
@@ -450,8 +477,21 @@ class Desk:
             k = len(times) - 1
             times = [times[round(i * k / 47)] for i in range(48)]
         n = len(times)
-        return [{"at": at, "feeCents": max(1, int(base * (p.fee_open + (p.fee_warn - p.fee_open) * (i / (n - 1) if n > 1 else 0)) + 0.5))}
-                for i, at in enumerate(times)]
+        
+        steps = []
+        ramp_min = p.open_ramp_min_same_day if order["option"] == "same_day" else p.open_ramp_min_other
+        for i, at in enumerate(times):
+            v0_mult = p.fee_open + (p.fee_warn - p.fee_open) * (i / (n - 1) if n > 1 else 0)
+            if is_dense and p.fee_open_dense >= 0:
+                if at - self.now < ramp_min:
+                    ramp_mult = fee_open_mult + (1.0 - fee_open_mult) * ((at - self.now) / ramp_min)
+                    f = ramp_mult
+                else:
+                    f = max(1.0, v0_mult)
+            else:
+                f = v0_mult
+            steps.append({"at": at, "feeCents": max(1, int(base * f + 0.5))})
+        return steps
 
     def steep(self, base: float) -> list[FeeStep]:
         p = self.p
