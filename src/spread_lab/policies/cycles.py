@@ -52,6 +52,10 @@ class Params(SundayParams):
     cyc_rotate_min: int = 0           # an unbooked cycle is reposted from its next town after this many daytime minutes
                                       # (a car can be in one live gig only, so the rotations take turns; 0 = off)
     cyc_min_on_time: float = 0.0      # hold cars only while the projected on-time share is at least this (0 = always)
+    cyc_chain_pool: int = 0           # > 0: also post 2-car open chains whose second car ends where at least this many
+                                      # drivers live (within supply_radius_km): the ride home (0 = off)
+    cyc_chain_mult: float = 0.65      # a chain's opening fee, x the summed typical fee
+    cyc_from_day: int = 0             # hold cars only from the desk's Nth day of play (0 = from the start)
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "Params":
@@ -113,9 +117,19 @@ class Desk(SundayDesk):
 
         for s in ids:
             dfs(s, [s])
+        if self.p.cyc_chain_pool > 0:               # open chains a -> b that end in a pool: one driver from there, going home
+            for a in ids:
+                for b in nxt[a]:
+                    if self.supply.get(D[b], 0) >= self.p.cyc_chain_pool and not near(D[b], P[a]) and (must is None or must in (a, b)):
+                        out.append([a, b])
         return out
 
-    def _mult(self, n: int) -> float:
+    def _closed(self, c: list[str]) -> bool:
+        return len(c) > 2 or self.geo.line_km(self._ends(c[-1])[1], self._ends(c[0])[0]) <= self.p.cyc_km
+
+    def _mult(self, n: int, closed: bool = True) -> float:
+        if not closed:
+            return self.p.cyc_chain_mult
         return self.p.cyc_mult_2 if n == 2 else self.p.cyc_mult_3 if n == 3 else self.p.cyc_mult_4
 
     # --- posting cycles -------------------------------------------------------------------------------
@@ -132,7 +146,7 @@ class Desk(SundayDesk):
                     for s in post["stops"]:
                         self.leg_gigs.get(s["orderId"], {}).pop(s["leg"], None)
         self.outbox[:] = [a for a in self.outbox if not (a["type"] == "post" and set(order_ids_of(a)) & set(rot))]
-        mult = self._mult(len(rot))
+        mult = self._mult(len(rot), self._closed(rot))
         self.tour_open_mult = lambda *a, **k: mult
         try:
             ok = self.post_tour_orders(rot, tid="cyc")
@@ -143,7 +157,7 @@ class Desk(SundayDesk):
             self.staged_orders.pop(oid, None)
             self.cyc_done.add(oid)
         if ok:
-            self.stats[f"cyc_posted_{len(rot)}"] += 1
+            self.stats[f"cyc_posted_{len(rot)}" if self._closed(rot) else "cyc_chain_posted"] += 1
             self.cyc_rots[frozenset(rot)] = {"rots": rots or [rot], "i": 0, "last": self.now}
         else:
             self.stats["cyc_post_refused"] += 1
@@ -161,15 +175,16 @@ class Desk(SundayDesk):
         for c in self._cycles(pool):
             ref = sum(self.requests[x]["referenceFeeCents"] for x in c)
             feas = []
-            for i in range(len(c)):
+            closed = self._closed(c)
+            for i in range(len(c) if closed else 1):     # a chain runs one way only
                 rot = c[i:] + c[:i]
                 sup = self.supply.get(self._ends(rot[0])[0], 0)
-                if sup < self.p.cyc_min_supply or self.can_chain_orders_live(rot) is None:
+                if (closed and sup < self.p.cyc_min_supply) or self.can_chain_orders_live(rot) is None:
                     continue
                 feas.append((sup, rot))
             if feas:
                 feas.sort(key=lambda t: -t[0])
-                saving = ref * (0.85 - self._mult(len(c)))
+                saving = ref * (0.85 - self._mult(len(c), closed))
                 cands.append((saving, len(c), [r for _, r in feas]))
         used: set[str] = set()
         for saving, n, rots in sorted(cands, key=lambda t: (-t[0], -t[1])):
@@ -233,6 +248,7 @@ class Desk(SundayDesk):
                     oid = oids[0]
                     o = self.orders.get(oid)
                     if (oid not in self.cyc_done and oid not in self.cyc_held and self._clean(oid)
+                            and self.now // DAY - self.first_day >= self.p.cyc_from_day
                             and o["lastPickupAt"] - self.now >= self.p.cyc_hold_slack_min):
                         if tight is None:
                             tight = bool(self.p.cyc_min_on_time) and self.projected_on_time() < self.p.cyc_min_on_time
