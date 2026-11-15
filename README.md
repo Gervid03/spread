@@ -4,6 +4,8 @@
 
 **For the tech-challenge judges (Gemini API, Verda): [what we used each for](#built-with-gemini-and-verda).**
 
+![Swarm Dispatch: €12,564 a week against the starter's −€72,612](docs/img/result.jpg)
+
 Our entry for **[Spread](https://spread.bahnexpress.com)**, the Bahn Express challenge at Junction 2026: a
 system that runs a car-transport dispatcher for one simulated week in Finland. It quotes car dealers
 against an unseen competitor, posts each won car as a gig for freelance drivers, and sets the fees. The
@@ -53,8 +55,8 @@ How we got there, with every variant we measured (including the ones that failed
 stream-json -p <brief>`), running on a Google Cloud host in Stockholm, ~8 ms from Bahn's server.
 - **One agent per idea.** Each gets a written brief, its own git worktree and a branch `exp/gemini-<slug>`; it writes
   the code, runs the paired evaluation on the dev worlds, and pushes the branch with an experiment note.
-- **Friday night:** a pool of Gemini 4 Argon workers fed by a Gemini lead that read the night's results and wrote the
-  next briefs (Gemini 3.1 Pro as the fallback). **Saturday:** fewer, stronger Gemini 4 Carbon agents with up to 300
+- **Friday night:** Gemini 3.1 Pro and 3.8 Flash agents in waves, then an overnight pool of Gemini 4 Argon workers
+  fed by a Gemini lead that read the night's results and wrote the next briefs. **Saturday:** fewer, stronger Gemini 4 Carbon agents with up to 300
   turns each, four of them mapping the perfect week as a ceiling.
 - **In numbers:** 84 agent runs, 187 commits, 86 `exp/gemini-*` branches. **4 of the 6 champions promoted through the
   gate came from Gemini branches:** v3 (+€1,539 dev / +€1,866 holdout), v4 (+€355 / +€423), v5 (+€794 / +€567) and
