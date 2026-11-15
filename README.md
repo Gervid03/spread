@@ -20,7 +20,16 @@ Level 8 (the final's level), mean margin per week on our 16 development and 16 h
 | First desk | €6,962 (5 worlds) | 83.5% | 2/5 | selection, learned prices, rising fees |
 | v0 | €6,447 dev · €6,837 holdout | 93.0% · 93.2% | 32/32 | only pickups with ≥ 30 drivers within 30 km; aim for a 35% win rate |
 | v1 | €7,926 dev · €7,942 holdout | 94.9% · 92.7% | 32/32 | the ring (count drivers within 55 km, slow options only there) + quote only the speeds we can staff |
-| **v2** (champion) | **€8,990** dev · **€9,414** holdout | **94.4%** · **91.8%** | **32/32** | open fees at 0.85×, a faster price tracker, no direct offers, 3 h of slack |
+| v2 | €8,990 dev · €9,414 holdout | 94.4% · 91.8% | 32/32 | open fees at 0.85×, a faster price tracker, no direct offers, 3 h of slack |
+| v3 | €10,529 · €11,280 | holdout 94.4% | 32/32 | extended ring (70 km), return to a hub, notes, lead-car pairing (+€1,539 dev, +€1,866 holdout) |
+| v4 | €10,884 · €11,703 | holdout 94.1% | 32/32 | lost and late cars repost at 1.0× the typical fee (+€355, +€423) |
+| v5 | €11,678 · €12,270 | holdout 93.7% | 32/32 | a direct offer at 1.03× to a local driver who viewed and didn't book; steep fees after the warning (+€794, +€567) |
+| v6 | €11,873 · €12,457 | holdout 94.8% | 32/32 | a morning supervisor: calm days loosen the gates (+€195, +€187) |
+| v7 | €12,122 · €12,868 | holdout 94.4% | 32/32 | closed loops of 2–4 cars as one gig, reposted from each town in turn (+€247, +€410) |
+| **v8** (plays the final) | **€12,564** dev · **€13,214** holdout | 93.7% · **92.2%** | **32/32** | quote towns with 8+ drivers within 55 km (was 22) (+€442, +€346) |
+
+Each step is a paired measurement on the same worlds against the step before; the write-up of every idea, why we
+tried it and what did not work: [`docs/SUBMISSION.md`](docs/SUBMISSION.md).
 
 How we got there, with every variant we measured (including the ones that failed):
 [`experiments/LEDGER.md`](experiments/LEDGER.md); every experiment note of the swarm era is in the git tag `swarm-era`.
