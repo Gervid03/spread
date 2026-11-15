@@ -1,5 +1,7 @@
 # Swarm Dispatch
 
+**For the jury: [docs/SUBMISSION.md](docs/SUBMISSION.md) — what the desk does, why, what each idea is worth, and what did not work.**
+
 Our entry for **[Spread](https://spread.bahnexpress.com)**, the Bahn Express challenge at Junction 2026: a
 system that runs a car-transport dispatcher for one simulated week in Finland. It quotes car dealers
 against an unseen competitor, posts each won car as a gig for freelance drivers, and sets the fees. The
